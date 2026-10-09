@@ -34,7 +34,12 @@ pub struct Diagnostic {
 impl Diagnostic {
     /// Formats the error with the offending line of `source` underlined.
     pub fn render(&self, path: &str, source: &str) -> String {
-        let mut out = format!("error: {}\n", self.message);
+        self.render_as("error", path, source)
+    }
+
+    /// Like [`Diagnostic::render`], with another label (e.g. "warning").
+    pub fn render_as(&self, label: &str, path: &str, source: &str) -> String {
+        let mut out = format!("{label}: {}\n", self.message);
         let Some(pos) = self.position else {
             let _ = writeln!(out, "  --> {path}");
             return out;

@@ -125,6 +125,28 @@ Working name. Separate from the `outliers` workspace.
 - Every chart has hover/keyboard tooltips with CIs; values are also in the table, so nothing depends on hovering.
 - Colors follow the dataviz reference palette. Server states use its first three categorical slots (busy blue, blocked orange, failed aqua), which are published as validated all-pairs for colour-vision deficiency in both modes, and idle is a neutral gray. The palette validator wasn't run locally (no Node.js); rerun it if the colors change. Dark mode uses its own color steps, not an inverted light theme. Labels inside bars use ink or white, whichever has more contrast against the fill.
 
+## Viewer (implemented 2026-10-09)
+
+- **Folder:** `viewer/`, a Godot 4.7 project in GDScript.
+- **Renderer:** Compatibility, so the same project runs on desktop, Android (Godot Editor app) and, later, web exports.
+- **What it opens:** a results folder. It reads `events.jsonl` and, if present, `layout.json`.
+- **Layouts:** the viewer never parses YAML. `run` checks `<model>.layout.yaml` (or `--layout`) against the model in Rust, with located errors, and writes `layout.json` in meters, Y up. `validate` checks the layout too. Every source, server, sink and conveyor must be placed, and unknown names are errors. A drawn conveyor whose length differs from the model's by more than 1% gives a warning, and the viewer stretches its animation to fit.
+- **No layout file:** objects are placed in a row along each source's chain.
+- **Replay:** `viewer/scripts/replay.gd` rebuilds the state at any time from the log. It uses the engine's conveyor rules exactly (lazy positions, rebase when the head leaves), so the animation shows what the engine computed, not an approximation. Seeking backward replays from the start (88k events: fast enough). Server color follows the report's palette, by precedence failed > blocked > busy > idle.
+- **Controls:**
+  - play/pause and speed from 1× to 3600× (keys: space, `,` and `.`);
+  - a timeline you can drag;
+  - mouse: drag to orbit, right-drag to pan, wheel to zoom;
+  - touch: one finger orbits, pinch zooms and pans.
+- **Tests:** `viewer/tests/run_all.sh` simulates the fixtures with the current CLI, then runs headless:
+  - the replay test, with exact positions on a deterministic model and an accumulated, blocked line on a two-server model;
+  - the main scene for 300 frames, with and without a layout.
+
+  A deliberately broken accumulation rule makes the replay test fail. The rendered look can't be checked here: there's no display on the server.
+
+- **Demo:** `viewer/demo/` holds replication 1 of the conveyor-line example (`events.jsonl.gz`, about 650 KB, plus `layout.json`). The viewer opens it when started without arguments, e.g. from the Android Godot Editor, where the Rust CLI can't run. `make_demo.sh` regenerates it byte for byte (`gzip -n`), and `run_all.sh` fails if the committed demo doesn't match the current CLI. The viewer reads `.jsonl.gz` as well as `.jsonl`.
+- **Repository:** `GusFurtado/outliers-sim` on GitHub, private for now (2026-10-09), so the tablet can pull the viewer. It's meant to go public later.
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?

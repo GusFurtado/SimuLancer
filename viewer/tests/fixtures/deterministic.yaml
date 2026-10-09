@@ -1,0 +1,21 @@
+# A part every 60 s, 30 s of processing, 2 s on each conveyor: every
+# position and state at every moment is known exactly.
+format: outliers-sim/0.1
+name: deterministic
+entities:
+  part: {}
+sources:
+  arrivals: { creates: part, interarrival: "60 s" }
+servers:
+  machine: { process_time: "30 s" }
+conveyors:
+  c_in:  { from: arrivals, to: machine, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+  c_out: { from: machine, to: done, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+sinks:
+  done: {}
+experiment:
+  replications: 1
+  run_length: "1 h"
+  seed: 1
+outputs:
+  event_log: jsonl

@@ -1,0 +1,23 @@
+# The slow server backs everything up: conveyors fill and stay accumulated,
+# the fast server is blocked. No layout file, so the viewer places objects itself.
+format: outliers-sim/0.1
+name: two-servers
+entities:
+  part: {}
+sources:
+  arrivals: { creates: part, interarrival: "5 s" }
+servers:
+  fast: { process_time: "10 s" }
+  slow: { process_time: "1000 s" }
+conveyors:
+  c1: { from: arrivals, to: fast, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+  c2: { from: fast, to: slow, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+  c3: { from: slow, to: done, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+sinks:
+  done: {}
+experiment:
+  replications: 1
+  run_length: "2 h"
+  seed: 1
+outputs:
+  event_log: jsonl

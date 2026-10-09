@@ -8,7 +8,7 @@ use std::path::Path;
 use outliers_sim_engine::spec::{Node, Spec, WhenBlocked};
 use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{Observer, SimTime, TraceEvent};
-use outliers_sim_model::Model;
+use outliers_sim_model::{Layout, Model};
 use serde::Serialize;
 use serde_json::json;
 
@@ -17,6 +17,33 @@ use crate::measures::Measure;
 pub const CONFIDENCE: f64 = 0.95;
 
 const REPORT_TEMPLATE: &str = include_str!("report.html");
+
+/// The checked layout for viewers, in meters (Y up), as JSON: viewers don't
+/// need a YAML parser.
+pub fn write_layout(path: &Path, layout: &Layout) -> io::Result<()> {
+    let objects: serde_json::Map<String, serde_json::Value> = layout
+        .objects
+        .iter()
+        .map(|o| {
+            (
+                o.name.clone(),
+                json!({ "position": o.position, "model": o.model }),
+            )
+        })
+        .collect();
+    let conveyors: serde_json::Map<String, serde_json::Value> = layout
+        .conveyors
+        .iter()
+        .map(|c| (c.name.clone(), json!({ "path": c.path })))
+        .collect();
+    let data = json!({
+        "format": "outliers-sim-layout/0.1",
+        "units": "m",
+        "objects": objects,
+        "conveyors": conveyors,
+    });
+    fs::write(path, format!("{data}\n"))
+}
 
 /// A self-contained HTML report: the template with the results embedded as
 /// JSON. No network access needed to view it.

@@ -6,13 +6,16 @@
 mod build;
 mod diagnostic;
 mod expr;
+mod layout;
 mod raw;
 mod units;
 
 use outliers_sim_engine::Spec;
+use serde::de::DeserializeOwned;
 use serde_saphyr::{MessageFormatter, UserMessageFormatter};
 
 pub use diagnostic::{Diagnostic, LoadError, Position};
+pub use layout::{Layout, PlacedConveyor, PlacedObject, load_layout};
 pub use raw::{EventLog, SummaryItem};
 
 /// The `format:` value this version reads.
@@ -35,16 +38,20 @@ pub struct Outputs {
 
 /// Parses and validates a model from YAML source text.
 pub fn load_str(source: &str) -> Result<Model, LoadError> {
+    let raw: raw::RawModel = parse_yaml(source)?;
+    build::build(raw).map_err(LoadError::Invalid)
+}
+
+/// Parses YAML with the project's strict settings.
+fn parse_yaml<T: DeserializeOwned>(source: &str) -> Result<T, LoadError> {
     let options = serde_saphyr::options! {
         // Only `true`/`false` are booleans; `yes`, `no`, `on` and `off` are not.
         strict_booleans: true,
     };
-    let raw: raw::RawModel =
-        serde_saphyr::from_str_with_options(source, options).map_err(|err| {
-            LoadError::Syntax(Diagnostic {
-                position: err.location().as_ref().and_then(Position::from_location),
-                message: UserMessageFormatter.format_message(&err).into_owned(),
-            })
-        })?;
-    build::build(raw).map_err(LoadError::Invalid)
+    serde_saphyr::from_str_with_options(source, options).map_err(|err| {
+        LoadError::Syntax(Diagnostic {
+            position: err.location().as_ref().and_then(Position::from_location),
+            message: UserMessageFormatter.format_message(&err).into_owned(),
+        })
+    })
 }

@@ -13,7 +13,7 @@ use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{Distribution, Node, Spec};
 use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
-use outliers_sim_model::{EventLog, Model};
+use outliers_sim_model::{EventLog, Layout, Model};
 
 /// Open-source discrete event simulation. Models are YAML files.
 #[derive(Parser)]
@@ -29,6 +29,9 @@ enum Command {
     Validate {
         /// Path to the model YAML file.
         model: PathBuf,
+        /// Layout file to check [default: <model>.layout.yaml next to the model, if present].
+        #[arg(long)]
+        layout: Option<PathBuf>,
     },
     /// Run a model's experiment, print a summary and write result files.
     Run(RunArgs),
@@ -50,18 +53,30 @@ struct RunArgs {
     /// Which replication to write the event log for (when the model asks for one).
     #[arg(long, default_value_t = 1)]
     log_replication: u32,
+    /// Layout file for viewers [default: <model>.layout.yaml next to the model, if present].
+    #[arg(long)]
+    layout: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match &cli.command {
-        Command::Validate { model } => match load(model) {
-            Some(loaded) => {
-                print!("{}", describe(model, &loaded));
-                ExitCode::SUCCESS
+        Command::Validate { model, layout } => {
+            let Some(loaded) = load(model) else {
+                return ExitCode::FAILURE;
+            };
+            print!("{}", describe(model, &loaded));
+            match find_layout(model, layout.as_deref()) {
+                None => ExitCode::SUCCESS,
+                Some(path) => match load_layout(&path, &loaded) {
+                    Some(_) => {
+                        println!("\nlayout ok: {}", path.display());
+                        ExitCode::SUCCESS
+                    }
+                    None => ExitCode::FAILURE,
+                },
             }
-            None => ExitCode::FAILURE,
-        },
+        }
         Command::Run(args) => match run(args) {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
@@ -75,6 +90,13 @@ fn main() -> ExitCode {
 fn run(args: &RunArgs) -> Result<(), String> {
     let Some(model) = load(&args.model) else {
         return Err("the model has errors (see above)".into());
+    };
+    let layout = match find_layout(&args.model, args.layout.as_deref()) {
+        None => None,
+        Some(path) => Some(
+            load_layout(&path, &model)
+                .ok_or_else(|| "the layout has errors (see above)".to_string())?,
+        ),
     };
     let mut spec = model.spec.clone();
     if let Some(n) = args.replications {
@@ -168,7 +190,47 @@ fn run(args: &RunArgs) -> Result<(), String> {
             args.log_replication
         );
     }
+    if let Some(layout) = &layout {
+        let layout_path = out_dir.join("layout.json");
+        output::write_layout(&layout_path, layout)
+            .map_err(|e| format!("can't write {}: {e}", layout_path.display()))?;
+        println!("wrote {}", layout_path.display());
+    }
     Ok(())
+}
+
+/// The layout to use: the one given, or `<model>.layout.yaml` next to the model.
+fn find_layout(model: &Path, explicit: Option<&Path>) -> Option<PathBuf> {
+    if let Some(path) = explicit {
+        return Some(path.to_path_buf());
+    }
+    let stem = model.file_stem()?.to_str()?;
+    let sibling = model.with_file_name(format!("{stem}.layout.yaml"));
+    sibling.exists().then_some(sibling)
+}
+
+/// Loads and checks a layout, printing warnings and errors to stderr.
+fn load_layout(path: &Path, model: &Model) -> Option<Layout> {
+    let display = path.display().to_string();
+    let source = match fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(err) => {
+            eprintln!("error: can't read {display}: {err}");
+            return None;
+        }
+    };
+    match outliers_sim_model::load_layout(&source, model) {
+        Ok((layout, warnings)) => {
+            for w in warnings {
+                eprint!("{}", w.render_as("warning", &display, &source));
+            }
+            Some(layout)
+        }
+        Err(err) => {
+            eprint!("{}", err.render(&display, &source));
+            None
+        }
+    }
 }
 
 /// Loads a model, printing any errors to stderr.
