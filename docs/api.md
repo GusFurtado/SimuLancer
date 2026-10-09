@@ -44,6 +44,14 @@ For whole files (`GET /models/{file}`, runs of a file), errors are `{ "file", "l
 
 ## Endpoints
 
+### `GET /api/v1/health`
+
+```json
+{ "status": "ok", "version": "0.1.0", "runs": { "queued": 0, "running": 1 } }
+```
+
+For load balancers and monitoring.
+
 ### `GET /api/v1/models`
 
 ```json

@@ -8,6 +8,11 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/GusFurtado/outliers-sim"
 
+# Release builds are what ship: no debug symbols, cross-crate optimization.
+[profile.release]
+strip = true
+lto = "thin"
+
 # The engine's statistical tests simulate millions of parts; optimize it even
 # in debug builds so `cargo test` stays fast.
 [profile.dev.package.outliers-sim-engine]

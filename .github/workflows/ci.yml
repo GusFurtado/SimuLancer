@@ -43,3 +43,26 @@ jobs:
         with:
           name: ui-screenshots
           path: ui-screenshots
+
+  docker:
+    # The image IT deploys: build it, start it, check it answers, stop it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t outliers-sim:ci .
+      - name: Start, check health and a run, stop
+        run: |
+          docker run -d --name sim -p 127.0.0.1:8080:8080 outliers-sim:ci
+          for i in $(seq 1 30); do curl -sf localhost:8080/api/v1/health && break; sleep 1; done
+          id=$(curl -sf -X POST localhost:8080/api/v1/runs -H 'content-type: application/json' \
+            -d '{"file": "two-cells.yaml", "replications": 3}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          for i in $(seq 1 60); do
+            status=$(curl -sf localhost:8080/api/v1/runs/$id | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')
+            [ "$status" = done ] && break
+            [ "$status" = failed ] && exit 1
+            sleep 1
+          done
+          [ "$status" = done ]
+          time docker stop sim
+          docker logs sim
+
