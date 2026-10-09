@@ -75,18 +75,40 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
             args.runs.display()
         );
         axum::serve(listener, router(state))
-            .with_graceful_shutdown(async {
-                let _ = tokio::signal::ctrl_c().await;
-            })
+            .with_graceful_shutdown(shutdown_signal())
             .await
             .map_err(|e| e.to_string())
     })
+}
+
+/// Ctrl+C, or SIGTERM (what systemd and Docker send to stop a service).
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(_) => std::future::pending::<()>().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+    println!("shutting down");
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/app.js", get(app_js))
+        .route("/api/v1/health", get(health))
         .route("/api/v1/models", get(list_models))
         .route("/api/v1/models/{file}", get(get_model).put(save_scenario))
         .route("/api/v1/check", axum::routing::post(check))
@@ -290,6 +312,19 @@ async fn app_js() -> Response {
         APP_JS,
     )
         .into_response()
+}
+
+/// For load balancers and monitoring: 200 while the server and its run
+/// queue are up.
+async fn health(State(state): State<Arc<AppState>>) -> Response {
+    let jobs = state.jobs.lock().expect("jobs lock");
+    let count = |s: Status| jobs.iter().filter(|j| j.status == s).count();
+    Json(json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "runs": { "queued": count(Status::Queued), "running": count(Status::Running) },
+    }))
+    .into_response()
 }
 
 // --- models ------------------------------------------------------------------
@@ -903,6 +938,16 @@ mod tests {
         let (status, body) = call(&app, "POST", "/api/v1/runs", Some(json!({ "scenario": { "base": "two-cells.yaml", "changes": { "experiment.replications": 0 } } }))).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
         assert_eq!(body["errors"][0]["change"], "experiment.replications");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn health() {
+        let (app, root) = app("health");
+        let (status, body) = call(&app, "GET", "/api/v1/health", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["status"], "ok");
+        assert_eq!(body["runs"], json!({ "queued": 0, "running": 0 }));
         fs::remove_dir_all(root).unwrap();
     }
 

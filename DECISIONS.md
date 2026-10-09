@@ -277,6 +277,17 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Packaging and deployment (implemented 2026-10-09)
+
+- **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.
+- **Docker image:** about 8 MB. The binary is built on Alpine (musl, static), and the final image is `scratch` with only the binary and `/data/{models,runs}` (examples preloaded), running as uid 65532. Tested here: health, model list, a run through the API, results kept in the volume, and `docker stop` in 0.25 s (clean shutdown on SIGTERM). A CI job builds the image and checks the container answers and runs.
+- **The server handles SIGTERM** (systemd, Docker) as well as Ctrl+C, and has `GET /api/v1/health` for monitoring.
+- **`deploy/outliers-sim.service`:** a dedicated system user, `StateDirectory`, listening on localhost, systemd sandboxing. `systemd-analyze verify` passes; not installed for real here (that needs root).
+- **`deploy/nginx.conf`:** HTTPS plus basic auth in front, and a sub-path variant (the UI uses relative URLs). `nginx -t` passes.
+- **`docs/deploy.md`:** install (binary + systemd, or Docker), security, sizing, backups, cleanup, upgrades, logs.
+- **Release workflow** (`.github/workflows/release.yml`): on a `v*` tag, it builds the static binary archive and creates a GitHub release, and pushes the image to `ghcr.io/<owner>/outliers-sim`. Not run yet; it runs only when a version is tagged. Its packaging step was reproduced locally.
+- **Performance fix found while packaging:** the first static build was **24× slower** than the glibc one, because musl's allocator struggles with the engine's per-event temporary allocations (conveyor position lists, routing helper lists). Those are now allocation-free: lazy position iterators, in-place updates, index loops. Static is now within about 35% of glibc (0.19 s vs 0.14 s for 120 replications of the conveyor line), and the glibc build itself got about 25% faster. Results are **byte-identical** before and after (summary, per-replication data and full event logs of every example compared).
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?

@@ -161,18 +161,17 @@ struct ConveyorState {
 
 impl ConveyorState {
     /// Real positions at `now`, head first: each part is capped by the end
-    /// (head) or by the part ahead minus one spacing.
-    fn positions(&self, c: &Conveyor, now: SimTime) -> Vec<f64> {
+    /// (head) or by the part ahead minus one spacing. Lazy and allocation-free:
+    /// this runs several times per event, so `.next()` for the head stops early.
+    fn positions(&self, c: &Conveyor, now: SimTime) -> impl Iterator<Item = f64> + '_ {
+        let (speed, spacing) = (c.speed, c.spacing);
         let mut limit = c.length;
-        self.belt
-            .iter()
-            .map(|p| {
-                let free = p.pos + c.speed * (now - p.since).as_secs_f64();
-                let pos = free.min(limit);
-                limit = pos - c.spacing;
-                pos
-            })
-            .collect()
+        self.belt.iter().map(move |p| {
+            let free = p.pos + speed * (now - p.since).as_secs_f64();
+            let pos = free.min(limit);
+            limit = pos - spacing;
+            pos
+        })
     }
 
     fn can_enter(&self, c: &Conveyor, now: SimTime) -> bool {
@@ -181,14 +180,14 @@ impl ConveyorState {
         }
         match self.positions(c, now).last() {
             None => true,
-            Some(&last) => last >= c.spacing - EPS,
+            Some(last) => last >= c.spacing - EPS,
         }
     }
 
     fn head_at_end(&self, c: &Conveyor, now: SimTime) -> bool {
         self.positions(c, now)
-            .first()
-            .is_some_and(|&head| head >= c.length - EPS)
+            .next()
+            .is_some_and(|head| head >= c.length - EPS)
     }
 }
 
@@ -489,14 +488,19 @@ impl<'a, O: Observer> Sim<'a, O> {
     ) -> bool {
         match target {
             Some(conveyor) => self.try_enter(conveyor, part),
-            None => {
-                let mut order = outputs.to_vec();
-                if *routing == Routing::ShortestQueue {
-                    // Stable sort: ties keep file order.
-                    order.sort_by_key(|&c| self.conveyors[c].belt.len());
-                }
-                order.into_iter().any(|c| self.try_enter(c, part))
+            None if *routing == Routing::ShortestQueue => {
+                // Among the outputs with room, the one holding the fewest
+                // parts; `min_by_key` keeps the first of equal keys, so ties
+                // go to the output listed first.
+                let now = self.now;
+                let chosen = outputs
+                    .iter()
+                    .copied()
+                    .filter(|&c| self.conveyors[c].can_enter(&self.spec.conveyors[c], now))
+                    .min_by_key(|&c| self.conveyors[c].belt.len());
+                chosen.is_some_and(|c| self.try_enter(c, part))
             }
+            None => outputs.iter().any(|&c| self.try_enter(c, part)),
         }
     }
 
@@ -543,7 +547,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         let state = &mut self.conveyors[conveyor];
         state.generation += 1;
         state.head_arrived = None;
-        let Some(&head) = state.positions(c, self.now).first() else {
+        let Some(head) = state.positions(c, self.now).next() else {
             return;
         };
         let at = after(self.now, c.length - head, c.speed);
@@ -574,12 +578,17 @@ impl<'a, O: Observer> Sim<'a, O> {
         let c = &self.spec.conveyors[conveyor];
         debug_assert!(self.conveyors[conveyor].head_at_end(c, self.now));
         // Everyone stopped behind the head starts moving again: record
-        // real positions as the new free-movement baseline.
-        let positions = self.conveyors[conveyor].positions(c, self.now);
+        // real positions as the new free-movement baseline. Same arithmetic
+        // as `positions`, done in place.
+        let now = self.now;
         let state = &mut self.conveyors[conveyor];
-        for (p, pos) in state.belt.iter_mut().zip(positions) {
+        let mut limit = c.length;
+        for p in state.belt.iter_mut() {
+            let free = p.pos + c.speed * (now - p.since).as_secs_f64();
+            let pos = free.min(limit);
+            limit = pos - c.spacing;
             p.pos = pos;
-            p.since = self.now;
+            p.since = now;
         }
         let part = state.belt.pop_front().expect("head exists").part;
         self.schedule_reach_end(conveyor);
@@ -608,7 +617,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
         // Room depends on the last part moving one spacing from the entrance.
         let last = *state.belt.back().expect("not empty, or we could enter");
-        let real = *state.positions(c, self.now).last().expect("not empty");
+        let real = state.positions(c, self.now).last().expect("not empty");
         let free = last.pos + c.speed * (self.now - last.since).as_secs_f64();
         if real >= free - EPS {
             // Moving: check when it should be one spacing in. It may get
@@ -667,28 +676,23 @@ impl<'a, O: Observer> Sim<'a, O> {
     /// The input conveyor whose head the server takes next, if any is waiting.
     fn choose_input(&mut self, server: usize) -> Option<usize> {
         let spec = self.spec;
+        let now = self.now;
         let inputs = &spec.servers[server].inputs;
-        let waiting: Vec<bool> = inputs
-            .iter()
-            .map(|&c| self.conveyors[c].head_at_end(&spec.conveyors[c], self.now))
-            .collect();
+        let waiting = |c: usize| self.conveyors[c].head_at_end(&spec.conveyors[c], now);
         match spec.servers[server].input_rule {
-            InputRule::Single | InputRule::Priority => inputs
-                .iter()
-                .zip(&waiting)
-                .find(|(_, w)| **w)
-                .map(|(&c, _)| c),
+            InputRule::Single | InputRule::Priority => inputs.iter().copied().find(|&c| waiting(c)),
             // `min_by_key` keeps the first of equal keys: ties go to the input listed first.
             InputRule::FirstCome => inputs
                 .iter()
-                .zip(&waiting)
-                .filter(|(_, w)| **w)
-                .map(|(&c, _)| c)
+                .copied()
+                .filter(|&c| waiting(c))
                 .min_by_key(|&c| self.conveyors[c].head_arrived.unwrap_or(SimTime::MAX)),
             InputRule::RoundRobin => {
                 let n = inputs.len();
                 let start = self.servers[server].next_input;
-                let i = (0..n).map(|k| (start + k) % n).find(|&i| waiting[i])?;
+                let i = (0..n)
+                    .map(|k| (start + k) % n)
+                    .find(|&i| waiting(inputs[i]))?;
                 self.servers[server].next_input = (i + 1) % n;
                 Some(inputs[i])
             }
@@ -762,23 +766,37 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
         let spec = &self.spec.servers[server];
         let outputs = &spec.outputs;
-        let order: Vec<usize> = self.servers[server].blocked_order.iter().copied().collect();
-        let mut still_waiting: Vec<Target> = Vec::new();
-        for slot in order {
+        // In finishing order; sending a part never touches this server's
+        // blocked list, so walking it by index is safe (and allocation-free).
+        let mut i = 0;
+        while i < self.servers[server].blocked_order.len() {
+            let slot = self.servers[server].blocked_order[i];
             let Slot::Blocked { part, target } = self.servers[server].slots[slot] else {
                 unreachable!("blocked_order only holds blocked slots");
             };
             if self.try_send(part, target, outputs, &spec.routing) {
                 let s = &mut self.servers[server];
-                s.blocked_order.retain(|&x| x != slot);
+                s.blocked_order.remove(i);
                 s.slots[slot] = Slot::Idle;
                 s.processed += 1;
-            } else if !still_waiting.contains(&target) {
-                still_waiting.push(target);
+            } else {
+                i += 1;
             }
         }
-        for target in still_waiting {
-            self.wait_for(target, outputs);
+        // Wait for each distinct target the remaining parts need, once.
+        let mut i = 0;
+        while i < self.servers[server].blocked_order.len() {
+            let target_of = |sim: &Self, k: usize| match sim.servers[server].slots
+                [sim.servers[server].blocked_order[k]]
+            {
+                Slot::Blocked { target, .. } => target,
+                _ => unreachable!("blocked_order only holds blocked slots"),
+            };
+            let target = target_of(self, i);
+            if (0..i).all(|k| target_of(self, k) != target) {
+                self.wait_for(target, outputs);
+            }
+            i += 1;
         }
         self.request_pull(server);
     }

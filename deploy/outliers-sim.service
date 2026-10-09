@@ -1,0 +1,41 @@
+# systemd service for outliers-sim. See docs/deploy.md.
+#
+#   sudo useradd --system --home /var/lib/outliers-sim --shell /usr/sbin/nologin outliers-sim
+#   sudo cp outliers-sim /usr/local/bin/
+#   sudo cp outliers-sim.service /etc/systemd/system/
+#   sudo systemctl enable --now outliers-sim
+#
+# Models and scenarios go in /var/lib/outliers-sim/models, results in
+# /var/lib/outliers-sim/runs. The server listens on 127.0.0.1 only: put your
+# reverse proxy (HTTPS, logins) in front of it (deploy/nginx.conf).
+
+[Unit]
+Description=outliers-sim simulation server
+Documentation=https://github.com/GusFurtado/outliers-sim/blob/main/docs/deploy.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=outliers-sim
+Group=outliers-sim
+# Creates /var/lib/outliers-sim, owned by the user above.
+StateDirectory=outliers-sim
+ExecStartPre=/usr/bin/mkdir -p /var/lib/outliers-sim/models /var/lib/outliers-sim/runs
+ExecStart=/usr/local/bin/outliers-sim serve --models /var/lib/outliers-sim/models --runs /var/lib/outliers-sim/runs --host 127.0.0.1 --port 8080
+Restart=on-failure
+
+# Sandboxing: the server only needs its state folder and the network.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

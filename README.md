@@ -49,6 +49,16 @@ Then open `http://localhost:8080`. The web interface works like this:
 
 Everything the interface does goes through the documented HTTP API (`docs/api.md`), so scripts can do the same: list models, check and save scenarios, queue runs and fetch results. Runs execute on the server, one at a time on all cores.
 
+## Deploying
+
+One static Linux binary (about 6 MB) or an 8 MB Docker image:
+
+```sh
+docker run -d -p 127.0.0.1:8080:8080 -v outliers-sim-data:/data ghcr.io/gusfurtado/outliers-sim:latest
+```
+
+`docs/deploy.md` covers the systemd service (`deploy/outliers-sim.service`), HTTPS and logins through your reverse proxy (`deploy/nginx.conf`), sizing, backups and upgrades. Tagging a version (`git tag v0.1.0 && git push --tags`) publishes the binary and the image.
+
 ## Routing and merging
 
 When a source or server has several outgoing conveyors, or a server has several incoming ones, the model has to say how parts choose. There are no hidden defaults:
