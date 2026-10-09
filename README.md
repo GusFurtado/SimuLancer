@@ -9,7 +9,10 @@ Open-source discrete event simulation. Models are plain YAML files: you can diff
 ```sh
 outliers-sim validate examples/conveyor-line.yaml   # check a model, show what was understood
 outliers-sim run examples/conveyor-line.yaml        # run the experiment
+outliers-sim compare examples/conveyor-line.yaml examples/conveyor-line-longer-c2.yaml
 ```
+
+`compare` runs both models on the same random numbers (paired replications) and reports each measure's difference with a 95% confidence interval, plus a verdict: higher, lower, or no clear difference. Example: doubling conveyor c2 raises throughput by 1.1 ± 0.1 parts/h, but parts spend 5.0 ± 0.5 min longer in the system.
 
 `run` runs the replications in parallel and prints every measure as mean ± 95% confidence interval. It writes these files to `results/<model name>/`:
 

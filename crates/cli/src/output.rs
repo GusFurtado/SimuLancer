@@ -12,6 +12,7 @@ use outliers_sim_model::{Layout, Model};
 use serde::Serialize;
 use serde_json::json;
 
+use crate::compare::Comparison;
 use crate::measures::Measure;
 
 pub const CONFIDENCE: f64 = 0.95;
@@ -168,6 +169,44 @@ pub fn write_summary(
             .collect(),
     };
     let mut text = serde_json::to_string_pretty(&file).map_err(io::Error::other)?;
+    text.push('\n');
+    fs::write(path, text)
+}
+
+/// Base vs scenario for every shared measure, in standard units.
+pub fn write_comparison(
+    path: &Path,
+    base_name: &str,
+    scenario_name: &str,
+    spec: &Spec,
+    comparisons: &[Comparison],
+) -> io::Result<()> {
+    let e = &spec.experiment;
+    let stats =
+        |s: &Summary| json!({ "n": s.n, "mean": s.mean, "half_width": s.half_width, "sd": s.sd });
+    let data = json!({
+        "format": "outliers-sim-comparison/0.1",
+        "base": base_name,
+        "scenario": scenario_name,
+        "seed": e.seed,
+        "replications": e.replications,
+        "warmup": e.warmup.as_secs_f64(),
+        "run_length": e.run_length.as_secs_f64(),
+        "confidence": CONFIDENCE,
+        "common_random_numbers": true,
+        "measures": comparisons.iter().map(|c| json!({
+            "object_type": c.base.object_type,
+            "object": c.base.object,
+            "measure": c.base.name,
+            "unit": c.base.unit.file_name(),
+            "base": stats(&c.base_summary),
+            "scenario": stats(&c.scenario_summary),
+            "difference": stats(&c.difference),
+            "unpaired_half_width": c.unpaired_half_width,
+            "verdict": c.verdict.describe(),
+        })).collect::<Vec<_>>(),
+    });
+    let mut text = serde_json::to_string_pretty(&data).map_err(io::Error::other)?;
     text.push('\n');
     fs::write(path, text)
 }

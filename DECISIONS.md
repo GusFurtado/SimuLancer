@@ -147,6 +147,15 @@ Working name. Separate from the `outliers` workspace.
 - **Demo:** `viewer/demo/` holds replication 1 of the conveyor-line example (`events.jsonl.gz`, about 650 KB, plus `layout.json`). The viewer opens it when started without arguments, e.g. from the Android Godot Editor, where the Rust CLI can't run. `make_demo.sh` regenerates it byte for byte (`gzip -n`), and `run_all.sh` fails if the committed demo doesn't match the current CLI. The viewer reads `.jsonl.gz` as well as `.jsonl`.
 - **Repository:** `GusFurtado/outliers-sim` on GitHub, private for now (2026-10-09), so the tablet can pull the viewer. It's meant to go public later.
 
+## Scenario comparison (implemented 2026-10-09)
+
+- `outliers-sim compare base.yaml scenario.yaml` runs both models with the same seed and replication numbers. Random streams come from (seed, replication, object name), so wherever the two models share names they see the same arrivals, process times and failures (common random numbers).
+- **Paired differences:** for each measure in both models (matched by object type, object and measure name), the difference is computed per replication (scenario − base). The report shows its mean, a 95% t confidence interval and a verdict: *higher* or *lower* when the CI excludes zero, otherwise *no clear difference*; *identical* when every pair is equal.
+- **Precision of pairing:** `comparison.json` also stores the Welch CI an unpaired comparison would have had. The CLI prints the median gain; for the c2 buffer example, pairing makes the CIs 5.6× narrower. A model compared with itself gives exactly zero differences (tested).
+- **Experiment settings must match:** seed, replications, warm-up and run length, or the comparison is refused with a message showing both. `--replications` overrides both.
+- **Renaming breaks pairing:** an object renamed between the two models gets different random numbers and isn't compared. Scenarios are full copies of the model for now (e.g. `examples/conveyor-line-longer-c2.yaml`); scenario files that only list changes are a possible next step.
+- **Display:** differences of percentages are shown in percentage points (pp). Small nonzero differences get extra decimals instead of showing as `+0.00` next to "higher".
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?
