@@ -204,6 +204,14 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
 - **Precision of pairing:** `comparison.json` also stores the Welch CI an unpaired comparison would have had. The CLI prints the median gain; for the c2 buffer example, pairing makes the CIs 5.6× narrower. A model compared with itself gives exactly zero differences (tested).
 - **Experiment settings must match:** seed, replications, warm-up and run length, or the comparison is refused with a message showing both. `--replications` overrides both.
 - **Renaming breaks pairing:** an object renamed between the two models gets different random numbers and isn't compared. Scenarios are full copies of the model for now (e.g. `examples/conveyor-line-longer-c2.yaml`); scenario files that only list changes are a possible next step.
+- **Routing rules compared** (`examples/two-cells-first-available.yaml` and `two-cells-round-robin.yaml`, which differ from `two-cells.yaml` only in the source's `output` rule; 30 paired replications):
+
+  | vs `shortest_queue` | time in system | throughput | notes |
+  |---|---|---|---|
+  | `first_available` | +15.45 ± 0.25 min (9.1 → 24.6) | −0.3 ± 0.1 /h | c_a full 44.5% of the time, mill_b idle +5.8 pp |
+  | `round_robin` | +1.12 ± 0.18 min | −0.2 ± 0.1 /h | ignores the failing mill_b, so its queue grows |
+
+  Common random numbers help less here (2.1× vs 5.6× for the buffer change): a different routing rule sends the same arriving part to a different mill, so the two scenarios drift apart more.
 - **Display:** differences of percentages are shown in percentage points (pp). Small nonzero differences get extra decimals instead of showing as `+0.00` next to "higher".
 
 ## Open questions

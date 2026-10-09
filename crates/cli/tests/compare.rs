@@ -108,3 +108,28 @@ fn different_experiments_are_refused() {
     assert!(stderr.contains("same experiment settings"), "{stderr}");
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn routing_rule_comparison() {
+    // Only the source's routing rule differs. Filling cell A's conveyor
+    // first (first_available) makes parts wait far longer than balancing
+    // by queue length (shortest_queue), for about the same throughput.
+    let c = compare(
+        &example("two-cells.yaml"),
+        &example("two-cells-first-available.yaml"),
+        "10",
+        "routing",
+    );
+    let time = find(&c, "shipping", "time in system");
+    assert_eq!(time["verdict"], "higher");
+    assert!(
+        time["difference"]["mean"].as_f64().unwrap() > 600.0,
+        "{time}"
+    );
+    assert_eq!(find(&c, "mill_b", "idle")["verdict"], "higher");
+    let throughput = find(&c, "shipping", "throughput");
+    assert!(
+        throughput["difference"]["mean"].as_f64().unwrap().abs() < 1.0,
+        "{throughput}"
+    );
+}
