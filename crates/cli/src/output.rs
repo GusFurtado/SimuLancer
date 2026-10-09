@@ -1,18 +1,84 @@
-//! Result files: summary.json, replications.csv and the events.jsonl event log.
+//! Result files: summary.json, replications.csv, report.html and the
+//! events.jsonl event log.
 
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use outliers_sim_engine::spec::{Node, Spec};
+use outliers_sim_engine::spec::{Node, Spec, WhenBlocked};
 use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{Observer, SimTime, TraceEvent};
+use outliers_sim_model::Model;
 use serde::Serialize;
 use serde_json::json;
 
 use crate::measures::Measure;
 
 pub const CONFIDENCE: f64 = 0.95;
+
+const REPORT_TEMPLATE: &str = include_str!("report.html");
+
+/// A self-contained HTML report: the template with the results embedded as
+/// JSON. No network access needed to view it.
+pub fn write_report(
+    path: &Path,
+    model: &Model,
+    spec: &Spec,
+    measures: &[(Measure, Summary)],
+) -> io::Result<()> {
+    let node = |n: Node| match n {
+        Node::Source(i) => &spec.sources[i].name,
+        Node::Server(i) => &spec.servers[i].name,
+        Node::Sink(i) => &spec.sinks[i].name,
+    };
+    let e = &spec.experiment;
+    let data = json!({
+        "model": model.name,
+        "description": model.description,
+        "version": env!("CARGO_PKG_VERSION"),
+        "seed": e.seed,
+        "replications": e.replications,
+        "warmup": e.warmup.as_secs_f64(),
+        "run_length": e.run_length.as_secs_f64(),
+        "confidence": CONFIDENCE,
+        "sources": spec.sources.iter().map(|s| json!({
+            "name": s.name,
+            "when_blocked": match s.when_blocked {
+                WhenBlocked::Wait => "wait",
+                WhenBlocked::Drop => "drop",
+            },
+        })).collect::<Vec<_>>(),
+        "servers": spec.servers.iter().map(|s| json!({
+            "name": s.name,
+            "capacity": s.capacity,
+        })).collect::<Vec<_>>(),
+        "conveyors": spec.conveyors.iter().map(|c| json!({
+            "name": c.name,
+            "from": node(c.from),
+            "to": node(c.to),
+            "capacity": c.capacity,
+        })).collect::<Vec<_>>(),
+        "sinks": spec.sinks.iter().map(|s| &s.name).collect::<Vec<_>>(),
+        "measures": measures.iter().map(|(m, s)| json!({
+            "object_type": m.object_type,
+            "object": m.object,
+            "measure": m.name,
+            "unit": m.unit.file_name(),
+            "n": s.n,
+            "mean": s.mean,
+            "half_width": s.half_width,
+            "min": s.min,
+            "max": s.max,
+            "values": m.values,
+        })).collect::<Vec<_>>(),
+    });
+    // Inside <script>, "</" could close the tag early (e.g. in a description).
+    let json = data.to_string().replace("</", "<\\/");
+    fs::write(
+        path,
+        REPORT_TEMPLATE.replacen("__OUTLIERS_SIM_DATA__", &json, 1),
+    )
+}
 
 #[derive(Serialize)]
 struct SummaryFile<'a> {

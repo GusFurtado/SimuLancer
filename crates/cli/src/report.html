@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Simulation Report</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --ring: rgba(11, 11, 11, 0.10);
+    /* Server states: the reference palette's first three categorical slots
+       (validated all-pairs for colour-vision deficiency, both modes) + neutral idle. */
+    --busy: #2a78d6;
+    --blocked: #eb6834;
+    --failed: #1baf7a;
+    --idle: #d6d5ce;
+    /* Label ink inside each state's fill, whichever of white/ink has more contrast. */
+    --on-busy: #ffffff;
+    --on-blocked: #0b0b0b;
+    --on-failed: #0b0b0b;
+    --on-idle: #0b0b0b;
+    --accent: #2a78d6;
+    --accent-wash: rgba(42, 120, 214, 0.10);
+    --track: #cde2fb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --page: #0d0d0d;
+      --surface: #1a1a19;
+      --ink: #ffffff;
+      --ink-2: #c3c2b7;
+      --muted: #898781;
+      --grid: #2c2c2a;
+      --axis: #383835;
+      --ring: rgba(255, 255, 255, 0.10);
+      --busy: #3987e5;
+      --blocked: #d95926;
+      --failed: #199e70;
+      --idle: #4a4a46;
+      --on-busy: #0b0b0b;
+      --on-blocked: #0b0b0b;
+      --on-failed: #0b0b0b;
+      --on-idle: #ffffff;
+      --accent: #3987e5;
+      --accent-wash: rgba(57, 135, 229, 0.16);
+      --track: #1c2f47;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10);
+    --busy: #3987e5; --blocked: #d95926; --failed: #199e70; --idle: #4a4a46;
+    --on-busy: #0b0b0b; --on-blocked: #0b0b0b; --on-failed: #0b0b0b; --on-idle: #ffffff;
+    --accent: #3987e5; --accent-wash: rgba(57, 135, 229, 0.16); --track: #1c2f47;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 4px; font-weight: 650; }
+  h2 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+  .lede { color: var(--ink-2); margin: 0 0 4px; }
+  .meta { color: var(--muted); font-size: 13px; margin: 0; }
+  section { margin-top: 32px; }
+  .note { color: var(--ink-2); font-size: 13px; margin: 0 0 16px; }
+  .card {
+    background: var(--surface);
+    border-radius: 12px;
+    box-shadow: 0 0 0 1px var(--ring);
+    padding: 20px;
+  }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .tile .label { color: var(--ink-2); font-size: 13px; }
+  .tile .value { font-size: 28px; font-weight: 600; line-height: 1.2; margin: 4px 0 2px; }
+  .tile .ci { color: var(--ink-2); font-size: 14px; }
+  .tile .range { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0 0 12px; font-size: 13px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+  .rows { display: grid; gap: 14px; }
+  .row-label { font-size: 13px; color: var(--ink-2); margin-bottom: 4px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .row-label strong { color: var(--ink); font-weight: 600; }
+  svg { display: block; width: 100%; overflow: visible; }
+  svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  svg .inside { font-size: 12px; font-weight: 600; }
+  .mark { cursor: default; outline: none; }
+  .mark:hover, .mark:focus-visible { filter: brightness(1.12); }
+  .dot:focus-visible { stroke: var(--ink); }
+
+  .strip + .strip { margin-top: 20px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 6px 8px; text-align: right; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+  th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+  th { color: var(--muted); font-weight: 500; }
+  td { font-variant-numeric: tabular-nums; }
+  td.group { color: var(--ink); font-weight: 600; padding-top: 14px; }
+  .table-wrap { overflow-x: auto; }
+
+  .tooltip {
+    position: fixed; pointer-events: none; z-index: 10;
+    background: var(--surface); color: var(--ink);
+    box-shadow: 0 0 0 1px var(--ring), 0 4px 16px rgba(0, 0, 0, 0.12);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.35;
+    opacity: 0; transition: opacity 80ms;
+  }
+  .tooltip.show { opacity: 1; }
+  .tooltip .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tooltip .k { color: var(--ink-2); display: flex; align-items: center; gap: 6px; }
+  .tooltip .k i { width: 10px; height: 2px; border-radius: 1px; display: inline-block; }
+
+  footer { margin-top: 40px; color: var(--muted); font-size: 12px; }
+  footer p { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<div class="tooltip" id="tooltip" role="status" aria-live="polite"></div>
+<script type="application/json" id="data">__OUTLIERS_SIM_DATA__</script>
+<script>
+"use strict";
+const data = JSON.parse(document.getElementById("data").textContent);
+const app = document.getElementById("app");
+const tooltip = document.getElementById("tooltip");
+const SVG = "http://www.w3.org/2000/svg";
+
+// --- helpers ---------------------------------------------------------------
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v; else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return node;
+}
+
+function svg(tag, attrs = {}) {
+  const node = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+}
+
+function measure(type, object, name) {
+  return data.measures.find(m => m.object_type === type && m.object === object && m.measure === name);
+}
+
+/** Display format shared by mean, CI, min and max of one measure. */
+function formatFor(m) {
+  const mean = Math.abs(m.mean ?? 0);
+  switch (m.unit) {
+    case "fraction": return { scale: 100, decimals: 1, suffix: "%" };
+    case "parts": return { scale: 1, decimals: 2, suffix: "" };
+    case "count": return { scale: 1, decimals: 1, suffix: "" };
+    case "parts/h": return { scale: 1, decimals: 1, suffix: " /h" };
+    case "s":
+      if (mean >= 7200) return { scale: 1 / 3600, decimals: 2, suffix: " h" };
+      if (mean >= 120) return { scale: 1 / 60, decimals: 2, suffix: " min" };
+      return { scale: 1, decimals: 2, suffix: " s" };
+    default: return { scale: 1, decimals: 2, suffix: "" };
+  }
+}
+
+function fmt(m, v) {
+  if (v === null || v === undefined || Number.isNaN(v)) return "n/a";
+  const f = formatFor(m);
+  return (v * f.scale).toLocaleString("en-US", {
+    minimumFractionDigits: f.decimals, maximumFractionDigits: f.decimals,
+  }) + f.suffix;
+}
+
+function ci(m) {
+  return m.half_width === null ? "no CI (1 replication)" : `± ${fmt(m, m.half_width)}`;
+}
+
+function duration(seconds) {
+  if (seconds >= 172800) return `${+(seconds / 86400).toFixed(2)} d`;
+  if (seconds >= 3600) return `${+(seconds / 3600).toFixed(2)} h`;
+  if (seconds >= 60) return `${+(seconds / 60).toFixed(2)} min`;
+  return `${+seconds.toFixed(2)} s`;
+}
+
+function showTooltip(event, lines) {
+  tooltip.replaceChildren(...lines.map(([value, key, color]) => {
+    const row = el("div");
+    row.append(el("div", { class: "v" }, value));
+    if (key) {
+      const k = el("div", { class: "k" });
+      if (color) { const i = el("i"); i.style.background = color; k.append(i); }
+      k.append(key);
+      row.append(k);
+    }
+    return row;
+  }));
+  const r = event.target.getBoundingClientRect();
+  const x = event.clientX ?? r.left + r.width / 2;
+  const y = event.clientY ?? r.top;
+  tooltip.classList.add("show");
+  const w = tooltip.offsetWidth, h = tooltip.offsetHeight;
+  tooltip.style.left = Math.min(Math.max(8, x - w / 2), innerWidth - w - 8) + "px";
+  tooltip.style.top = (y - h - 12 < 8 ? y + 16 : y - h - 12) + "px";
+}
+
+function hideTooltip() { tooltip.classList.remove("show"); }
+
+function hoverable(node, lines) {
+  node.classList.add("mark");
+  node.setAttribute("tabindex", "0");
+  node.setAttribute("aria-label", lines().map(l => l.slice(0, 2).filter(Boolean).join(" ")).join(", "));
+  node.addEventListener("pointermove", e => showTooltip(e, lines()));
+  node.addEventListener("pointerleave", hideTooltip);
+  node.addEventListener("focus", e => showTooltip(e, lines()));
+  node.addEventListener("blur", hideTooltip);
+}
+
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/** Clean axis ticks covering [lo, hi]. */
+function ticks(lo, hi, count = 5) {
+  const span = hi - lo || Math.abs(hi) || 1;
+  const raw = span / count;
+  const pow = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(s => s * pow).find(s => s >= raw);
+  const start = Math.floor(lo / step) * step, end = Math.ceil(hi / step) * step;
+  const out = [];
+  for (let v = start; v <= end + step / 2; v += step) out.push(+v.toPrecision(12));
+  return out;
+}
+
+// --- sections --------------------------------------------------------------
+
+function header() {
+  const e = data;
+  const reps = `${e.replications} replication${e.replications === 1 ? "" : "s"}`;
+  app.append(
+    el("h1", {}, e.model),
+    ...(e.description ? [el("p", { class: "lede" }, e.description)] : []),
+    el("p", { class: "meta" },
+      `${reps} × ${duration(e.run_length)} measured after ${duration(e.warmup)} warm-up · ` +
+      `seed ${e.seed} · ${Math.round(e.confidence * 100)}% confidence intervals · outliers-sim ${e.version}`),
+  );
+}
+
+function headlineTiles() {
+  const picks = [];
+  for (const sink of data.sinks) {
+    picks.push([measure("sink", sink, "throughput"), `Throughput · ${sink}`]);
+    picks.push([measure("sink", sink, "time in system"), `Time in system · ${sink}`]);
+  }
+  for (const s of data.sources) {
+    const m = measure("source", s.name, "blocked") ?? measure("source", s.name, "lost");
+    if (m) picks.push([m, m.measure === "lost" ? `Arrivals lost · ${s.name}` : `Source stopped · ${s.name}`]);
+  }
+  const tiles = picks.filter(([m]) => m).map(([m, label]) => el("div", { class: "card tile" },
+    el("div", { class: "label" }, label),
+    el("div", { class: "value" }, fmt(m, m.mean)),
+    el("div", { class: "ci" }, `${ci(m)} (95% CI)`),
+    el("div", { class: "range" }, `replications ranged ${fmt(m, m.min)} – ${fmt(m, m.max)}`),
+  ));
+  if (tiles.length) app.append(el("section", {}, el("div", { class: "tiles" }, ...tiles)));
+}
+
+const STATES = [
+  ["busy", "--busy", "Busy"],
+  ["blocked", "--blocked", "Blocked (output full)"],
+  ["failed", "--failed", "Failed"],
+  ["idle", "--idle", "Idle (starved)"],
+];
+
+function serverStates(container) {
+  const servers = data.servers.filter(s => measure("server", s.name, "busy"));
+  if (!servers.length) return;
+  const legend = el("div", { class: "legend" }, ...STATES.map(([, v, label]) => {
+    const i = el("i"); i.style.background = `var(${v})`;
+    return el("span", {}, i, label);
+  }));
+  const rows = el("div", { class: "rows" });
+  const card = el("div", { class: "card" }, legend, rows);
+  container.append(el("section", {},
+    el("h2", {}, "Where each server's time goes"),
+    el("p", { class: "note" }, "Share of capacity × time after warm-up, averaged over replications. Hover for confidence intervals."),
+    card));
+
+  const draw = () => {
+    rows.replaceChildren();
+    const width = rows.clientWidth;
+    for (const s of servers) {
+      const parts = STATES.map(([key, v, label]) => [measure("server", s.name, key), v, label])
+        .filter(([m]) => m && m.mean > 0);
+      const total = parts.reduce((a, [m]) => a + m.mean, 0) || 1;
+      const failures = measure("server", s.name, "failures");
+      const label = el("div", { class: "row-label" }, el("strong", {}, s.name),
+        el("span", {}, `capacity ${s.capacity}` + (failures ? ` · ${fmt(failures, failures.mean)} failures per run` : "")));
+      const h = 24, gap = 2;
+      const chart = svg("svg", { height: h, viewBox: `0 0 ${width} ${h}`, role: "img",
+        "aria-label": `${s.name}: ` + parts.map(([m, , l]) => `${l} ${fmt(m, m.mean)}`).join(", ") });
+      let x = 0;
+      parts.forEach(([m, v, stateLabel], i) => {
+        const w = Math.max(0, (m.mean / total) * width - (i < parts.length - 1 ? gap : 0));
+        const first = i === 0, last = i === parts.length - 1;
+        const r = 4;
+        // 4px rounded at the outer ends only.
+        const d = `M${x + (first ? r : 0)},0 H${x + w - (last ? r : 0)}` +
+          (last ? ` Q${x + w},0 ${x + w},${r} V${h - r} Q${x + w},${h} ${x + w - r},${h}` : ` V${h}`) +
+          ` H${x + (first ? r : 0)}` +
+          (first ? ` Q${x},${h} ${x},${h - r} V${r} Q${x},0 ${x + r},0` : ` V0`) + " Z";
+        const seg = svg("path", { d, fill: `var(${v})` });
+        hoverable(seg, () => [[`${fmt(m, m.mean)} ${ci(m)}`, `${s.name} · ${stateLabel}`, `var(${v})`]]);
+        chart.append(seg);
+        const text = fmt(m, m.mean);
+        if (w >= text.length * 7 + 16) {
+          const t = svg("text", { x: x + 8, y: h / 2 + 4, class: "inside" });
+          t.style.fill = `var(${v.replace("--", "--on-")})`;
+          t.textContent = text;
+          t.style.pointerEvents = "none";
+          chart.append(t);
+        }
+        x += w + gap;
+      });
+      rows.append(el("div", {}, label, chart));
+    }
+  };
+  draw();
+  addEventListener("resize", draw);
+}
+
+function conveyors(container) {
+  const list = data.conveyors.filter(c => measure("conveyor", c.name, "mean parts"));
+  if (!list.length) return;
+  const rows = el("div", { class: "rows" });
+  container.append(el("section", {},
+    el("h2", {}, "How full the conveyors run"),
+    el("p", { class: "note" }, "Average parts on each conveyor against its capacity. A conveyor that is often full is where blocking starts."),
+    el("div", { class: "card" }, rows)));
+
+  const draw = () => {
+    rows.replaceChildren();
+    const width = rows.clientWidth;
+    for (const c of list) {
+      const mean = measure("conveyor", c.name, "mean parts");
+      const full = measure("conveyor", c.name, "full");
+      const label = el("div", { class: "row-label" },
+        el("span", {}, el("strong", {}, c.name), ` ${c.from} → ${c.to}`),
+        el("span", {}, `${fmt(mean, mean.mean)} of ${c.capacity} parts on average` +
+          (full ? ` · full ${fmt(full, full.mean)} of the time` : "")));
+      const h = 12;
+      const chart = svg("svg", { height: h, viewBox: `0 0 ${width} ${h}`, role: "img",
+        "aria-label": `${c.name}: ${fmt(mean, mean.mean)} of ${c.capacity} parts on average` });
+      chart.append(svg("rect", { x: 0, y: 0, width, height: h, rx: 4, fill: "var(--track)" }));
+      const w = Math.max(0, Math.min(1, mean.mean / c.capacity)) * width;
+      if (w > 0) {
+        const bar = svg("rect", { x: 0, y: 0, width: Math.max(w, 8), height: h, rx: 4, fill: "var(--accent)" });
+        hoverable(bar, () => [
+          [`${fmt(mean, mean.mean)} ${ci(mean)} parts`, `${c.name} · mean parts on conveyor`, "var(--accent)"],
+          ...(full ? [[`${fmt(full, full.mean)} ${ci(full)}`, "time full"]] : []),
+        ]);
+        chart.append(bar);
+      }
+      rows.append(el("div", {}, label, chart));
+    }
+  };
+  draw();
+  addEventListener("resize", draw);
+}
+
+function variation(container) {
+  const picks = [];
+  for (const sink of data.sinks) {
+    picks.push(measure("sink", sink, "time in system"), measure("sink", sink, "throughput"));
+  }
+  for (const s of data.servers) picks.push(measure("server", s.name, "blocked"), measure("server", s.name, "failed"));
+  // Measures that never vary (e.g. a server that is never blocked) have
+  // nothing to show here; they stay in the table.
+  const list = picks.filter(m => m && m.values.filter(v => v !== null).length > 1 && m.max > m.min);
+  if (!list.length) return;
+  const body = el("div", { class: "card" });
+  container.append(el("section", {},
+    el("h2", {}, "Variation across replications"),
+    el("p", { class: "note" }, "Each dot is one replication. The band is the 95% confidence interval for the mean, the line the mean itself. Wide spread is why a single run proves nothing."),
+    body));
+
+  const draw = () => {
+    body.replaceChildren();
+    const width = body.clientWidth - 40;
+    for (const m of list) {
+      const f = formatFor(m);
+      const values = m.values.map((v, i) => [v, i + 1]).filter(([v]) => v !== null);
+      const lo = Math.min(...values.map(([v]) => v), m.mean - (m.half_width ?? 0));
+      const hi = Math.max(...values.map(([v]) => v), m.mean + (m.half_width ?? 0));
+      const tk = ticks(lo * f.scale, hi * f.scale).map(t => t / f.scale);
+      const [a, b] = [tk[0], tk[tk.length - 1]];
+      const pad = 8, plotW = width - 2 * pad;
+      const xs = v => pad + ((v - a) / (b - a || 1)) * plotW;
+      const h = 64, mid = 26;
+      const chart = svg("svg", { height: h, viewBox: `0 0 ${width} ${h}`, role: "img",
+        "aria-label": `${m.object} ${m.measure}: mean ${fmt(m, m.mean)} ${ci(m)}, range ${fmt(m, m.min)} to ${fmt(m, m.max)}` });
+      chart.append(svg("line", { x1: pad, x2: width - pad, y1: 48, y2: 48, stroke: "var(--axis)", "stroke-width": 1 }));
+      for (const t of tk) {
+        const x = xs(t);
+        chart.append(svg("line", { x1: x, x2: x, y1: 4, y2: 48, stroke: "var(--grid)", "stroke-width": 1 }));
+        const label = svg("text", { x, y: 62, "text-anchor": "middle" });
+        label.textContent = fmt(m, t).replace(/\.0+(?=\D|$)/, "");
+        chart.append(label);
+      }
+      if (m.half_width !== null) {
+        chart.append(svg("rect", { x: xs(m.mean - m.half_width), y: 6, height: 40, rx: 4,
+          width: Math.max(2, xs(m.mean + m.half_width) - xs(m.mean - m.half_width)), fill: "var(--accent-wash)" }));
+      }
+      chart.append(svg("line", { x1: xs(m.mean), x2: xs(m.mean), y1: 6, y2: 46, stroke: "var(--accent)", "stroke-width": 2, "stroke-linecap": "round" }));
+      // Deterministic vertical jitter so overlapping replications stay visible.
+      for (const [v, rep] of values) {
+        const jitter = (((rep * 2654435761) >>> 0) % 1000) / 1000 - 0.5;
+        const g = svg("g", { class: "dot" });
+        g.append(svg("circle", { cx: xs(v), cy: mid + jitter * 24, r: 12, fill: "transparent" }));
+        g.append(svg("circle", { cx: xs(v), cy: mid + jitter * 24, r: 4, fill: "var(--ink-2)", "fill-opacity": 0.75,
+          stroke: "var(--surface)", "stroke-width": 2 }));
+        hoverable(g, () => [[fmt(m, v), `replication ${rep}`]]);
+        chart.append(g);
+      }
+      const title = el("div", { class: "row-label" },
+        el("span", {}, el("strong", {}, `${m.object}`), ` ${m.measure}`),
+        el("span", {}, `mean ${fmt(m, m.mean)} ${ci(m)}`));
+      body.append(el("div", { class: "strip" }, title, chart));
+    }
+  };
+  draw();
+  addEventListener("resize", draw);
+}
+
+function fullTable(container) {
+  const tbody = el("tbody");
+  let group = null;
+  for (const m of data.measures) {
+    const key = `${m.object_type} ${m.object}`;
+    if (key !== group) {
+      group = key;
+      tbody.append(el("tr", {}, el("td", { class: "group", colspan: 7 }, key)));
+    }
+    tbody.append(el("tr", {},
+      el("td", {}, ""), el("td", {}, m.measure),
+      el("td", {}, fmt(m, m.mean)),
+      el("td", {}, m.half_width === null ? "n/a" : `± ${fmt(m, m.half_width)}`),
+      el("td", {}, fmt(m, m.min)), el("td", {}, fmt(m, m.max)), el("td", {}, m.n)));
+  }
+  container.append(el("section", {},
+    el("h2", {}, "All measures"),
+    el("p", { class: "note" }, "The same numbers as summary.json; per-replication values are in replications.csv."),
+    el("div", { class: "card table-wrap" }, el("table", {},
+      el("thead", {}, el("tr", {}, ...["", "measure", "mean", "95% CI", "min", "max", "n"].map(h => el("th", {}, h)))),
+      tbody))));
+}
+
+function footer() {
+  app.append(el("footer", {},
+    el("p", {}, `Means and ${Math.round(data.confidence * 100)}% Student-t confidence intervals over ${data.replications} independent replications. ` +
+      `Statistics exclude the first ${duration(data.warmup)} of each replication (warm-up).`),
+    el("p", {}, `Rerun with the same model file and seed to reproduce these numbers exactly.`)));
+}
+
+header();
+headlineTiles();
+serverStates(app);
+conveyors(app);
+variation(app);
+fullTable(app);
+footer();
+</script>
+</body>
+</html>

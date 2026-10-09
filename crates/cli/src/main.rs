@@ -155,7 +155,11 @@ fn run(args: &RunArgs) -> Result<(), String> {
         .map_err(|e| format!("can't write {}: {e}", summary_path.display()))?;
     output::write_replications_csv(&csv_path, &measures)
         .map_err(|e| format!("can't write {}: {e}", csv_path.display()))?;
-    println!("\nwrote {}", summary_path.display());
+    let report_path = out_dir.join("report.html");
+    output::write_report(&report_path, &model, &spec, &measures)
+        .map_err(|e| format!("can't write {}: {e}", report_path.display()))?;
+    println!("\nwrote {}", report_path.display());
+    println!("wrote {}", summary_path.display());
     println!("wrote {}", csv_path.display());
     if log_events {
         println!(

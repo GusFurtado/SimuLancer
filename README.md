@@ -11,7 +11,12 @@ outliers-sim validate examples/conveyor-line.yaml   # check a model, show what w
 outliers-sim run examples/conveyor-line.yaml        # run the experiment
 ```
 
-`run` runs the replications in parallel and prints every measure as mean ± 95% confidence interval. It writes `summary.json`, `replications.csv` and (if the model asks for it) an `events.jsonl` event log to `results/<model name>/`. See `outliers-sim run --help` for options.
+`run` runs the replications in parallel and prints every measure as mean ± 95% confidence interval. It writes these files to `results/<model name>/`:
+
+- `report.html`: a self-contained report with charts that works offline.
+- `summary.json`: every measure with its confidence interval.
+- `replications.csv`: raw values per replication.
+- `events.jsonl`: an event log, if the model asks for one. See `outliers-sim run --help` for options.
 
 ## Layout
 

@@ -6,6 +6,9 @@ use std::process::{Command, Output};
 
 const BIN: &str = env!("CARGO_BIN_EXE_outliers-sim");
 
+/// The SVG namespace is the only URL the report may contain.
+const SVG_NS: &str = "http://www.w3.org/2000/svg";
+
 fn example() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/conveyor-line.yaml")
 }
@@ -61,6 +64,25 @@ fn run_writes_results_and_event_log() {
     assert!(csv.starts_with("replication,object_type,object,measure,unit,value\n"));
     assert!(csv.contains("\n4,server,lathe,busy,fraction,"));
 
+    // The report embeds the results as JSON and needs nothing from the network.
+    let report = fs::read_to_string(dir.join("report.html")).unwrap();
+    let start = report
+        .find(r#"<script type="application/json" id="data">"#)
+        .unwrap();
+    let json_start = report[start..].find('>').unwrap() + start + 1;
+    let json_end = report[json_start..].find("</script>").unwrap() + json_start;
+    let embedded: serde_json::Value = serde_json::from_str(&report[json_start..json_end]).unwrap();
+    assert_eq!(embedded["model"], "conveyor-line");
+    assert_eq!(
+        embedded["measures"][0]["values"].as_array().unwrap().len(),
+        4
+    );
+    assert!(!report.contains("__OUTLIERS_SIM_DATA__"));
+    assert!(
+        !report.replace(SVG_NS, "").contains("http"),
+        "report must not load anything"
+    );
+
     let events = fs::read_to_string(dir.join("events.jsonl")).unwrap();
     let mut lines = events.lines();
     let header: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
@@ -94,8 +116,13 @@ fn results_dont_depend_on_thread_count() {
             "--output-dir",
             dir.to_str().unwrap(),
         ]);
-        let files = ["summary.json", "replications.csv", "events.jsonl"]
-            .map(|f| fs::read_to_string(dir.join(f)).unwrap());
+        let files = [
+            "summary.json",
+            "replications.csv",
+            "events.jsonl",
+            "report.html",
+        ]
+        .map(|f| fs::read_to_string(dir.join(f)).unwrap());
         fs::remove_dir_all(dir).unwrap();
         files
     };

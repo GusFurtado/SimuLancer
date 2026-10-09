@@ -113,6 +113,18 @@ Working name. Separate from the `outliers` workspace.
 - **Event log format, decided: JSON Lines** (`outliers-sim-events/0.1`). The first line is a header with the model structure the viewer needs (conveyor ends, length, speed, spacing and capacity; server capacity and failure names). Then one event per line, with `t` in seconds written exactly to the µs, and objects referred to by name. Size: about 6 MB / 88k lines for 128 h of the conveyor line. Parquet can come later if size becomes a problem.
 - Display units are chosen per measure by the table (fractions → %, durations → s/min/h by magnitude). Files always use standard units.
 
+## HTML report (implemented 2026-10-09)
+
+- `run` always writes `report.html`: one self-contained file. The template (`crates/cli/src/report.html`) is compiled into the binary, and the results are embedded as JSON and drawn with plain JS and SVG. No CDN and no network: it opens offline, can be attached to an email, and still works in 10 years. It contains no timestamp, so the same model and seed give a byte-identical report (tested).
+- Sections:
+  - headline tiles (throughput, time in system, source blocked/lost), each with its CI and range;
+  - stacked bars of server states;
+  - conveyor fill meters (mean parts vs capacity, % of time full);
+  - "variation across replications" dot plots (one dot per replication, mean line and CI band), shown on purpose so a single run can't pass as an answer;
+  - the full table.
+- Every chart has hover/keyboard tooltips with CIs; values are also in the table, so nothing depends on hovering.
+- Colors follow the dataviz reference palette. Server states use its first three categorical slots (busy blue, blocked orange, failed aqua), which are published as validated all-pairs for colour-vision deficiency in both modes, and idle is a neutral gray. The palette validator wasn't run locally (no Node.js); rerun it if the colors change. Dark mode uses its own color steps, not an inverted light theme. Labels inside bars use ink or white, whichever has more contrast against the fill.
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?
