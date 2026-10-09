@@ -1,0 +1,85 @@
+# Conveyor line: source -> lathe -> mill -> sink, with conveyors between each step.
+# Both servers fail randomly, so the conveyors fill up behind a failed machine,
+# the upstream servers get blocked and the downstream servers get starved.
+#
+# Capacities are close to balanced on purpose: arrivals are about 1 part/min,
+# and each server's effective capacity, after failures, is only slightly above that.
+# Small disturbances spread through the whole line.
+
+format: outliers-sim/0.1
+name: conveyor-line
+description: Two-server serial line with accumulating conveyors and random failures.
+
+entities:
+  part: {}
+
+sources:
+  arrivals:
+    creates: part
+    interarrival: "exponential(1 min)"
+    when_blocked: wait            # wait: the source stops while conveyor c1 is full
+                                  # drop: the part is lost and counted as a lost arrival
+
+servers:
+  lathe:
+    capacity: 1
+    process_time: "triangular(0.5 min, 0.8 min, 1.2 min)"
+    failures:
+      - name: breakdown
+        uptime: "exponential(45 min)"     # operating time between failures
+        downtime: "uniform(4 min, 12 min)"
+        counts: busy_time                 # busy_time: only wears while processing
+                                          # clock_time: wears regardless of state
+        on_failure: resume                # resume: the interrupted part continues where it stopped
+                                          # restart: the interrupted part starts over
+
+  mill:
+    capacity: 1
+    process_time: "triangular(0.6 min, 0.9 min, 1.1 min)"
+    failures:
+      - name: breakdown
+        uptime: "exponential(60 min)"
+        downtime: "lognormal(mean: 10 min, sd: 4 min)"
+        counts: busy_time
+        on_failure: resume
+
+conveyors:
+  c1:
+    from: arrivals
+    to: lathe
+    type: accumulating            # parts queue up at the end when the next object can't take them
+    length: "12 m"
+    speed: "0.5 m/s"
+    spacing: "0.5 m"              # capacity = floor(length / spacing) = 24 parts
+  c2:
+    from: lathe
+    to: mill
+    type: accumulating
+    length: "8 m"
+    speed: "0.5 m/s"
+    spacing: "0.5 m"              # 16 parts
+  c3:
+    from: mill
+    to: shipping
+    type: accumulating
+    length: "6 m"
+    speed: "0.5 m/s"
+    spacing: "0.5 m"              # 12 parts; the sink is never blocked, so c3 never fills
+
+sinks:
+  shipping: {}
+
+experiment:
+  replications: 30
+  warmup: "8 h"
+  run_length: "120 h"             # measured after the warm-up
+  seed: 20261009                  # replication i uses stream i, so the results are reproducible
+
+outputs:
+  event_log: jsonl                # what the Godot viewer reads (format still open)
+  summary:
+    - throughput
+    - time_in_system
+    - server_states               # idle (starved), busy, blocked, failed: % of time, with CI
+    - conveyor_occupancy          # time-weighted mean, max, % of time full, with CI
+    - source_blocked_time

@@ -1,0 +1,12 @@
+[package]
+name = "outliers-sim-model"
+description = "Loads and validates outliers-sim YAML model files and converts them to engine units."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+outliers-sim-engine.workspace = true
+serde = { version = "1.0.229", features = ["derive"] }
+serde-saphyr = "1.3.0"

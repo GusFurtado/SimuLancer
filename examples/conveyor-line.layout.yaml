@@ -1,0 +1,18 @@
+# Visual layout for conveyor-line.yaml. Used only by the viewer; the engine never reads it.
+# Kept in a separate file so that moving things around never shows up as a change in the logic.
+# Conveyor lengths are set in the model. If a drawn path's length differs from the model's,
+# the viewer should warn and scale the animation to fit.
+
+model: conveyor-line.yaml
+units: m
+
+objects:
+  arrivals: { position: [0, 0, 0] }
+  lathe:    { position: [13.5, 0, 0], model: machine_small }
+  mill:     { position: [21, 0, 4], model: machine_small }
+  shipping: { position: [21, 0, 12] }
+
+conveyors:
+  c1: { path: [[0.5, 0, 0], [12.5, 0, 0]] }               # 12 m
+  c2: { path: [[14.5, 0, 0], [17.5, 0, 0], [20.5, 0, 4]] } # 3 + 5 = 8 m
+  c3: { path: [[21, 0, 5], [21, 0, 11]] }                  # 6 m

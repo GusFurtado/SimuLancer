@@ -1,0 +1,12 @@
+[package]
+name = "outliers-sim-engine"
+description = "Discrete event simulation engine core: no units, no file formats, no I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+outliers-sim-model = { path = "../model" }

@@ -1,0 +1,16 @@
+[package]
+name = "outliers-sim"
+description = "Command-line interface for outliers-sim: validate and run discrete event simulation models."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "outliers-sim"
+path = "src/main.rs"
+
+[dependencies]
+outliers-sim-engine.workspace = true
+outliers-sim-model.workspace = true
+clap = { version = "4", features = ["derive"] }
