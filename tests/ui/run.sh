@@ -7,7 +7,11 @@
 set -euo pipefail
 if ! command -v cargo >/dev/null && [ -f "$HOME/.cargo/env" ]; then . "$HOME/.cargo/env"; fi
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-WORK="$(mktemp -d)"
+# Inside the checkout, not /tmp: a snap-packaged Firefox (as on Ubuntu) has
+# a private /tmp and can't use a profile created there.
+WORK="$ROOT/target/ui-test"
+rm -rf "$WORK"
+mkdir -p "$WORK"
 SHOTS="${SHOTS:-$WORK/shots}"
 PORT="${PORT:-18190}"
 MARIONETTE="${MARIONETTE:-2830}"
@@ -26,9 +30,15 @@ SERVER=$!
 echo "user_pref(\"marionette.port\", $MARIONETTE);" >"$WORK/profile/user.js"
 firefox --headless --marionette --no-remote --profile "$WORK/profile" >"$WORK/firefox.log" 2>&1 &
 BROWSER=$!
-for _ in $(seq 1 50); do
-  if (exec 3<>"/dev/tcp/127.0.0.1/$MARIONETTE") 2>/dev/null; then break; fi
+ready=""
+for _ in $(seq 1 300); do
+  if (exec 3<>"/dev/tcp/127.0.0.1/$MARIONETTE") 2>/dev/null; then ready=1; break; fi
   sleep 0.2
 done
+if [ -z "$ready" ]; then
+  echo "Firefox's remote control (Marionette) didn't start on port $MARIONETTE within 60 s. Firefox said:"
+  cat "$WORK/firefox.log"
+  exit 1
+fi
 python3 "$ROOT/tests/ui/test_ui.py" "http://127.0.0.1:$PORT/" "$MARIONETTE" "$SHOTS"
 echo "screenshots: $SHOTS"
