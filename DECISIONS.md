@@ -69,7 +69,7 @@ Working name. Separate from the `outliers` workspace.
 - Names: letters, digits, `_` and `-`, starting with a letter or `_`. They end up in event logs, CSV columns and command lines.
 - Units: time `ms s min h d`; length `mm cm m km`; speed `<length>/<time>`. A number and its unit must be separated by a space (`12 m`, not `12m`).
 - Distributions: `constant` (or a bare time), `exponential(mean)`, `uniform(min, max)`, `triangular(min, mode, max)`, `lognormal(mean, sd)`, where the lognormal parameters are the mean and sd of the distribution itself. Arguments can be positional or named. No `normal`, since it can go negative; `weibull`/`gamma` are likely next for failures.
-- v1 topology limits: each source has exactly one outgoing conveyor, each server exactly one incoming and one outgoing, and sinks at least one incoming. Every server must be reachable from a source. Routing and merging come later, and they'll need explicit tie-breaking rules.
+- Topology (since 2026-10-09, see "Routing and merging"): sources need at least one outgoing conveyor, servers at least one incoming and one outgoing, sinks at least one incoming. Every server must be reachable from a source, and every source and server must have a path to a sink (loops are fine as long as there's a way out).
 - Outputs defaults: `event_log: none`; `summary`: all items.
 
 ## Engine core (implemented 2026-10-09)
@@ -79,7 +79,7 @@ Working name. Separate from the `outliers` workspace.
 - **Tie-breaking:** events at the same time run in the order they were scheduled. Events at exactly the end of the run aren't processed.
 - **Sources:** the first arrival is at t = 0. A waiting source holds the part and starts the next interarrival only once the part gets on the conveyor.
 - **Accumulating conveyors:** parts are points moving at the belt speed. The head stops at the end, and followers stop one spacing behind the part ahead. A part can get on when the conveyor holds fewer than `floor(length / spacing)` parts and the last part is at least one spacing from the entrance. When the head leaves, all stopped parts move again at once (no restart delay). Positions are computed only when needed, so no events are spent on movement.
-- **Servers:** a server takes a part when it's up and has a free slot. A finished part blocks its slot until the outgoing conveyor has room, and blocked parts leave in the order they finished. State shares are fractions of capacity × time, and they add up to 1. While the server is down, its whole capacity counts as failed.
+- **Servers:** a server takes a part when it's up and has a free slot. A finished part blocks its slot until its outgoing conveyor has room. Each blocked part leaves as soon as its conveyor has room; parts waiting for the same conveyor leave in the order they finished. State shares are fractions of capacity × time, and they add up to 1. While the server is down, its whole capacity counts as failed.
 - **Failures:** clocks only run while the server is up; `busy_time` clocks also need at least one slot processing. A down server does nothing: it doesn't process, take parts or release blocked parts. `restart` repeats the part's original process time instead of drawing a new one.
 - **Statistics:** time averages are exact (integer value × integer µs) and updated after every event. The warm-up resets everything. Time in system counts parts that exit after the warm-up, including parts created before it.
 - **Trace:** the engine emits per-part events (created, entered conveyor, reached end, started/finished process, exited, lost) and failure/repair events through an `Observer`. Event logs and the viewer are built on it.
@@ -146,6 +146,42 @@ Working name. Separate from the `outliers` workspace.
 
 - **Demo:** `viewer/demo/` holds replication 1 of the conveyor-line example (`events.jsonl.gz`, about 650 KB, plus `layout.json`). The viewer opens it when started without arguments, e.g. from the Android Godot Editor, where the Rust CLI can't run. `make_demo.sh` regenerates it byte for byte (`gzip -n`), and `run_all.sh` fails if the committed demo doesn't match the current CLI. The viewer reads `.jsonl.gz` as well as `.jsonl`.
 - **Repository:** `GusFurtado/outliers-sim` on GitHub, private for now (2026-10-09), so the tablet can pull the viewer. It's meant to go public later.
+
+## Routing and merging (implemented 2026-10-09)
+
+Splitting and merging are where proprietary tools hide their tie-breaking. Here the rule is required whenever there's a choice: a source or server with two or more outgoing conveyors needs `output: { rule: ... }`, and a server with two or more incoming conveyors needs `input: { rule: ... }`. Leaving it out is an error that lists the conveyors and the options.
+
+**Output rules.** The conveyor is chosen when the part is ready to leave: when it's created, or when it finishes processing.
+
+| Rule | Behavior |
+|---|---|
+| `probability` | Draws from the object's own `routing` stream (so scenario comparisons still pair up), using `weights` per conveyor. The weights must name exactly the outgoing conveyors, be > 0, and add up to 1 (± 1e-6). The part waits for the chosen conveyor. |
+| `round_robin` | Outputs in strict rotation. The part waits for its turn's conveyor. |
+| `first_available` | The first output in file order with room. |
+| `shortest_queue` | The output holding the fewest parts, among those with room; ties go to the one listed first. |
+
+For `first_available` and `shortest_queue`, if no output has room, the part takes whichever conveyor gets room first.
+
+**Input rules.**
+
+| Rule | Behavior |
+|---|---|
+| `first_come` | The part that reached the end of its conveyor first. Ties go to the input listed first. |
+| `priority` | `order: [...]` lists every incoming conveyor exactly once, highest priority first. |
+| `round_robin` | In turn, skipping inputs with nothing waiting. |
+
+- **Simultaneous arrivals:** for servers with several inputs, the choice happens in a `Pull` event at the current time. Every arrival already due at that instant is considered, so the rule decides, not the order events happen to run in. A test checks a `first_come` tie, and a deliberate mutation that skips the deferral makes it fail. Single-input servers decide at once, as before.
+- **Sinks** take every part immediately and need no rule.
+- **Existing models are unaffected:** the conveyor-line example's event log is byte-identical before and after this change (checked by the viewer demo freshness test).
+- **Loops** (rework, retest on the same server) are allowed. Validation requires that every source and server has a path to a sink.
+- **Throughput per conveyor** (parts/h) is reported for every conveyor, so splits are visible in the summary.
+- **Validation tests:**
+  - every rule, plus the simultaneous-arrival cases;
+  - a probability split's shares: 0.3 within 0.004 over 360k parts;
+  - queueing theory: a Poisson split into two M/M/1 queues, and an M/M/1 with Bernoulli feedback (p = 0.2; T = 1/((1 − p)(μ − λ/(1 − p))) = 3 min), checked across several seeds for bias;
+  - the viewer replays a model with a priority merge, a three-input first-come merge, rework and a self-loop, and every part the log says is in the system is visible.
+- **Example:** `examples/two-cells.yaml` (with a layout): `shortest_queue` into two mills, a `first_come` merge at inspection, 10% rework to mill A with `priority` over new parts. With `first_available` instead, mean time in system was 24.6 min instead of 9.1 min. The rule matters, and now it's one visible line in the model.
+- **Viewer auto layout:** objects without a layout file go in columns by distance from the sources. Backward conveyors and self-loops are drawn around the top, each in its own lane.
 
 ## Open questions
 

@@ -95,6 +95,13 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
             add("conveyor", &c.name, "full", Unit::Fraction, &|r| {
                 r.conveyors[i].full
             });
+            add(
+                "conveyor",
+                &c.name,
+                "throughput",
+                Unit::PartsPerHour,
+                &|r| r.conveyors[i].entered as f64 / r.measured * 3600.0,
+            );
         }
     }
     for (i, s) in spec.sinks.iter().enumerate() {

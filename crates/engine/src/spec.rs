@@ -31,8 +31,9 @@ pub struct Source {
     pub entity: usize,
     pub interarrival: Distribution,
     pub when_blocked: WhenBlocked,
-    /// Index into [`Spec::conveyors`].
-    pub output: usize,
+    /// Indices into [`Spec::conveyors`], in file order.
+    pub outputs: Vec<usize>,
+    pub routing: Routing,
 }
 
 /// What a source does with a new part when its output conveyor is full.
@@ -50,10 +51,47 @@ pub struct Server {
     pub capacity: u32,
     pub process_time: Distribution,
     pub failures: Vec<Failure>,
-    /// Index into [`Spec::conveyors`].
-    pub input: usize,
-    /// Index into [`Spec::conveyors`].
-    pub output: usize,
+    /// Indices into [`Spec::conveyors`]. In priority order for
+    /// [`InputRule::Priority`], otherwise in file order.
+    pub inputs: Vec<usize>,
+    pub input_rule: InputRule,
+    /// Indices into [`Spec::conveyors`], in file order.
+    pub outputs: Vec<usize>,
+    pub routing: Routing,
+}
+
+/// How a source or server picks among its outgoing conveyors.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Routing {
+    /// One outgoing conveyor.
+    Single,
+    /// Chosen at random when the part is ready to leave, with one weight per
+    /// output (summing to 1). The part then waits for that conveyor.
+    Probability(Vec<f64>),
+    /// Outputs in turn. The part waits for its turn's conveyor.
+    RoundRobin,
+    /// The first output, in order, with room. If none has room, the part
+    /// takes whichever gets room first.
+    FirstAvailable,
+    /// The output holding the fewest parts, among those with room; ties go to
+    /// the output listed first. If none has room, the part takes whichever
+    /// gets room first.
+    ShortestQueue,
+}
+
+/// How a server picks among parts waiting at the ends of its incoming
+/// conveyors when it can take one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputRule {
+    /// One incoming conveyor.
+    Single,
+    /// The part that reached the end of its conveyor first. Ties go to the
+    /// input listed first.
+    FirstCome,
+    /// The first input, in the server's `inputs` order, with a part waiting.
+    Priority,
+    /// Inputs in turn, skipping inputs with nothing waiting.
+    RoundRobin,
 }
 
 #[derive(Debug, Clone, PartialEq)]

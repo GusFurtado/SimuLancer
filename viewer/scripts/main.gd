@@ -155,32 +155,67 @@ func _load_layout(path: String) -> String:
 	return ""
 
 
-## Places each source's chain of objects in a row, one row per source.
+## Places objects in columns by distance from the sources, centered in each
+## column. Conveyors run straight between objects; conveyors going backward
+## (like rework loops) and self-loops go around the top so they stay visible.
 func _auto_layout() -> void:
-	var row := 0
+	var conveyors: Array = replay.header["conveyors"]
+	var depth: Dictionary = {}
+	var queue: Array[String] = []
 	for source: String in replay.header["sources"]:
-		var node := source
-		_positions[node] = Vector3(0.0, 0.0, row * 6.0)
-		while true:
-			var conveyor: Dictionary = {}
-			for c: Dictionary in replay.header["conveyors"]:
-				if c["from"] == node:
-					conveyor = c
-			if conveyor.is_empty():
-				break
-			var start: Vector3 = _positions[node] + Vector3(OBJECT_SIZE / 2.0 + 0.2, 0, 0)
-			var next: String = conveyor["to"]
-			var end := start + Vector3(float(conveyor["length"]), 0, 0)
-			if _positions.has(next):  # merging into an object already placed
-				end = _positions[next] - Vector3(OBJECT_SIZE / 2.0 + 0.2, 0, 0)
-			else:
-				_positions[next] = end + Vector3(OBJECT_SIZE / 2.0 + 0.2, 0, 0)
-			_paths[conveyor["name"]] = _make_path([start, end], float(conveyor["length"]))
-			node = next
-		row += 1
+		depth[source] = 0
+		queue.append(source)
+	while not queue.is_empty():
+		var node: String = queue.pop_front()
+		for c: Dictionary in conveyors:
+			if c["from"] == node and not depth.has(c["to"]):
+				depth[c["to"]] = depth[node] + 1
+				queue.append(c["to"])
+
+	var names: Array = replay.header["sources"].duplicate()
+	for s: Dictionary in replay.header["servers"]:
+		names.append(s["name"])
+	names.append_array(replay.header["sinks"])
+	var columns: Dictionary = {}  # depth -> names, in header order
+	for name: String in names:
+		var d: int = depth.get(name, 0)
+		if not columns.has(d):
+			columns[d] = []
+		columns[d].append(name)
+	for d: int in columns:
+		var column: Array = columns[d]
+		for i in column.size():
+			_positions[column[i]] = Vector3(d * 10.0, 0.0, (i - (column.size() - 1) / 2.0) * 6.0)
+
+	var top := 0.0
+	for p: Vector3 in _positions.values():
+		top = minf(top, p.z)
+	var loops := 0
+	var gap := OBJECT_SIZE / 2.0 + 0.2
+	for c: Dictionary in conveyors:
+		var a: Vector3 = _positions[c["from"]]
+		var b: Vector3 = _positions[c["to"]]
+		var points: Array[Vector3] = []
+		if depth.get(c["to"], 0) > depth.get(c["from"], 0):
+			var direction := (b - a).normalized()
+			points = [a + direction * gap, b - direction * gap]
+		else:
+			# Backward or self-loop: up from the start, across above
+			# everything, down into the end. Each loop gets its own lane.
+			loops += 1
+			var lane := top - 2.0 - loops * 1.5
+			var out := a + Vector3(gap * 0.5, 0, -gap)
+			var into := b + Vector3(-gap * 0.5, 0, -gap)
+			points = [out, Vector3(out.x, 0, lane), Vector3(into.x, 0, lane), into]
+		_paths[c["name"]] = _make_path(points, float(c["length"]))
 
 
-func _make_path(points: Array[Vector3], model_length: float) -> Dictionary:
+func _make_path(raw_points: Array[Vector3], model_length: float) -> Dictionary:
+	# Drop repeated points: zero-length segments can't be drawn or walked.
+	var points: Array[Vector3] = [raw_points[0]]
+	for p in raw_points.slice(1):
+		if not p.is_equal_approx(points[-1]):
+			points.append(p)
 	var cumulative: Array[float] = [0.0]
 	for i in range(1, points.size()):
 		cumulative.append(cumulative[-1] + points[i - 1].distance_to(points[i]))

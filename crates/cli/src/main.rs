@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
-use outliers_sim_engine::spec::{Distribution, Node, Spec};
+use outliers_sim_engine::spec::{Distribution, InputRule, Node, Routing, Spec};
 use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::{EventLog, Layout, Model};
@@ -264,6 +264,9 @@ fn describe(path: &Path, model: &Model) -> String {
             spec.entities[s.entity],
             dist(&s.interarrival)
         );
+        if let Some(text) = routing(spec, &s.outputs, &s.routing) {
+            out += &format!("  {:<12}   {text}\n", "");
+        }
     }
     out += "\nservers\n";
     for s in &spec.servers {
@@ -281,6 +284,19 @@ fn describe(path: &Path, model: &Model) -> String {
                 dist(&f.uptime),
                 dist(&f.downtime)
             );
+        }
+        if s.inputs.len() > 1 {
+            let names = conveyor_list(spec, &s.inputs);
+            let rule = match s.input_rule {
+                InputRule::Single => "single",
+                InputRule::FirstCome => "first come",
+                InputRule::Priority => "priority, in this order",
+                InputRule::RoundRobin => "round robin",
+            };
+            out += &format!("  {:<12}   takes from {names} ({rule})\n", "");
+        }
+        if let Some(text) = routing(spec, &s.outputs, &s.routing) {
+            out += &format!("  {:<12}   {text}\n", "");
         }
     }
     out += "\nconveyors\n";
@@ -305,6 +321,36 @@ fn describe(path: &Path, model: &Model) -> String {
         e.seed
     );
     out
+}
+
+fn conveyor_list(spec: &Spec, conveyors: &[usize]) -> String {
+    conveyors
+        .iter()
+        .map(|&c| spec.conveyors[c].name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// How parts leave, for objects with several outgoing conveyors.
+fn routing(spec: &Spec, outputs: &[usize], routing: &Routing) -> Option<String> {
+    let names = conveyor_list(spec, outputs);
+    match routing {
+        Routing::Single => None,
+        Routing::Probability(weights) => Some(format!(
+            "sends to {}",
+            outputs
+                .iter()
+                .zip(weights)
+                .map(|(&c, w)| format!("{} {:.1}%", spec.conveyors[c].name, w * 100.0))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        Routing::RoundRobin => Some(format!("sends to {names} (round robin)")),
+        Routing::FirstAvailable => {
+            Some(format!("sends to {names} (first available, in this order)"))
+        }
+        Routing::ShortestQueue => Some(format!("sends to {names} (shortest queue)")),
+    }
 }
 
 fn node_name(spec: &Spec, node: Node) -> &str {

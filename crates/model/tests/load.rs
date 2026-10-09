@@ -90,7 +90,7 @@ fn conveyor_line_example_loads() {
     assert_eq!(capacities, [24, 16, 12]);
     assert_eq!(spec.conveyors[1].from, Node::Server(0));
     assert_eq!(spec.conveyors[1].to, Node::Server(1));
-    assert_eq!(spec.servers[1].input, 1);
+    assert_eq!(spec.servers[1].inputs, [1]);
 
     assert_eq!(spec.experiment.warmup, SimTime::from_secs_f64(8.0 * 3600.0));
     assert_eq!(
@@ -271,5 +271,152 @@ fn invalid_names() {
             .iter()
             .any(|(_, m)| m.contains("is not a valid name")),
         "{errors:#?}"
+    );
+}
+
+const TWO_CELLS: &str = include_str!("../../../examples/two-cells.yaml");
+
+#[test]
+fn routing_and_merging_example_loads() {
+    use outliers_sim_engine::spec::{InputRule, Routing};
+    let model = load_str(TWO_CELLS).unwrap();
+    let spec = &model.spec;
+    let names = |list: &[usize]| -> Vec<&str> {
+        list.iter()
+            .map(|&c| spec.conveyors[c].name.as_str())
+            .collect()
+    };
+    assert_eq!(spec.sources[0].routing, Routing::ShortestQueue);
+    let mill_a = &spec.servers[0];
+    assert_eq!(mill_a.input_rule, InputRule::Priority);
+    // Inputs in priority order, not file order.
+    assert_eq!(names(&mill_a.inputs), ["c_rework", "c_a"]);
+    let inspect = &spec.servers[2];
+    assert_eq!(inspect.input_rule, InputRule::FirstCome);
+    assert_eq!(names(&inspect.outputs), ["c_ship", "c_rework"]);
+    assert_eq!(inspect.routing, Routing::Probability(vec![0.9, 0.1]));
+}
+
+/// The two-cells example with one substitution, expecting one error.
+fn two_cells_error(from: &str, to: &str, line_text: &str, expected: &str) {
+    assert_one_error(&replace(TWO_CELLS, from, to), line_text, expected);
+}
+
+#[test]
+fn routing_errors() {
+    two_cells_error(
+        "    output: { rule: shortest_queue }        # fewer parts on c_a or c_b; ties to c_a\n",
+        "",
+        "  arrivals:",
+        "has 2 outgoing conveyors (`c_a`, `c_b`); add `output:",
+    );
+    two_cells_error(
+        "weights: { c_ship: 0.9, c_rework: 0.1 }",
+        "weights: { c_ship: 0.9, c_rework: 0.2 }",
+        "rule: probability",
+        "`weights` add up to 1.1",
+    );
+    two_cells_error(
+        "weights: { c_ship: 0.9, c_rework: 0.1 }",
+        "weights: { c_ship: 0.9, c_rewrok: 0.1 }",
+        "c_rewrok",
+        "`c_rewrok` isn't an outgoing conveyor of `inspect`",
+    );
+    two_cells_error(
+        "weights: { c_ship: 0.9, c_rework: 0.1 }",
+        "weights: { c_ship: 1.0 }",
+        "rule: probability",
+        "`weights` has no entry for `c_rework`",
+    );
+    two_cells_error(
+        "weights: { c_ship: 0.9, c_rework: 0.1 }",
+        "weights: { c_ship: 1.1, c_rework: -0.1 }",
+        "c_rework: -0.1",
+        "weights must be greater than zero",
+    );
+    two_cells_error(
+        "output: { rule: shortest_queue }",
+        "output: { rule: shortest_queue, weights: { c_a: 1 } }",
+        "output: { rule: shortest_queue",
+        "`weights` only apply to `rule: probability`",
+    );
+    two_cells_error(
+        "output: { rule: shortest_queue }",
+        "output: { rule: shortest }",
+        "output: { rule: shortest }",
+        "unknown variant `shortest`",
+    );
+}
+
+#[test]
+fn merging_errors() {
+    two_cells_error(
+        "    input: { rule: first_come }\n",
+        "",
+        "  inspect:",
+        "has 2 incoming conveyors (`c_a_out`, `c_b_out`); add `input:",
+    );
+    two_cells_error(
+        "input: { rule: priority, order: [c_rework, c_a] }",
+        "input: { rule: priority }",
+        "input: { rule: priority }",
+        "`rule: priority` needs `order`",
+    );
+    two_cells_error(
+        "order: [c_rework, c_a]",
+        "order: [c_rework]",
+        "order: [c_rework]",
+        "`order` is missing `c_a`",
+    );
+    two_cells_error(
+        "order: [c_rework, c_a]",
+        "order: [c_rework, c_a, c_rework]",
+        "order: [c_rework, c_a, c_rework]",
+        "`c_rework` is listed twice",
+    );
+    two_cells_error(
+        "order: [c_rework, c_a]",
+        "order: [c_rework, c_b]",
+        "order: [c_rework, c_b]",
+        "`c_b` isn't an incoming conveyor of `mill_a`",
+    );
+    two_cells_error(
+        "input: { rule: first_come }",
+        "input: { rule: first_come, order: [c_a_out, c_b_out] }",
+        "input: { rule: first_come",
+        "`order` only applies to `rule: priority`",
+    );
+}
+
+#[test]
+fn parts_must_be_able_to_reach_a_sink() {
+    // Point inspect's shipping conveyor at mill_b and drop the sink: parts
+    // now circulate mill_a/mill_b -> inspect -> mill_a/mill_b forever.
+    let trap = replace(
+        TWO_CELLS,
+        "  c_ship:   { from: inspect,  to: shipping,",
+        "  c_ship:   { from: inspect,  to: mill_b,",
+    );
+    let trap = replace(&trap, "sinks:\n  shipping: {}\n", "sinks: {}\n");
+    // mill_b now merges two inputs and needs a rule.
+    let trap = replace(
+        &trap,
+        "    process_time: \"triangular(1 min, 1.4 min, 2.1 min)\"\n    failures:",
+        "    process_time: \"triangular(1 min, 1.4 min, 2.1 min)\"\n    input: { rule: first_come }\n    failures:",
+    );
+    let messages: Vec<String> = errors(&trap).into_iter().map(|(_, m)| m).collect();
+    for object in ["server `mill_a`", "server `mill_b`", "server `inspect`"] {
+        assert!(
+            messages
+                .iter()
+                .any(|m| m.contains(&format!("parts at {object} can never reach a sink"))),
+            "{messages:#?}"
+        );
+    }
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("parts from source `arrivals` can never reach a sink")),
+        "{messages:#?}"
     );
 }

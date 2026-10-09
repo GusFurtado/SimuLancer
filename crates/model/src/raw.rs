@@ -48,6 +48,43 @@ pub struct RawSource {
     pub interarrival: Spanned<Scalar>,
     #[serde(default)]
     pub when_blocked: WhenBlocked,
+    /// Required with two or more outgoing conveyors.
+    pub output: Option<Spanned<RawOutputRule>>,
+}
+
+/// How parts choose among outgoing conveyors.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawOutputRule {
+    pub rule: Spanned<OutputRuleKind>,
+    /// Conveyor name -> weight, for `probability`.
+    pub weights: Option<OrderedMap<Spanned<f64>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputRuleKind {
+    Probability,
+    RoundRobin,
+    FirstAvailable,
+    ShortestQueue,
+}
+
+/// How a server chooses among parts waiting on incoming conveyors.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawInputRule {
+    pub rule: Spanned<InputRuleKind>,
+    /// Conveyor names, highest priority first, for `priority`.
+    pub order: Option<Spanned<Vec<Spanned<String>>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InputRuleKind {
+    FirstCome,
+    Priority,
+    RoundRobin,
 }
 
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
@@ -65,6 +102,10 @@ pub struct RawServer {
     pub process_time: Spanned<Scalar>,
     #[serde(default)]
     pub failures: Vec<RawFailure>,
+    /// Required with two or more incoming conveyors.
+    pub input: Option<Spanned<RawInputRule>>,
+    /// Required with two or more outgoing conveyors.
+    pub output: Option<Spanned<RawOutputRule>>,
 }
 
 #[derive(Debug, Deserialize)]

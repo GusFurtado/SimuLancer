@@ -343,3 +343,108 @@ fn mm1k_with_dropped_arrivals() {
         time_in_system,
     );
 }
+
+#[test]
+fn poisson_split_into_two_mm1_queues() {
+    // A random split of a Poisson stream gives independent Poisson streams:
+    // two M/M/1 queues, λ₁ = 0.4/min (mean service 1.5 min, ρ = 0.6) and
+    // λ₂ = 0.6/min (mean service 1.2 min, ρ = 0.72). W = 1 / (μ − λ).
+    let yaml = format!(
+        r#"
+format: outliers-sim/0.1
+name: split
+entities: {{ part: {{}} }}
+sources:
+  arrivals:
+    creates: part
+    interarrival: "exponential(1 min)"
+    output: {{ rule: probability, weights: {{ c1: 0.4, c2: 0.6 }} }}
+servers:
+  s1: {{ process_time: "exponential(1.5 min)" }}
+  s2: {{ process_time: "exponential(1.2 min)" }}
+conveyors:
+{}{}{}{}sinks:
+  done1: {{}}
+  done2: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261009
+"#,
+        conveyor("c1", "arrivals", "s1"),
+        conveyor("c2", "arrivals", "s2"),
+        conveyor("o1", "s1", "done1"),
+        conveyor("o2", "s2", "done2"),
+    );
+    let results = replications(&spec(&yaml));
+    let w = |lambda: f64, mean: f64| 1.0 / (1.0 / mean - lambda);
+    check(
+        &results,
+        "split M/M/1 #1 time in system",
+        w(0.4 / 60.0, 90.0) + TRANSIT,
+        0.02,
+        |r| r.sinks[0].time_in_system.mean(),
+    );
+    check(
+        &results,
+        "split M/M/1 #2 time in system",
+        w(0.6 / 60.0, 72.0) + TRANSIT,
+        0.02,
+        |r| r.sinks[1].time_in_system.mean(),
+    );
+}
+
+#[test]
+fn mm1_with_bernoulli_feedback() {
+    // After service a part goes back to the same queue with probability
+    // p = 0.2. Arrivals at the server: λ/(1 − p) = 1.25/min; mean service
+    // 36 s (μ = 1.667/min, ρ = 0.75). With exponential service the mean
+    // number in system doesn't depend on the order parts are taken, so by
+    // Little's law T = 1 / ((1 − p)(μ − λ/(1 − p))) = 3 min.
+    let yaml = format!(
+        r#"
+format: outliers-sim/0.1
+name: feedback
+entities: {{ part: {{}} }}
+sources:
+  arrivals: {{ creates: part, interarrival: "exponential(1 min)" }}
+servers:
+  server:
+    process_time: "exponential(36 s)"
+    input: {{ rule: first_come }}
+    output: {{ rule: probability, weights: {{ out: 0.8, back: 0.2 }} }}
+conveyors:
+{}{}{}sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261009
+"#,
+        conveyor("c_in", "arrivals", "server"),
+        conveyor("back", "server", "server"),
+        conveyor("out", "server", "done"),
+    );
+    let results = replications(&spec(&yaml));
+    let (lambda, p, mean) = (1.0 / 60.0, 0.2, 36.0);
+    let t = 1.0 / ((1.0 - p) * (1.0 / mean - lambda / (1.0 - p)));
+    // Conveyors: c_in and out once, back 0.25 times on average (1 ms each).
+    let transit = 0.001 * (2.0 + p / (1.0 - p));
+    let results_ref = &results;
+    check(
+        results_ref,
+        "M/M/1 with feedback time in system",
+        t + transit,
+        0.02,
+        time_in_system,
+    );
+    check(
+        results_ref,
+        "M/M/1 with feedback utilization",
+        lambda / (1.0 - p) * mean,
+        0.01,
+        |r| r.servers[0].busy,
+    );
+}
