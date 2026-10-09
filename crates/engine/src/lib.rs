@@ -5,13 +5,16 @@
 //! are handled outside this crate (see `outliers-sim-model`).
 
 mod events;
+mod experiment;
 pub mod results;
 mod rng;
 mod sim;
 pub mod spec;
+pub mod stats;
 mod time;
 pub mod trace;
 
+pub use experiment::parallel_replications;
 pub use results::ReplicationResult;
 pub use sim::simulate;
 pub use spec::Spec;

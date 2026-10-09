@@ -2,7 +2,16 @@
 
 Open-source discrete event simulation. Models are plain YAML files: you can diff them, review them, test them and run them headless.
 
-> Early development. `validate` works. The engine simulates (sources, accumulating conveyors, servers with failures, sinks), but `run` isn't wired up yet.
+> Early development. Sources, accumulating conveyors, servers with failures and sinks; validated against queueing theory.
+
+## Usage
+
+```sh
+outliers-sim validate examples/conveyor-line.yaml   # check a model, show what was understood
+outliers-sim run examples/conveyor-line.yaml        # run the experiment
+```
+
+`run` runs the replications in parallel and prints every measure as mean ± 95% confidence interval. It writes `summary.json`, `replications.csv` and (if the model asks for it) an `events.jsonl` event log to `results/<model name>/`. See `outliers-sim run --help` for options.
 
 ## Layout
 
@@ -19,7 +28,7 @@ Open-source discrete event simulation. Models are plain YAML files: you can diff
 
 ```sh
 cargo test --workspace
-cargo run -- validate examples/conveyor-line.yaml
+cargo run --release -- run examples/conveyor-line.yaml
 ```
 
 ## License

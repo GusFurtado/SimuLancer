@@ -85,9 +85,35 @@ Working name. Separate from the `outliers` workspace.
 - **Trace:** the engine emits per-part events (created, entered conveyor, reached end, started/finished process, exited, lost) and failure/repair events through an `Observer`. Event logs and the viewer are built on it.
 - **Performance (first measurement):** 30 replications × 128 h of the conveyor-line example in 0.36 s on one thread, release build, with the full trace kept in memory. That's about 7 M trace events/s.
 
+## Verification against queueing theory (implemented 2026-10-09)
+
+`crates/engine/tests/queueing.rs` runs models with exact analytical answers on every `cargo test`, and so in CI. Conveyors are made practically invisible: 1 ms transit, room for 10,000 parts, 0.1 µs to close up a queue.
+
+| Model | Exact answer from | Checks |
+|---|---|---|
+| M/M/1, ρ = 0.7 | 1 / (μ − λ) | time in system, utilization |
+| M/M/3 | Erlang C | time in system, utilization |
+| M/D/1, M/G/1 triangular, M/G/1 lognormal | Pollaczek-Khinchine | time in system |
+| M/G/1 with exponential busy-time failures, preemptive resume | P-K on the completion time C = S + repairs during S | time in system, failed share, busy share |
+| Two M/M/1 in series | Burke's theorem | time in system |
+| M/M/1/5 with `when_blocked: drop` | finite-capacity formulas + PASTA | share of arrivals lost, time in system |
+
+- **Pass rule:** 20 replications × 1000 h after a 50 h warm-up. The exact value must be within 4 standard errors of the estimate, and the relative standard error must be ≤ 2% (≤ 1% for utilization), so a pass actually means something. Seeds are fixed, so tests never flake.
+- **Bias check:** with the default seed, all estimates were slightly low (between −0.4 and −1.7 SE). They share the arrival stream through common random numbers, so they move together. Seeds 7, 12345 and 99 flip the signs (seed 12345 is mostly positive), so there's no sign of bias.
+- The engine is built with `opt-level = 3` even in debug builds (`[profile.dev.package.outliers-sim-engine]`), so the whole test suite runs in about 5 s.
+
+## `run` and result files (implemented 2026-10-09)
+
+- Replications run in parallel on all cores (`--threads` to limit), with a work queue and no extra crate. Results are identical whatever the thread count; a test compares the output files byte for byte.
+- Every measure is reported as mean ± 95% Student-t confidence interval across replications, plus min and max. The t quantiles are computed in the engine (log-gamma + incomplete beta), with no stats crate. With 1 replication the CI shows "n/a" and a warning.
+- Output goes to `results/<model name>/` by default (`--output-dir` to change; gitignored):
+  - `summary.json`: one entry per measure with n, mean, half-width, sd, min and max, in standard units with an explicit `unit` field (`s`, `fraction`, `parts`, `parts/h`, `count`).
+  - `replications.csv`: long format, one row per replication × measure. Raw values for spreadsheets, pandas or R.
+  - `events.jsonl`: only when the model sets `outputs.event_log: jsonl`, and for one replication (`--log-replication`, default 1). The whole run is included, warm-up too.
+- **Event log format, decided: JSON Lines** (`outliers-sim-events/0.1`). The first line is a header with the model structure the viewer needs (conveyor ends, length, speed, spacing and capacity; server capacity and failure names). Then one event per line, with `t` in seconds written exactly to the µs, and objects referred to by name. Size: about 6 MB / 88k lines for 128 h of the conveyor line. Parquet can come later if size becomes a problem.
+- Display units are chosen per measure by the table (fractions → %, durations → s/min/h by magnitude). Files always use standard units.
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?
-- Event log format: JSON Lines, CSV, or Parquet?
 - Manufacturing v1 scope: which constructs (sources, queues, resources, routing, breakdowns/shifts, batching, conveyors)?
-- How to verify the engine: manufacturing examples have no closed-form answers, so a few M/M/c-style analytical models are still worth keeping in CI as correctness tests.

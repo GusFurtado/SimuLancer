@@ -1,10 +1,19 @@
-use std::fs;
+mod measures;
+mod output;
+mod report;
+
+use std::fs::{self, File};
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::thread;
+use std::time::Instant;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{Distribution, Node, Spec};
-use outliers_sim_model::Model;
+use outliers_sim_engine::stats::Summary;
+use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
+use outliers_sim_model::{EventLog, Model};
 
 /// Open-source discrete event simulation. Models are YAML files.
 #[derive(Parser)]
@@ -21,11 +30,26 @@ enum Command {
         /// Path to the model YAML file.
         model: PathBuf,
     },
-    /// Run a model's experiment and print a summary.
-    Run {
-        /// Path to the model YAML file.
-        model: PathBuf,
-    },
+    /// Run a model's experiment, print a summary and write result files.
+    Run(RunArgs),
+}
+
+#[derive(Args)]
+struct RunArgs {
+    /// Path to the model YAML file.
+    model: PathBuf,
+    /// Number of replications, overriding the model's `experiment.replications`.
+    #[arg(short, long)]
+    replications: Option<u32>,
+    /// Threads to run replications on [default: all CPU cores].
+    #[arg(short, long)]
+    threads: Option<usize>,
+    /// Where to write result files [default: results/<model name>].
+    #[arg(short, long)]
+    output_dir: Option<PathBuf>,
+    /// Which replication to write the event log for (when the model asks for one).
+    #[arg(long, default_value_t = 1)]
+    log_replication: u32,
 }
 
 fn main() -> ExitCode {
@@ -38,14 +62,109 @@ fn main() -> ExitCode {
             }
             None => ExitCode::FAILURE,
         },
-        Command::Run { model } => {
-            if load(model).is_none() {
-                return ExitCode::FAILURE;
+        Command::Run(args) => match run(args) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("error: {message}");
+                ExitCode::FAILURE
             }
-            eprintln!("`run` is not implemented yet");
-            ExitCode::from(2)
-        }
+        },
     }
+}
+
+fn run(args: &RunArgs) -> Result<(), String> {
+    let Some(model) = load(&args.model) else {
+        return Err("the model has errors (see above)".into());
+    };
+    let mut spec = model.spec.clone();
+    if let Some(n) = args.replications {
+        if n == 0 {
+            return Err("--replications must be at least 1".into());
+        }
+        spec.experiment.replications = n;
+    }
+    let replications = spec.experiment.replications;
+    let log_events = model.outputs.event_log == EventLog::Jsonl;
+    if log_events && !(1..=replications).contains(&args.log_replication) {
+        return Err(format!(
+            "--log-replication {} is outside 1..={replications}",
+            args.log_replication
+        ));
+    }
+    let threads = args
+        .threads
+        .unwrap_or_else(|| thread::available_parallelism().map_or(1, |n| n.get()))
+        .max(1);
+    let out_dir = args
+        .output_dir
+        .clone()
+        .unwrap_or_else(|| Path::new("results").join(&model.name));
+    fs::create_dir_all(&out_dir).map_err(|e| format!("can't create {}: {e}", out_dir.display()))?;
+    let events_path = out_dir.join("events.jsonl");
+
+    let started = Instant::now();
+    let results = parallel_replications(replications, threads, |r| {
+        if log_events && r == args.log_replication {
+            let file = File::create(&events_path)?;
+            let mut log = output::EventLog::new(BufWriter::new(file), &model.name, &spec, r)?;
+            let result = simulate(&spec, r, &mut log);
+            log.finish()?;
+            Ok(result)
+        } else {
+            Ok(simulate(&spec, r, &mut NoTrace))
+        }
+    })
+    .into_iter()
+    .collect::<std::io::Result<Vec<_>>>()
+    .map_err(|e| format!("can't write {}: {e}", events_path.display()))?;
+    let elapsed = started.elapsed();
+
+    let measures: Vec<_> = measures::collect(&spec, &model.outputs.summary, &results)
+        .into_iter()
+        .map(|m| {
+            let summary = Summary::of(&m.values, output::CONFIDENCE);
+            (m, summary)
+        })
+        .collect();
+
+    let e = &spec.experiment;
+    println!(
+        "{}: {} replication{} × {} after {} warm-up, seed {} ({:.2} s on {} thread{})\n",
+        model.name,
+        replications,
+        if replications == 1 { "" } else { "s" },
+        duration(e.run_length.as_secs_f64()),
+        duration(e.warmup.as_secs_f64()),
+        e.seed,
+        elapsed.as_secs_f64(),
+        threads.min(replications as usize),
+        if threads.min(replications as usize) == 1 {
+            ""
+        } else {
+            "s"
+        },
+    );
+    print!("{}", report::table(&measures));
+    if replications < 2 {
+        println!("\nwarning: confidence intervals need at least 2 replications");
+    }
+
+    let summary_path = out_dir.join("summary.json");
+    let csv_path = out_dir.join("replications.csv");
+    output::write_summary(&summary_path, &model.name, &spec, &measures)
+        .map_err(|e| format!("can't write {}: {e}", summary_path.display()))?;
+    output::write_replications_csv(&csv_path, &measures)
+        .map_err(|e| format!("can't write {}: {e}", csv_path.display()))?;
+    println!("\nwrote {}", summary_path.display());
+    println!("wrote {}", csv_path.display());
+    if log_events {
+        println!(
+            "wrote {} (replication {})",
+            events_path.display(),
+            args.log_replication
+        );
+    }
+    Ok(())
 }
 
 /// Loads a model, printing any errors to stderr.
