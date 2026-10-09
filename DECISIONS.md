@@ -214,6 +214,40 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
   Common random numbers help less here (2.1× vs 5.6× for the buffer change): a different routing rule sends the same arriving part to a different mill, so the two scenarios drift apart more.
 - **Display:** differences of percentages are shown in percentage points (pp). Small nonzero differences get extra decimals instead of showing as `+0.00` next to "higher".
 
+## Scenario files (implemented 2026-10-09)
+
+A scenario is a base model plus a list of changes, instead of a full copy:
+
+```yaml
+format: outliers-sim-scenario/0.1
+name: two-cells-first-available
+base: two-cells.yaml            # relative to the scenario file
+changes:
+  sources.arrivals.output: { rule: first_available }
+```
+
+- **Paths:** each change replaces the value at a dotted path (`conveyors.c2.length`, list items by index: `servers.mill.failures.0.downtime`). The last segment can be a new key of an existing map (e.g. `servers.lathe.capacity` when the base didn't set it). `format`, `name` and `description` are set at the top of the scenario, not as changes. Removing objects isn't supported; topology changes are still full copies.
+- **Path errors** say what exists ("`servers` has no `mil_b` (it has: mill_a, mill_b, inspect)").
+- **Loading:** the base must load on its own first; its errors are reported in the base file. The changes are then applied to a generic YAML tree, the result is written out as YAML with every line tagged with its dotted path, and loaded like any model. Errors are mapped back to the change that caused them and reported at that change's line in the scenario file, with the usual message ("with this change: unknown variant `round_robn`, expected one of ...").
+- **A scenario is exactly equivalent to the full copy it replaces:** a test checks the loaded models are identical, and the `compare` results for the examples are unchanged to the last digit.
+- **Layouts:** a scenario uses its base model's layout file.
+- **The examples' scenario copies are now scenario files:** `conveyor-line-longer-c2.yaml`, `two-cells-first-available.yaml` and `two-cells-round-robin.yaml`, each about 8 lines.
+- **The format is meant to be the web UI's save format and the API's payload:** a change set is just a map of paths to values.
+
+## Web application and API (decided 2026-10-09, not built yet)
+
+The target deployment: IT hosts the simulator on a server, and users open it in a browser to configure scenarios, press play, and get a report and animation.
+
+- **One binary:** `outliers-sim serve --models <dir> --port <n>`. It serves the web UI and runs simulations on the server, natively, on all cores. Why the server and not WebAssembly in the browser: full performance, models and scenarios shared by the team, and thin clients (tablets work).
+- **No build step:** the web UI is plain HTML/JS compiled into the binary, like `report.html`. No npm, no CDN, works on intranets without internet.
+- **HTTP library: `axum`/`tokio`.** It's build-time weight only; the shipped binary is still a single static file with no runtime dependencies.
+- **Job queue:** concurrent runs wait their turn instead of fighting over cores; progress is streamed to the browser.
+- **Storage:** no database. Models and scenarios are YAML files in a folder, which IT can back up or put in git.
+- **Security:** HTTPS and authentication come from IT's reverse proxy, not built in for v1.
+- **The web UI uses only the public, documented HTTP API**, so anything a user can click, a programmer can script (Python, R, curl). An OpenAPI description will be published. The CLI and its file formats stay the batch/CI interface. A Python package wrapping the engine in-process is a later option.
+- **Animation:** a plain 2D top-down canvas replay (a port of `viewer/scripts/replay.gd`, which is tested against the engine) is the default: instant, about 30 KB, works on tablets. The UI shows a **"3D" button as a placeholder** for a future Godot web export of the viewer, kept so it isn't forgotten. That export is roughly 35–40 MB of WebAssembly (8–10 MB compressed, to be measured), cached by the browser and loaded only on demand. The user judged that acceptable compared with existing DES software, but 2D comes first.
+- **Order of work:** scenario files (done), then `serve` + API, then the web UI (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?

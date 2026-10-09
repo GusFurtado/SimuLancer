@@ -14,7 +14,7 @@ use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{Distribution, InputRule, Node, Routing, Spec};
 use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
-use outliers_sim_model::{EventLog, Layout, Model};
+use outliers_sim_model::{EventLog, Layout, Model, ScenarioError};
 
 /// Open-source discrete event simulation. Models are YAML files.
 #[derive(Parser)]
@@ -88,7 +88,7 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             };
             print!("{}", describe(model, &loaded));
-            match find_layout(model, layout.as_deref()) {
+            match find_layout(&layout_owner(model), layout.as_deref()) {
                 None => ExitCode::SUCCESS,
                 Some(path) => match load_layout(&path, &loaded) {
                     Some(_) => {
@@ -197,7 +197,7 @@ fn run(args: &RunArgs) -> Result<(), String> {
     let Some(model) = load(&args.model) else {
         return Err("the model has errors (see above)".into());
     };
-    let layout = match find_layout(&args.model, args.layout.as_deref()) {
+    let layout = match find_layout(&layout_owner(&args.model), args.layout.as_deref()) {
         None => None,
         Some(path) => Some(
             load_layout(&path, &model)
@@ -336,23 +336,70 @@ fn load_layout(path: &Path, model: &Model) -> Option<Layout> {
     }
 }
 
-/// Loads a model, printing any errors to stderr.
-fn load(path: &Path) -> Option<Model> {
-    let display = path.display().to_string();
-    let source = match fs::read_to_string(path) {
-        Ok(source) => source,
+fn read(path: &Path) -> Option<String> {
+    match fs::read_to_string(path) {
+        Ok(source) => Some(source),
         Err(err) => {
-            eprintln!("error: can't read {display}: {err}");
-            return None;
-        }
-    };
-    match outliers_sim_model::load_str(&source) {
-        Ok(model) => Some(model),
-        Err(err) => {
-            eprint!("{}", err.render(&display, &source));
+            eprintln!("error: can't read {}: {err}", path.display());
             None
         }
     }
+}
+
+/// Loads a model or a scenario, printing any errors to stderr.
+fn load(path: &Path) -> Option<Model> {
+    let display = path.display().to_string();
+    let source = read(path)?;
+    if !outliers_sim_model::is_scenario(&source) {
+        return match outliers_sim_model::load_str(&source) {
+            Ok(model) => Some(model),
+            Err(err) => {
+                eprint!("{}", err.render(&display, &source));
+                None
+            }
+        };
+    }
+    let scenario = match outliers_sim_model::parse_scenario(&source) {
+        Ok(scenario) => scenario,
+        Err(err) => {
+            eprint!("{}", err.render(&display, &source));
+            return None;
+        }
+    };
+    let base_path = scenario_base(path, &scenario.base.value);
+    let base_source = read(&base_path)?;
+    match outliers_sim_model::load_scenario(&scenario, &base_source) {
+        Ok(model) => Some(model),
+        Err(ScenarioError::Scenario(err)) => {
+            eprint!("{}", err.render(&display, &source));
+            None
+        }
+        Err(ScenarioError::Base(err)) => {
+            eprint!(
+                "{}",
+                err.render(&base_path.display().to_string(), &base_source)
+            );
+            eprintln!("(in {}, the base model of {display})", base_path.display());
+            None
+        }
+    }
+}
+
+/// The base model of a scenario: its `base:` path, relative to the scenario file.
+fn scenario_base(scenario_path: &Path, base: &str) -> PathBuf {
+    scenario_path.parent().unwrap_or(Path::new("")).join(base)
+}
+
+/// The model whose layout a file uses: the file itself, or a scenario's base.
+fn layout_owner(path: &Path) -> PathBuf {
+    fs::read_to_string(path)
+        .ok()
+        .filter(|source| outliers_sim_model::is_scenario(source))
+        .and_then(|source| outliers_sim_model::parse_scenario(&source).ok())
+        .map_or_else(
+            || path.to_path_buf(),
+            |s| scenario_base(path, &s.base.value),
+        )
 }
 
 fn describe(path: &Path, model: &Model) -> String {

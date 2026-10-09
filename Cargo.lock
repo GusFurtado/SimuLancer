@@ -270,6 +270,7 @@ dependencies = [
  "outliers-sim-engine",
  "serde",
  "serde-saphyr",
+ "serde_json",
 ]
 
 [[package]]

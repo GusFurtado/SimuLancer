@@ -8,6 +8,7 @@ mod diagnostic;
 mod expr;
 mod layout;
 mod raw;
+mod scenario;
 mod units;
 
 use outliers_sim_engine::Spec;
@@ -17,6 +18,10 @@ use serde_saphyr::{MessageFormatter, UserMessageFormatter};
 pub use diagnostic::{Diagnostic, LoadError, Position};
 pub use layout::{Layout, PlacedConveyor, PlacedObject, load_layout};
 pub use raw::{EventLog, SummaryItem};
+pub use scenario::{
+    Merged, SCENARIO_FORMAT, Scenario, ScenarioError, is_scenario, load_scenario, merge,
+    parse_scenario,
+};
 
 /// The `format:` value this version reads.
 pub const FORMAT: &str = "outliers-sim/0.1";

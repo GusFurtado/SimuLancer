@@ -1,60 +1,8 @@
-# Two parallel cells feeding one inspection station, with rework.
-#
-#   arrivals ──c_a──> mill_a ──c_a_out──┐                  ┌──c_ship────> shipping   (90%)
-#       │               ^                ├──> inspect ──────┤
-#       └──c_b──> mill_b ──c_b_out───────┘                  └──c_rework──> mill_a   (10%)
-#
-# Routing (several outgoing conveyors) and merging (several incoming) each
-# need an explicit rule:
-# - arrivals sends each part using `first_available` (this scenario's only change);
-# - inspect takes parts from both cells in the order they arrived;
-# - mill_a always takes rework before new parts;
-# - inspect sends 10% of parts back to mill_a.
-
-format: outliers-sim/0.1
+# two-cells.yaml with `first_available` instead of `shortest_queue` at the source.
+# Compare with: outliers-sim compare examples/two-cells.yaml examples/two-cells-first-available.yaml
+format: outliers-sim-scenario/0.1
 name: two-cells-first-available
-description: two-cells with `first_available` instead of `shortest_queue` at the source (everything else identical).
-
-entities:
-  part: {}
-
-sources:
-  arrivals:
-    creates: part
-    interarrival: "exponential(1 min)"
-    output: { rule: first_available }
-
-servers:
-  mill_a:
-    process_time: "triangular(1 min, 1.4 min, 2.1 min)"
-    input: { rule: priority, order: [c_rework, c_a] }
-  mill_b:
-    process_time: "triangular(1 min, 1.4 min, 2.1 min)"
-    failures:
-      - name: breakdown
-        uptime: "exponential(1 h)"
-        downtime: "uniform(5 min, 15 min)"
-  inspect:
-    process_time: "uniform(30 s, 50 s)"
-    input: { rule: first_come }
-    output:
-      rule: probability
-      weights: { c_ship: 0.9, c_rework: 0.1 }
-
-conveyors:
-  c_a:      { from: arrivals, to: mill_a,   length: "9.3 m",  speed: "0.5 m/s", spacing: "0.5 m" }
-  c_b:      { from: arrivals, to: mill_b,   length: "9.3 m",  speed: "0.5 m/s", spacing: "0.5 m" }
-  c_a_out:  { from: mill_a,   to: inspect,  length: "8.9 m",  speed: "0.5 m/s", spacing: "0.5 m" }
-  c_b_out:  { from: mill_b,   to: inspect,  length: "8.9 m",  speed: "0.5 m/s", spacing: "0.5 m" }
-  c_ship:   { from: inspect,  to: shipping, length: "6.6 m",  speed: "0.5 m/s", spacing: "0.5 m" }
-  c_rework: { from: inspect,  to: mill_a,   length: "15.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
-
-sinks:
-  shipping: {}
-
-experiment:
-  replications: 30
-  warmup: "8 h"
-  run_length: "120 h"
-  seed: 20261009
-
+description: two-cells with `first_available` routing at the source instead of `shortest_queue`.
+base: two-cells.yaml
+changes:
+  sources.arrivals.output: { rule: first_available }
