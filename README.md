@@ -12,6 +12,18 @@ outliers-sim run examples/conveyor-line.yaml        # run the experiment
 outliers-sim compare examples/conveyor-line.yaml examples/conveyor-line-longer-c2.yaml
 ```
 
+A scenario doesn't need to copy the whole model. A scenario file lists only what changes:
+
+```yaml
+format: outliers-sim-scenario/0.1
+name: two-cells-first-available
+base: two-cells.yaml
+changes:
+  sources.arrivals.output: { rule: first_available }
+```
+
+Scenario files work anywhere a model does (`validate`, `run`, `compare`). Errors point at the change that caused them.
+
 `compare` runs both models on the same random numbers (paired replications) and reports each measure's difference with a 95% confidence interval, plus a verdict: higher, lower, or no clear difference. Example: doubling conveyor c2 raises throughput by 1.1 ± 0.1 parts/h, but parts spend 5.0 ± 0.5 min longer in the system.
 
 `run` runs the replications in parallel and prints every measure as mean ± 95% confidence interval. It writes these files to `results/<model name>/`:
