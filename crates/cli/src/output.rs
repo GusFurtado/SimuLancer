@@ -22,6 +22,11 @@ const REPORT_TEMPLATE: &str = include_str!("report.html");
 /// The checked layout for viewers, in meters (Y up), as JSON: viewers don't
 /// need a YAML parser.
 pub fn write_layout(path: &Path, layout: &Layout) -> io::Result<()> {
+    fs::write(path, format!("{}\n", layout_json(layout)))
+}
+
+/// The layout as viewers read it (`layout.json`).
+pub fn layout_json(layout: &Layout) -> serde_json::Value {
     let objects: serde_json::Map<String, serde_json::Value> = layout
         .objects
         .iter()
@@ -37,13 +42,12 @@ pub fn write_layout(path: &Path, layout: &Layout) -> io::Result<()> {
         .iter()
         .map(|c| (c.name.clone(), json!({ "path": c.path })))
         .collect();
-    let data = json!({
+    json!({
         "format": "outliers-sim-layout/0.1",
         "units": "m",
         "objects": objects,
         "conveyors": conveyors,
-    });
-    fs::write(path, format!("{data}\n"))
+    })
 }
 
 /// A self-contained HTML report: the template with the results embedded as

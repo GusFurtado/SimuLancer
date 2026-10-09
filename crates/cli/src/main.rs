@@ -1,10 +1,12 @@
 mod compare;
+mod files;
 mod measures;
 mod output;
 mod report;
+mod runner;
+mod server;
 
-use std::fs::{self, File};
-use std::io::BufWriter;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::thread;
@@ -12,9 +14,8 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{Distribution, InputRule, Node, Routing, Spec};
-use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
-use outliers_sim_model::{EventLog, Layout, Model, ScenarioError};
+use outliers_sim_model::Model;
 
 /// Open-source discrete event simulation. Models are YAML files.
 #[derive(Parser)]
@@ -26,9 +27,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Check a model file for errors without running it.
+    /// Check a model or scenario file for errors without running it.
     Validate {
-        /// Path to the model YAML file.
+        /// Path to the model or scenario YAML file.
         model: PathBuf,
         /// Layout file to check [default: <model>.layout.yaml next to the model, if present].
         #[arg(long)]
@@ -39,6 +40,8 @@ enum Command {
     /// Compare a scenario against a base model: paired replications with
     /// common random numbers, and a confidence interval on each difference.
     Compare(CompareArgs),
+    /// Serve the web application and its HTTP API.
+    Serve(server::ServeArgs),
 }
 
 #[derive(Args)]
@@ -61,7 +64,7 @@ struct CompareArgs {
 
 #[derive(Args)]
 struct RunArgs {
-    /// Path to the model YAML file.
+    /// Path to the model or scenario YAML file.
     model: PathBuf,
     /// Number of replications, overriding the model's `experiment.replications`.
     #[arg(short, long)]
@@ -88,19 +91,24 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             };
             print!("{}", describe(model, &loaded));
-            match find_layout(&layout_owner(model), layout.as_deref()) {
-                None => ExitCode::SUCCESS,
-                Some(path) => match load_layout(&path, &loaded) {
-                    Some(_) => {
-                        println!("\nlayout ok: {}", path.display());
-                        ExitCode::SUCCESS
-                    }
-                    None => ExitCode::FAILURE,
-                },
+            match files::load_layout(model, layout.as_deref(), &loaded) {
+                Ok(None) => ExitCode::SUCCESS,
+                Ok(Some(l)) => {
+                    l.warnings.iter().for_each(|w| eprint!("{w}"));
+                    let owner = files::layout_owner(model);
+                    let path = files::find_layout(&owner, layout.as_deref()).expect("just loaded");
+                    println!("\nlayout ok: {}", path.display());
+                    ExitCode::SUCCESS
+                }
+                Err(failure) => {
+                    eprint!("{}", failure.render());
+                    ExitCode::FAILURE
+                }
             }
         }
         Command::Run(args) => report_errors(run(args)),
         Command::Compare(args) => report_errors(compare_scenarios(args)),
+        Command::Serve(args) => report_errors(server::serve(args)),
     }
 }
 
@@ -118,6 +126,17 @@ fn thread_count(requested: Option<usize>) -> usize {
     requested
         .unwrap_or_else(|| thread::available_parallelism().map_or(1, |n| n.get()))
         .max(1)
+}
+
+/// Loads a model or a scenario, printing any errors to stderr.
+fn load(path: &Path) -> Option<Model> {
+    match files::load_model(path) {
+        Ok(model) => Some(model),
+        Err(failure) => {
+            eprint!("{}", failure.render());
+            None
+        }
+    }
 }
 
 fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
@@ -194,212 +213,64 @@ fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
 }
 
 fn run(args: &RunArgs) -> Result<(), String> {
-    let Some(model) = load(&args.model) else {
-        return Err("the model has errors (see above)".into());
-    };
-    let layout = match find_layout(&layout_owner(&args.model), args.layout.as_deref()) {
-        None => None,
-        Some(path) => Some(
-            load_layout(&path, &model)
-                .ok_or_else(|| "the layout has errors (see above)".to_string())?,
-        ),
-    };
-    let mut spec = model.spec.clone();
-    if let Some(n) = args.replications {
-        if n == 0 {
-            return Err("--replications must be at least 1".into());
+    let model = load(&args.model).ok_or("the model has errors (see above)")?;
+    let layout = match files::load_layout(&args.model, args.layout.as_deref(), &model) {
+        Ok(layout) => layout,
+        Err(failure) => {
+            eprint!("{}", failure.render());
+            return Err("the layout has errors (see above)".into());
         }
-        spec.experiment.replications = n;
+    };
+    if let Some(l) = &layout {
+        l.warnings.iter().for_each(|w| eprint!("{w}"));
     }
-    let replications = spec.experiment.replications;
-    let log_events = model.outputs.event_log == EventLog::Jsonl;
-    if log_events && !(1..=replications).contains(&args.log_replication) {
-        return Err(format!(
-            "--log-replication {} is outside 1..={replications}",
-            args.log_replication
-        ));
-    }
-    let threads = thread_count(args.threads);
     let out_dir = args
         .output_dir
         .clone()
         .unwrap_or_else(|| Path::new("results").join(&model.name));
-    fs::create_dir_all(&out_dir).map_err(|e| format!("can't create {}: {e}", out_dir.display()))?;
-    let events_path = out_dir.join("events.jsonl");
+    let outcome = runner::execute(
+        &model,
+        &runner::RunOptions {
+            replications: args.replications,
+            threads: thread_count(args.threads),
+            log_replication: args.log_replication,
+            layout: layout.as_ref().map(|l| &l.layout),
+            progress: None,
+        },
+        &out_dir,
+    )?;
 
-    let started = Instant::now();
-    let results = parallel_replications(replications, threads, |r| {
-        if log_events && r == args.log_replication {
-            let file = File::create(&events_path)?;
-            let mut log = output::EventLog::new(BufWriter::new(file), &model.name, &spec, r)?;
-            let result = simulate(&spec, r, &mut log);
-            log.finish()?;
-            Ok(result)
-        } else {
-            Ok(simulate(&spec, r, &mut NoTrace))
-        }
-    })
-    .into_iter()
-    .collect::<std::io::Result<Vec<_>>>()
-    .map_err(|e| format!("can't write {}: {e}", events_path.display()))?;
-    let elapsed = started.elapsed();
-
-    let measures: Vec<_> = measures::collect(&spec, &model.outputs.summary, &results)
-        .into_iter()
-        .map(|m| {
-            let summary = Summary::of(&m.values, output::CONFIDENCE);
-            (m, summary)
-        })
-        .collect();
-
-    let e = &spec.experiment;
+    let e = &outcome.spec.experiment;
+    let n = e.replications;
     println!(
         "{}: {} replication{} × {} after {} warm-up, seed {} ({:.2} s on {} thread{})\n",
         model.name,
-        replications,
-        if replications == 1 { "" } else { "s" },
+        n,
+        if n == 1 { "" } else { "s" },
         duration(e.run_length.as_secs_f64()),
         duration(e.warmup.as_secs_f64()),
         e.seed,
-        elapsed.as_secs_f64(),
-        threads.min(replications as usize),
-        if threads.min(replications as usize) == 1 {
-            ""
-        } else {
-            "s"
-        },
+        outcome.elapsed.as_secs_f64(),
+        outcome.threads,
+        if outcome.threads == 1 { "" } else { "s" },
     );
-    print!("{}", report::table(&measures));
-    if replications < 2 {
+    print!("{}", report::table(&outcome.measures));
+    if n < 2 {
         println!("\nwarning: confidence intervals need at least 2 replications");
     }
-
-    let summary_path = out_dir.join("summary.json");
-    let csv_path = out_dir.join("replications.csv");
-    output::write_summary(&summary_path, &model.name, &spec, &measures)
-        .map_err(|e| format!("can't write {}: {e}", summary_path.display()))?;
-    output::write_replications_csv(&csv_path, &measures)
-        .map_err(|e| format!("can't write {}: {e}", csv_path.display()))?;
-    let report_path = out_dir.join("report.html");
-    output::write_report(&report_path, &model, &spec, &measures)
-        .map_err(|e| format!("can't write {}: {e}", report_path.display()))?;
-    println!("\nwrote {}", report_path.display());
-    println!("wrote {}", summary_path.display());
-    println!("wrote {}", csv_path.display());
-    if log_events {
-        println!(
-            "wrote {} (replication {})",
-            events_path.display(),
-            args.log_replication
-        );
-    }
-    if let Some(layout) = &layout {
-        let layout_path = out_dir.join("layout.json");
-        output::write_layout(&layout_path, layout)
-            .map_err(|e| format!("can't write {}: {e}", layout_path.display()))?;
-        println!("wrote {}", layout_path.display());
+    println!();
+    for file in &outcome.files {
+        match (
+            file.file_name().and_then(|f| f.to_str()),
+            outcome.logged_replication,
+        ) {
+            (Some("events.jsonl"), Some(r)) => {
+                println!("wrote {} (replication {r})", file.display())
+            }
+            _ => println!("wrote {}", file.display()),
+        }
     }
     Ok(())
-}
-
-/// The layout to use: the one given, or `<model>.layout.yaml` next to the model.
-fn find_layout(model: &Path, explicit: Option<&Path>) -> Option<PathBuf> {
-    if let Some(path) = explicit {
-        return Some(path.to_path_buf());
-    }
-    let stem = model.file_stem()?.to_str()?;
-    let sibling = model.with_file_name(format!("{stem}.layout.yaml"));
-    sibling.exists().then_some(sibling)
-}
-
-/// Loads and checks a layout, printing warnings and errors to stderr.
-fn load_layout(path: &Path, model: &Model) -> Option<Layout> {
-    let display = path.display().to_string();
-    let source = match fs::read_to_string(path) {
-        Ok(source) => source,
-        Err(err) => {
-            eprintln!("error: can't read {display}: {err}");
-            return None;
-        }
-    };
-    match outliers_sim_model::load_layout(&source, model) {
-        Ok((layout, warnings)) => {
-            for w in warnings {
-                eprint!("{}", w.render_as("warning", &display, &source));
-            }
-            Some(layout)
-        }
-        Err(err) => {
-            eprint!("{}", err.render(&display, &source));
-            None
-        }
-    }
-}
-
-fn read(path: &Path) -> Option<String> {
-    match fs::read_to_string(path) {
-        Ok(source) => Some(source),
-        Err(err) => {
-            eprintln!("error: can't read {}: {err}", path.display());
-            None
-        }
-    }
-}
-
-/// Loads a model or a scenario, printing any errors to stderr.
-fn load(path: &Path) -> Option<Model> {
-    let display = path.display().to_string();
-    let source = read(path)?;
-    if !outliers_sim_model::is_scenario(&source) {
-        return match outliers_sim_model::load_str(&source) {
-            Ok(model) => Some(model),
-            Err(err) => {
-                eprint!("{}", err.render(&display, &source));
-                None
-            }
-        };
-    }
-    let scenario = match outliers_sim_model::parse_scenario(&source) {
-        Ok(scenario) => scenario,
-        Err(err) => {
-            eprint!("{}", err.render(&display, &source));
-            return None;
-        }
-    };
-    let base_path = scenario_base(path, &scenario.base.value);
-    let base_source = read(&base_path)?;
-    match outliers_sim_model::load_scenario(&scenario, &base_source) {
-        Ok(model) => Some(model),
-        Err(ScenarioError::Scenario(err)) => {
-            eprint!("{}", err.render(&display, &source));
-            None
-        }
-        Err(ScenarioError::Base(err)) => {
-            eprint!(
-                "{}",
-                err.render(&base_path.display().to_string(), &base_source)
-            );
-            eprintln!("(in {}, the base model of {display})", base_path.display());
-            None
-        }
-    }
-}
-
-/// The base model of a scenario: its `base:` path, relative to the scenario file.
-fn scenario_base(scenario_path: &Path, base: &str) -> PathBuf {
-    scenario_path.parent().unwrap_or(Path::new("")).join(base)
-}
-
-/// The model whose layout a file uses: the file itself, or a scenario's base.
-fn layout_owner(path: &Path) -> PathBuf {
-    fs::read_to_string(path)
-        .ok()
-        .filter(|source| outliers_sim_model::is_scenario(source))
-        .and_then(|source| outliers_sim_model::parse_scenario(&source).ok())
-        .map_or_else(
-            || path.to_path_buf(),
-            |s| scenario_base(path, &s.base.value),
-        )
 }
 
 fn describe(path: &Path, model: &Model) -> String {

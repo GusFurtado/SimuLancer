@@ -234,7 +234,7 @@ changes:
 - **The examples' scenario copies are now scenario files:** `conveyor-line-longer-c2.yaml`, `two-cells-first-available.yaml` and `two-cells-round-robin.yaml`, each about 8 lines.
 - **The format is meant to be the web UI's save format and the API's payload:** a change set is just a map of paths to values.
 
-## Web application and API (decided 2026-10-09, not built yet)
+## Web application and API (decided 2026-10-09; `serve` + API implemented, UI next)
 
 The target deployment: IT hosts the simulator on a server, and users open it in a browser to configure scenarios, press play, and get a report and animation.
 
@@ -246,7 +246,15 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - **Security:** HTTPS and authentication come from IT's reverse proxy, not built in for v1.
 - **The web UI uses only the public, documented HTTP API**, so anything a user can click, a programmer can script (Python, R, curl). An OpenAPI description will be published. The CLI and its file formats stay the batch/CI interface. A Python package wrapping the engine in-process is a later option.
 - **Animation:** a plain 2D top-down canvas replay (a port of `viewer/scripts/replay.gd`, which is tested against the engine) is the default: instant, about 30 KB, works on tablets. The UI shows a **"3D" button as a placeholder** for a future Godot web export of the viewer, kept so it isn't forgotten. That export is roughly 35–40 MB of WebAssembly (8–10 MB compressed, to be measured), cached by the browser and loaded only on demand. The user judged that acceptable compared with existing DES software, but 2D comes first.
-- **Order of work:** scenario files (done), then `serve` + API, then the web UI (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
+- **`serve` as built:** documented in `docs/api.md`.
+  - **Endpoints:** list, read, check and save models/scenarios; queue, poll and fetch runs.
+  - **Models:** `GET /models/{file}` returns the model as a tree with a scenario's changes applied. Change paths address that tree, which is what forms read and write. Base models are never overwritten through the API; only scenarios are saved.
+  - **Validation errors** name the change path at fault (`"change": "conveyors.c_a.speed"`), so the UI can mark the field.
+  - **Runs** go through the same `runner` module as `outliers-sim run`, so results are identical. A single worker thread runs one job at a time on all cores; others wait as `queued`. Progress counts finished replications. Unsaved scenarios are stored with their results as `scenario.yaml`. The run list is in memory; result folders persist.
+  - **Security:** listens on `127.0.0.1` unless `--host` says otherwise. Model names are plain file names (no paths), and run files come from a fixed list, so requests can't reach outside the two folders. Responses are gzip-compressed; the event log goes from 7.3 MB to 0.8 MB.
+  - **Dependencies added:** `axum`, `tokio`, `tower-http` (gzip). 109 crates in the CLI's build tree, still one static binary.
+  - **Tested** through the router (6 tests: listing, detail, check, save/refuse, runs of files and unsaved scenarios, path traversal) and by hand with `curl` and the Python sweep example in `docs/api.md` against the real server.
+- **Order of work:** scenario files (done), `serve` + API (done), then the web UI (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
 ## Open questions
 

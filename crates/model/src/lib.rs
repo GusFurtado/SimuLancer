@@ -47,6 +47,12 @@ pub fn load_str(source: &str) -> Result<Model, LoadError> {
     build::build(raw).map_err(LoadError::Invalid)
 }
 
+/// A model file as a generic tree (maps in file order): what scenario change
+/// paths address. Not validated; use [`load_str`] for that.
+pub fn to_tree(source: &str) -> Result<serde_json::Value, LoadError> {
+    parse_yaml(source)
+}
+
 /// Parses YAML with the project's strict settings.
 fn parse_yaml<T: DeserializeOwned>(source: &str) -> Result<T, LoadError> {
     let options = serde_saphyr::options! {
