@@ -1,0 +1,26 @@
+# Routing and merging without a layout file: the viewer places objects
+# itself, including a backward loop (rework) and a self-loop (retest).
+format: outliers-sim/0.1
+name: routing
+entities: { part: {} }
+sources:
+  arrivals: { creates: part, interarrival: "exponential(30 s)", output: { rule: round_robin } }
+servers:
+  a: { process_time: "exponential(50 s)", input: { rule: priority, order: [rework, in_a] } }
+  b: { process_time: "exponential(50 s)" }
+  check:
+    process_time: "exponential(15 s)"
+    input: { rule: first_come }
+    output: { rule: probability, weights: { ship: 0.8, rework: 0.1, retest: 0.1 } }
+conveyors:
+  in_a:   { from: arrivals, to: a,     length: "4 m", speed: "1 m/s", spacing: "0.5 m" }
+  in_b:   { from: arrivals, to: b,     length: "4 m", speed: "1 m/s", spacing: "0.5 m" }
+  a_out:  { from: a,        to: check, length: "4 m", speed: "1 m/s", spacing: "0.5 m" }
+  b_out:  { from: b,        to: check, length: "4 m", speed: "1 m/s", spacing: "0.5 m" }
+  ship:   { from: check,    to: done,  length: "4 m", speed: "1 m/s", spacing: "0.5 m" }
+  rework: { from: check,    to: a,     length: "8 m", speed: "1 m/s", spacing: "0.5 m" }
+  retest: { from: check,    to: check, length: "3 m", speed: "1 m/s", spacing: "0.5 m" }
+sinks:
+  done: {}
+experiment: { replications: 1, run_length: "2 h", seed: 1 }
+outputs: { event_log: jsonl }

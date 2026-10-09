@@ -1,0 +1,19 @@
+# Visual layout for two-cells.yaml (meters, Y up). Cells side by side, the
+# rework conveyor loops back around the top.
+model: two-cells.yaml
+units: m
+
+objects:
+  arrivals: { position: [0, 0, 0] }
+  mill_a:   { position: [8, 0, -3], model: machine_small }
+  mill_b:   { position: [8, 0, 3], model: machine_small }
+  inspect:  { position: [16, 0, 0], model: machine_small }
+  shipping: { position: [24, 0, 0] }
+
+conveyors:
+  c_a:      { path: [[0.7, 0, -0.3], [0.7, 0, -3], [7.3, 0, -3]] }          # 2.7 + 6.6
+  c_b:      { path: [[0.7, 0, 0.3], [0.7, 0, 3], [7.3, 0, 3]] }             # 2.7 + 6.6
+  c_a_out:  { path: [[8.7, 0, -3], [15.3, 0, -3], [15.3, 0, -0.7]] }        # 6.6 + 2.3
+  c_b_out:  { path: [[8.7, 0, 3], [15.3, 0, 3], [15.3, 0, 0.7]] }           # 6.6 + 2.3
+  c_ship:   { path: [[16.7, 0, 0], [23.3, 0, 0]] }                          # 6.6
+  c_rework: { path: [[16, 0, -0.7], [16, 0, -6], [8, 0, -6], [8, 0, -3.7]] }  # 5.3 + 8 + 2.3

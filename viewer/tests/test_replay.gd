@@ -1,19 +1,20 @@
 extends SceneTree
 ## Headless test: the viewer's replay must reproduce the engine's state.
-## Run by tests/run_all.sh with two results folders made by `outliers-sim run`:
-##   godot --headless --path viewer -s res://tests/test_replay.gd -- <deterministic> <two-servers>
+## Run by tests/run_all.sh with three results folders made by `outliers-sim run`:
+##   godot --headless --path viewer -s res://tests/test_replay.gd -- <deterministic> <two-servers> <routing>
 
 var failures := 0
 
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
-	if args.size() != 2:
-		printerr("usage: -- <deterministic results dir> <two-servers results dir>")
+	if args.size() != 3:
+		printerr("usage: -- <deterministic dir> <two-servers dir> <routing dir>")
 		quit(2)
 		return
 	test_deterministic(args[0])
 	test_two_servers(args[1])
+	test_routing(args[2])
 	if failures == 0:
 		print("test_replay: all checks passed")
 	quit(1 if failures > 0 else 0)
@@ -99,3 +100,25 @@ func test_two_servers(dir: String) -> void:
 
 	r.seek(take + 1.0)  # closed up again
 	check_positions(r.belt("c2"), [2.0, 1.5, 1.0, 0.5], "c2 closed up")
+
+
+func test_routing(dir: String) -> void:
+	var r := load_replay(dir)
+	# Every part in the system is somewhere visible: on a conveyor or in a
+	# server, except one a blocked source may be holding.
+	for t: float in [600.0, 1800.0, 3600.0, 5400.0, r.end_time]:
+		r.seek(t)
+		var visible := 0
+		for c: String in r.conveyors:
+			visible += r.belt(c).size()
+		for s: String in r.servers:
+			visible += r.server_parts(s).size()
+		var hidden := r.in_system() - visible
+		check(hidden >= 0 and hidden <= r.header["sources"].size(),
+			"t=%d: %d in system, %d visible" % [t, r.in_system(), visible])
+	var used := {}
+	for e: Dictionary in r.events:
+		if e["type"] == "entered_conveyor":
+			used[e["conveyor"]] = true
+	for c: String in ["in_a", "in_b", "rework", "retest", "ship"]:
+		check(used.has(c), "some part used conveyor %s" % c)

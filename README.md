@@ -21,6 +21,20 @@ outliers-sim compare examples/conveyor-line.yaml examples/conveyor-line-longer-c
 - `replications.csv`: raw values per replication.
 - `events.jsonl`: an event log, if the model asks for one. See `outliers-sim run --help` for options.
 
+## Routing and merging
+
+When a source or server has several outgoing conveyors, or a server has several incoming ones, the model has to say how parts choose. There are no hidden defaults:
+
+```yaml
+servers:
+  inspect:
+    process_time: "uniform(30 s, 50 s)"
+    input: { rule: first_come }                                        # or priority, round_robin
+    output: { rule: probability, weights: { c_ship: 0.9, c_rework: 0.1 } }  # or round_robin, first_available, shortest_queue
+```
+
+`examples/two-cells.yaml` uses all of them: parallel cells, a merge at inspection, and a rework loop.
+
 ## Layout
 
 | Path | What it is |

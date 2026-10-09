@@ -46,6 +46,8 @@ pub struct ConveyorResult {
     pub max_parts: u64,
     /// Fraction of time the conveyor held its full capacity.
     pub full: f64,
+    /// Parts that got on the conveyor.
+    pub entered: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

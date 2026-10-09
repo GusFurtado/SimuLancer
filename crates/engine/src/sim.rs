@@ -10,8 +10,23 @@
 //!   holds fewer than its capacity and the last part is at least one spacing
 //!   from the entrance. All parts start moving again together when the head leaves.
 //! - A server takes a part when it's up and has a free slot. A finished part
-//!   stays in its slot (blocked) until the outgoing conveyor has room. Blocked
-//!   parts leave in the order they finished.
+//!   stays in its slot (blocked) until an outgoing conveyor has room. Each
+//!   blocked part leaves as soon as its conveyor has room; parts waiting for
+//!   the same conveyor leave in the order they finished.
+//! - Splitting (several outgoing conveyors): the conveyor is chosen when the
+//!   part is ready to leave (created, or finished processing). `probability`
+//!   draws from the object's own `routing` stream; `round_robin` takes the
+//!   next output in turn; for both, the part waits for that conveyor.
+//!   `first_available` takes the first output in order with room;
+//!   `shortest_queue` the one holding the fewest parts (ties to the first
+//!   listed) among those with room. For both, if none has room, the part
+//!   waits for whichever gets room first.
+//! - Merging (several incoming conveyors): when the server can take a part,
+//!   it picks among the conveyors whose head is waiting at the end, by
+//!   `first_come` (earliest arrival at the end, ties to the input listed
+//!   first), `priority` (input order) or `round_robin` (in turn, skipping
+//!   empty inputs). The choice is made in a `Pull` event at the current time,
+//!   after every event already due, so simultaneous arrivals compete fairly.
 //! - Failure clocks run only while the server is up. `busy_time` clocks run
 //!   only while at least one slot is processing. While the server is down it
 //!   does nothing: no processing, no taking parts, no releasing blocked parts.
@@ -27,7 +42,7 @@ use crate::results::{
     Totals,
 };
 use crate::rng::Rng;
-use crate::spec::{Conveyor, FailureClock, Node, OnFailure, Spec, WhenBlocked};
+use crate::spec::{Conveyor, FailureClock, InputRule, Node, OnFailure, Routing, Spec, WhenBlocked};
 use crate::trace::{Observer, PartId, TraceEvent};
 
 /// Position tolerance in meters, for float error in positions.
@@ -39,10 +54,16 @@ struct Part {
     created: SimTime,
 }
 
+/// The conveyor a waiting part will leave on; `None` means any output with
+/// room (`first_available`).
+type Target = Option<usize>;
+
 struct SourceState {
     rng: Rng,
-    /// Part waiting to get on the conveyor (`when_blocked: wait`).
-    held: Option<Part>,
+    routing_rng: Rng,
+    next_output: usize,
+    /// Part waiting to get on a conveyor (`when_blocked: wait`).
+    held: Option<(Part, Target)>,
     created: u64,
     lost: u64,
     blocked: TimeAverage,
@@ -64,6 +85,7 @@ enum Slot {
     },
     Blocked {
         part: Part,
+        target: Target,
     },
 }
 
@@ -79,6 +101,12 @@ struct FailureState {
 
 struct ServerState {
     rng: Rng,
+    routing_rng: Rng,
+    next_output: usize,
+    /// Round-robin position among the inputs.
+    next_input: usize,
+    /// A `Pull` event is scheduled.
+    pull_pending: bool,
     slots: Vec<Slot>,
     slot_generation: Vec<u64>,
     /// Slots holding finished parts, in the order they finished.
@@ -124,6 +152,9 @@ struct ConveyorState {
     generation: u64,
     /// The object feeding this conveyor is waiting for room.
     upstream_waiting: bool,
+    /// When the current head reached the end (for `first_come` merging).
+    head_arrived: Option<SimTime>,
+    entered: u64,
     parts: TimeAverage,
     full: TimeAverage,
 }
@@ -171,6 +202,30 @@ fn duration(seconds: f64) -> SimTime {
     SimTime::from_secs_f64(seconds.max(0.0))
 }
 
+/// Picks the conveyor a part ready to leave will take (see the module docs).
+fn pick_output(routing: &Routing, outputs: &[usize], rng: &mut Rng, next: &mut usize) -> Target {
+    match routing {
+        Routing::Single => Some(outputs[0]),
+        Routing::Probability(weights) => {
+            let u = 1.0 - rng.open01(); // [0, 1)
+            let mut cumulative = 0.0;
+            for (&c, w) in outputs.iter().zip(weights) {
+                cumulative += w;
+                if u < cumulative {
+                    return Some(c);
+                }
+            }
+            outputs.last().copied() // rounding: weights sum to 1 within float error
+        }
+        Routing::RoundRobin => {
+            let c = outputs[*next % outputs.len()];
+            *next = (*next + 1) % outputs.len();
+            Some(c)
+        }
+        Routing::FirstAvailable | Routing::ShortestQueue => None,
+    }
+}
+
 /// Runs one replication. `replication` (1-based) selects the random streams.
 pub fn simulate<O: Observer>(spec: &Spec, replication: u32, observer: &mut O) -> ReplicationResult {
     let mut sim = Sim::new(spec, replication, observer);
@@ -203,6 +258,8 @@ impl<'a, O: Observer> Sim<'a, O> {
             .iter()
             .map(|s| SourceState {
                 rng: stream(format!("source/{}/interarrival", s.name)),
+                routing_rng: stream(format!("source/{}/routing", s.name)),
+                next_output: 0,
                 held: None,
                 created: 0,
                 lost: 0,
@@ -234,6 +291,10 @@ impl<'a, O: Observer> Sim<'a, O> {
                     .collect();
                 ServerState {
                     rng: stream(format!("server/{}/process", s.name)),
+                    routing_rng: stream(format!("server/{}/routing", s.name)),
+                    next_output: 0,
+                    next_input: 0,
+                    pull_pending: false,
                     slots: vec![Slot::Idle; s.capacity as usize],
                     slot_generation: vec![0; s.capacity as usize],
                     blocked_order: VecDeque::new(),
@@ -254,6 +315,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                 belt: VecDeque::new(),
                 generation: 0,
                 upstream_waiting: false,
+                head_arrived: None,
+                entered: 0,
                 parts: TimeAverage::default(),
                 full: TimeAverage::default(),
             })
@@ -310,7 +373,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                                 conveyor,
                             },
                         );
-                        self.try_deliver(conveyor);
+                        self.conveyors[conveyor].head_arrived = Some(self.now);
+                        self.head_at_end(conveyor);
                     }
                 }
                 Event::EntryCheck { conveyor } => self.entry_check(conveyor),
@@ -333,6 +397,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     }
                 }
                 Event::Repair { server, mode } => self.repair(server, mode),
+                Event::Pull { server } => self.pull(server),
             }
             self.sample_state();
         }
@@ -357,15 +422,23 @@ impl<'a, O: Observer> Sim<'a, O> {
             },
         );
 
-        let conveyor = self.spec.sources[source].output;
-        if self.try_enter(conveyor, part) {
+        let spec = self.spec;
+        let source_spec = &spec.sources[source];
+        let state = &mut self.sources[source];
+        let target = pick_output(
+            &source_spec.routing,
+            &source_spec.outputs,
+            &mut state.routing_rng,
+            &mut state.next_output,
+        );
+        if self.try_send(part, target, &source_spec.outputs, &source_spec.routing) {
             self.schedule_arrival(source);
             return;
         }
-        match self.spec.sources[source].when_blocked {
+        match source_spec.when_blocked {
             WhenBlocked::Wait => {
-                self.sources[source].held = Some(part);
-                self.wait_for_room(conveyor);
+                self.sources[source].held = Some((part, target));
+                self.wait_for(target, &source_spec.outputs);
             }
             WhenBlocked::Drop => {
                 self.sources[source].lost += 1;
@@ -390,15 +463,52 @@ impl<'a, O: Observer> Sim<'a, O> {
             .schedule(self.now + duration(gap), Event::Arrival { source });
     }
 
-    /// The conveyor has room for the part the source is holding.
+    /// A conveyor the source was waiting for has room.
     fn release_held(&mut self, source: usize) {
-        let part = self.sources[source]
-            .held
-            .take()
-            .expect("a waiting source holds a part");
-        let entered = self.try_enter(self.spec.sources[source].output, part);
-        debug_assert!(entered, "room was checked before notifying");
-        self.schedule_arrival(source);
+        let Some((part, target)) = self.sources[source].held else {
+            return; // already left by another conveyor (`first_available`)
+        };
+        let spec = &self.spec.sources[source];
+        let outputs = &spec.outputs;
+        if self.try_send(part, target, outputs, &spec.routing) {
+            self.sources[source].held = None;
+            self.schedule_arrival(source);
+        } else {
+            self.wait_for(target, outputs);
+        }
+    }
+
+    /// Puts a part on its target conveyor or, with no target, on the
+    /// preferred output with room (see the module docs).
+    fn try_send(
+        &mut self,
+        part: Part,
+        target: Target,
+        outputs: &[usize],
+        routing: &Routing,
+    ) -> bool {
+        match target {
+            Some(conveyor) => self.try_enter(conveyor, part),
+            None => {
+                let mut order = outputs.to_vec();
+                if *routing == Routing::ShortestQueue {
+                    // Stable sort: ties keep file order.
+                    order.sort_by_key(|&c| self.conveyors[c].belt.len());
+                }
+                order.into_iter().any(|c| self.try_enter(c, part))
+            }
+        }
+    }
+
+    fn wait_for(&mut self, target: Target, outputs: &[usize]) {
+        match target {
+            Some(conveyor) => self.wait_for_room(conveyor),
+            None => {
+                for &c in outputs {
+                    self.wait_for_room(c);
+                }
+            }
+        }
     }
 
     // --- Conveyors ---
@@ -414,6 +524,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             pos: 0.0,
             since: self.now,
         });
+        state.entered += 1;
         self.observer.record(
             self.now,
             TraceEvent::EnteredConveyor {
@@ -431,6 +542,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         let c = &self.spec.conveyors[conveyor];
         let state = &mut self.conveyors[conveyor];
         state.generation += 1;
+        state.head_arrived = None;
         let Some(&head) = state.positions(c, self.now).first() else {
             return;
         };
@@ -444,20 +556,23 @@ impl<'a, O: Observer> Sim<'a, O> {
         );
     }
 
-    /// Hands the head part to the next object, if it's at the end and the
-    /// next object can take it.
-    fn try_deliver(&mut self, conveyor: usize) {
-        let c = &self.spec.conveyors[conveyor];
-        if !self.conveyors[conveyor].head_at_end(c, self.now) {
-            return;
-        }
-        if let Node::Server(server) = c.to {
-            let s = &self.servers[server];
-            if !s.is_up() || s.idle_slot().is_none() {
-                return;
+    /// The head part reached the end: sinks take it at once; servers decide.
+    fn head_at_end(&mut self, conveyor: usize) {
+        match self.spec.conveyors[conveyor].to {
+            Node::Sink(sink) => {
+                let part = self.take_head(conveyor);
+                self.exit(sink, part);
+                self.after_departure(conveyor);
             }
+            Node::Server(server) => self.request_pull(server),
+            Node::Source(_) => unreachable!("validated: conveyors don't end at sources"),
         }
+    }
 
+    /// Removes the head part, which must be at the end.
+    fn take_head(&mut self, conveyor: usize) -> Part {
+        let c = &self.spec.conveyors[conveyor];
+        debug_assert!(self.conveyors[conveyor].head_at_end(c, self.now));
         // Everyone stopped behind the head starts moving again: record
         // real positions as the new free-movement baseline.
         let positions = self.conveyors[conveyor].positions(c, self.now);
@@ -468,13 +583,11 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
         let part = state.belt.pop_front().expect("head exists").part;
         self.schedule_reach_end(conveyor);
+        part
+    }
 
-        match c.to {
-            Node::Server(server) => self.start_process(server, part),
-            Node::Sink(sink) => self.exit(sink, part),
-            Node::Source(_) => unreachable!("validated: conveyors don't end at sources"),
-        }
-
+    /// A part left the conveyor: the object feeding it may now have room.
+    fn after_departure(&mut self, conveyor: usize) {
         if self.conveyors[conveyor].upstream_waiting {
             self.wait_for_room(conveyor);
         }
@@ -523,6 +636,65 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     // --- Servers ---
 
+    /// The server may be able to take a part. With one input it takes it
+    /// now; with several, a `Pull` event decides after everything due now.
+    fn request_pull(&mut self, server: usize) {
+        if self.spec.servers[server].inputs.len() == 1 {
+            self.pull(server);
+        } else if !self.servers[server].pull_pending {
+            self.servers[server].pull_pending = true;
+            self.events.schedule(self.now, Event::Pull { server });
+        }
+    }
+
+    /// Takes waiting parts into free slots, choosing inputs by the server's rule.
+    fn pull(&mut self, server: usize) {
+        self.servers[server].pull_pending = false;
+        loop {
+            let s = &self.servers[server];
+            if !s.is_up() || s.idle_slot().is_none() {
+                return;
+            }
+            let Some(conveyor) = self.choose_input(server) else {
+                return;
+            };
+            let part = self.take_head(conveyor);
+            self.start_process(server, part);
+            self.after_departure(conveyor);
+        }
+    }
+
+    /// The input conveyor whose head the server takes next, if any is waiting.
+    fn choose_input(&mut self, server: usize) -> Option<usize> {
+        let spec = self.spec;
+        let inputs = &spec.servers[server].inputs;
+        let waiting: Vec<bool> = inputs
+            .iter()
+            .map(|&c| self.conveyors[c].head_at_end(&spec.conveyors[c], self.now))
+            .collect();
+        match spec.servers[server].input_rule {
+            InputRule::Single | InputRule::Priority => inputs
+                .iter()
+                .zip(&waiting)
+                .find(|(_, w)| **w)
+                .map(|(&c, _)| c),
+            // `min_by_key` keeps the first of equal keys: ties go to the input listed first.
+            InputRule::FirstCome => inputs
+                .iter()
+                .zip(&waiting)
+                .filter(|(_, w)| **w)
+                .map(|(&c, _)| c)
+                .min_by_key(|&c| self.conveyors[c].head_arrived.unwrap_or(SimTime::MAX)),
+            InputRule::RoundRobin => {
+                let n = inputs.len();
+                let start = self.servers[server].next_input;
+                let i = (0..n).map(|k| (start + k) % n).find(|&i| waiting[i])?;
+                self.servers[server].next_input = (i + 1) % n;
+                Some(inputs[i])
+            }
+        }
+    }
+
     fn start_process(&mut self, server: usize, part: Part) {
         let s = &mut self.servers[server];
         let slot = s.idle_slot().expect("caller checked for a free slot");
@@ -558,11 +730,18 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn process_done(&mut self, server: usize, slot: usize) {
+        let spec = &self.spec.servers[server];
         let s = &mut self.servers[server];
         let Slot::Busy { part, .. } = s.slots[slot] else {
             unreachable!("a current ProcessDone event belongs to a busy slot");
         };
-        s.slots[slot] = Slot::Blocked { part };
+        let target = pick_output(
+            &spec.routing,
+            &spec.outputs,
+            &mut s.routing_rng,
+            &mut s.next_output,
+        );
+        s.slots[slot] = Slot::Blocked { part, target };
         s.blocked_order.push_back(slot);
         self.observer.record(
             self.now,
@@ -575,29 +754,33 @@ impl<'a, O: Observer> Sim<'a, O> {
         self.release_blocked(server);
     }
 
-    /// Moves finished parts onto the outgoing conveyor while there's room,
-    /// then takes new parts into the freed slots.
+    /// Moves finished parts onto their outgoing conveyors where there's
+    /// room, then takes new parts into the freed slots.
     fn release_blocked(&mut self, server: usize) {
         if !self.servers[server].is_up() {
             return;
         }
-        let output = self.spec.servers[server].output;
-        while let Some(&slot) = self.servers[server].blocked_order.front() {
-            let Slot::Blocked { part } = self.servers[server].slots[slot] else {
+        let spec = &self.spec.servers[server];
+        let outputs = &spec.outputs;
+        let order: Vec<usize> = self.servers[server].blocked_order.iter().copied().collect();
+        let mut still_waiting: Vec<Target> = Vec::new();
+        for slot in order {
+            let Slot::Blocked { part, target } = self.servers[server].slots[slot] else {
                 unreachable!("blocked_order only holds blocked slots");
             };
-            if !self.try_enter(output, part) {
-                break;
+            if self.try_send(part, target, outputs, &spec.routing) {
+                let s = &mut self.servers[server];
+                s.blocked_order.retain(|&x| x != slot);
+                s.slots[slot] = Slot::Idle;
+                s.processed += 1;
+            } else if !still_waiting.contains(&target) {
+                still_waiting.push(target);
             }
-            let s = &mut self.servers[server];
-            s.blocked_order.pop_front();
-            s.slots[slot] = Slot::Idle;
-            s.processed += 1;
         }
-        if !self.servers[server].blocked_order.is_empty() {
-            self.wait_for_room(output);
+        for target in still_waiting {
+            self.wait_for(target, outputs);
         }
-        self.try_deliver(self.spec.servers[server].input);
+        self.request_pull(server);
     }
 
     fn update_failure_clocks(&mut self, server: usize) {
@@ -774,6 +957,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.failed.reset(now);
         }
         for c in &mut self.conveyors {
+            c.entered = 0;
             c.parts.reset(now);
             c.full.reset(now);
         }
@@ -830,6 +1014,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     mean_parts: c.parts.mean(),
                     max_parts: c.parts.max(),
                     full: c.full.mean(),
+                    entered: c.entered,
                 })
                 .collect(),
             sinks: self

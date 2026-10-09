@@ -26,17 +26,18 @@ step() {
 }
 
 FIXTURES="$VIEWER/tests/fixtures"
-for model in deterministic two-servers; do
+for model in deterministic two-servers routing; do
   step "simulate-$model" cargo run -q --release --manifest-path "$ROOT/Cargo.toml" -- \
     run "$FIXTURES/$model.yaml" --output-dir "$OUT/$model"
 done
 
 step import "$GODOT" --headless --path "$VIEWER" --import
 step replay "$GODOT" --headless --path "$VIEWER" -s res://tests/test_replay.gd -- \
-  "$OUT/deterministic" "$OUT/two-servers"
+  "$OUT/deterministic" "$OUT/two-servers" "$OUT/routing"
 step scene-with-layout "$GODOT" --headless --path "$VIEWER" --quit-after 300 -- "$OUT/deterministic"
 # A relative path, as in the README: resolved against where Godot was started.
 (cd "$OUT" && step scene-auto-layout-relative "$GODOT" --headless --path "$VIEWER" --quit-after 300 -- two-servers)
+step scene-auto-layout-routing "$GODOT" --headless --path "$VIEWER" --quit-after 300 -- "$OUT/routing"
 # No arguments: the bundled demo (gzipped log).
 step scene-demo "$GODOT" --headless --path "$VIEWER" --quit-after 300
 # The committed demo must match what the current CLI produces.

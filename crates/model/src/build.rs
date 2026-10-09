@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    Conveyor, Distribution, Experiment, Failure, FailureClock, Node, OnFailure, Server, Sink,
-    Source, Spec, WhenBlocked,
+    Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node, OnFailure, Routing,
+    Server, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -135,6 +135,13 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         }
     }
 
+    let conveyor_names: Vec<&str> = raw
+        .conveyors
+        .0
+        .iter()
+        .map(|(n, _)| n.value.as_str())
+        .collect();
+
     let mut sources = Vec::new();
     for (i, (name, s)) in raw.sources.0.iter().enumerate() {
         let entity = match entity_index.get(s.creates.value.as_str()) {
@@ -152,9 +159,19 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         };
         let interarrival = b.distribution(&s.interarrival);
         let output = endpoints_ok
-            .then(|| b.exactly_one(name, "source", "outgoing", &source_outputs[i]))
+            .then(|| {
+                b.output_rule(
+                    name,
+                    "source",
+                    &s.output,
+                    &source_outputs[i],
+                    &conveyor_names,
+                )
+            })
             .flatten();
-        if let (Some(entity), Some(interarrival), Some(output)) = (entity, interarrival, output) {
+        if let (Some(entity), Some(interarrival), Some((outputs, routing))) =
+            (entity, interarrival, output)
+        {
             sources.push(Source {
                 name: name.value.clone(),
                 entity,
@@ -163,7 +180,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                     raw::WhenBlocked::Wait => WhenBlocked::Wait,
                     raw::WhenBlocked::Drop => WhenBlocked::Drop,
                 },
-                output,
+                outputs,
+                routing,
             });
         }
     }
@@ -215,21 +233,36 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             }
         }
         let input = endpoints_ok
-            .then(|| b.exactly_one(name, "server", "incoming", &server_inputs[i]))
+            .then(|| b.input_rule(name, &s.input, &server_inputs[i], &conveyor_names))
             .flatten();
         let output = endpoints_ok
-            .then(|| b.exactly_one(name, "server", "outgoing", &server_outputs[i]))
+            .then(|| {
+                b.output_rule(
+                    name,
+                    "server",
+                    &s.output,
+                    &server_outputs[i],
+                    &conveyor_names,
+                )
+            })
             .flatten();
-        if let (Some(capacity), Some(process_time), true, Some(input), Some(output)) =
-            (capacity, process_time, failures_ok, input, output)
+        if let (
+            Some(capacity),
+            Some(process_time),
+            true,
+            Some((inputs, input_rule)),
+            Some((outputs, routing)),
+        ) = (capacity, process_time, failures_ok, input, output)
         {
             servers.push(Server {
                 name: name.value.clone(),
                 capacity,
                 process_time,
                 failures,
-                input,
-                output,
+                inputs,
+                input_rule,
+                outputs,
+                routing,
             });
         }
     }
@@ -290,33 +323,66 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     })
 }
 
-/// Every server must be fed, directly or through other servers, by a source.
-/// With one input and one output per server, the only way to fail this is a
-/// loop of servers that nothing feeds.
+/// Every server must be fed by a source, and every part must be able to
+/// reach a sink: otherwise parts circulate or wait forever.
 fn check_reachability(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> {
-    let mut reached = vec![false; spec.servers.len()];
-    for source in &spec.sources {
-        let mut conveyor = source.output;
-        while let Node::Server(s) = spec.conveyors[conveyor].to {
-            if reached[s] {
-                break;
+    // Forward from the sources.
+    let mut fed = vec![false; spec.servers.len()];
+    let mut stack: Vec<Node> = (0..spec.sources.len()).map(Node::Source).collect();
+    while let Some(node) = stack.pop() {
+        for c in &spec.conveyors {
+            if c.from == node
+                && let Node::Server(s) = c.to
+                && !fed[s]
+            {
+                fed[s] = true;
+                stack.push(c.to);
             }
-            reached[s] = true;
-            conveyor = spec.servers[s].output;
         }
     }
-    let diagnostics: Vec<Diagnostic> = reached
-        .iter()
-        .zip(&raw.servers.0)
-        .filter(|(reached, _)| !**reached)
-        .map(|(_, (name, _))| Diagnostic {
-            position: Position::from_location(&name.referenced),
-            message: format!(
-                "server `{}` can't be reached from any source (its conveyors form a loop)",
-                name.value
-            ),
-        })
-        .collect();
+    // Backward from the sinks.
+    let drains = |node: Node| -> bool {
+        let mut seen = vec![node];
+        let mut stack = vec![node];
+        while let Some(n) = stack.pop() {
+            for c in spec.conveyors.iter().filter(|c| c.from == n) {
+                if matches!(c.to, Node::Sink(_)) {
+                    return true;
+                }
+                if !seen.contains(&c.to) {
+                    seen.push(c.to);
+                    stack.push(c.to);
+                }
+            }
+        }
+        false
+    };
+
+    let mut diagnostics = Vec::new();
+    for (s, (name, _)) in raw.servers.0.iter().enumerate() {
+        if !fed[s] {
+            diagnostics.push(Diagnostic {
+                position: Position::from_location(&name.referenced),
+                message: format!("server `{}` can't be reached from any source", name.value),
+            });
+        } else if !drains(Node::Server(s)) {
+            diagnostics.push(Diagnostic {
+                position: Position::from_location(&name.referenced),
+                message: format!(
+                    "parts at server `{}` can never reach a sink: every path from it loops back",
+                    name.value
+                ),
+            });
+        }
+    }
+    for (s, (name, _)) in raw.sources.0.iter().enumerate() {
+        if !drains(Node::Source(s)) {
+            diagnostics.push(Diagnostic {
+                position: Position::from_location(&name.referenced),
+                message: format!("parts from source `{}` can never reach a sink", name.value),
+            });
+        }
+    }
     if diagnostics.is_empty() {
         Ok(())
     } else {
@@ -501,34 +567,220 @@ impl Builder {
         Some(node)
     }
 
-    /// v1 has no routing or merging: each source/server has one conveyor out
-    /// and each server one conveyor in.
-    fn exactly_one(
+    /// The outgoing conveyors of a source or server and how parts choose
+    /// among them. A rule is required with two or more.
+    fn output_rule(
         &mut self,
         name: &Spanned<String>,
         kind: &str,
-        direction: &str,
-        conveyors: &[usize],
-    ) -> Option<usize> {
-        match conveyors {
-            [only] => Some(*only),
-            [] => {
-                self.error(
-                    name,
-                    format!("{kind} `{}` has no {direction} conveyor", name.value),
-                );
-                None
+        rule: &Option<Spanned<raw::RawOutputRule>>,
+        outputs: &[usize],
+        conveyor_names: &[&str],
+    ) -> Option<(Vec<usize>, Routing)> {
+        let list = |items: &[usize]| {
+            items
+                .iter()
+                .map(|&c| format!("`{}`", conveyor_names[c]))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if outputs.is_empty() {
+            self.error(
+                name,
+                format!("{kind} `{}` has no outgoing conveyor", name.value),
+            );
+            return None;
+        }
+        let Some(rule) = rule else {
+            if outputs.len() == 1 {
+                return Some((outputs.to_vec(), Routing::Single));
             }
-            _ => {
+            self.error(
+                name,
+                format!(
+                    "{kind} `{}` has {} outgoing conveyors ({}); add `output: {{ rule: probability | round_robin | first_available | shortest_queue }}` to say how parts choose",
+                    name.value,
+                    outputs.len(),
+                    list(outputs)
+                ),
+            );
+            return None;
+        };
+        let rule = &rule.value;
+        let routing = match rule.rule.value {
+            raw::OutputRuleKind::RoundRobin
+            | raw::OutputRuleKind::FirstAvailable
+            | raw::OutputRuleKind::ShortestQueue
+                if rule.weights.is_some() =>
+            {
                 self.error(
-                    name,
+                    &rule.rule,
+                    "`weights` only apply to `rule: probability`".to_string(),
+                );
+                return None;
+            }
+            raw::OutputRuleKind::RoundRobin => Routing::RoundRobin,
+            raw::OutputRuleKind::FirstAvailable => Routing::FirstAvailable,
+            raw::OutputRuleKind::ShortestQueue => Routing::ShortestQueue,
+            raw::OutputRuleKind::Probability => {
+                let Some(weights) = &rule.weights else {
+                    self.error(
+                        &rule.rule,
+                        format!("`rule: probability` needs `weights` for {}", list(outputs)),
+                    );
+                    return None;
+                };
+                let mut found: Vec<Option<f64>> = vec![None; outputs.len()];
+                let mut ok = true;
+                for (conveyor, weight) in &weights.0 {
+                    let Some(k) = outputs
+                        .iter()
+                        .position(|&c| conveyor_names[c] == conveyor.value)
+                    else {
+                        self.error(
+                            conveyor,
+                            format!(
+                                "`{}` isn't an outgoing conveyor of `{}` (those are {})",
+                                conveyor.value,
+                                name.value,
+                                list(outputs)
+                            ),
+                        );
+                        ok = false;
+                        continue;
+                    };
+                    if !(weight.value.is_finite() && weight.value > 0.0) {
+                        self.error(weight, "weights must be greater than zero".to_string());
+                        ok = false;
+                    }
+                    found[k] = Some(weight.value);
+                }
+                let missing: Vec<usize> = outputs
+                    .iter()
+                    .zip(&found)
+                    .filter(|(_, w)| w.is_none())
+                    .map(|(&c, _)| c)
+                    .collect();
+                if ok && !missing.is_empty() {
+                    self.error(
+                        &rule.rule,
+                        format!("`weights` has no entry for {}", list(&missing)),
+                    );
+                    ok = false;
+                }
+                let weights: Vec<f64> = found.into_iter().map(|w| w.unwrap_or(0.0)).collect();
+                let sum: f64 = weights.iter().sum();
+                if ok && (sum - 1.0).abs() > 1e-6 {
+                    self.error(&rule.rule, format!("`weights` add up to {sum}, not 1"));
+                    ok = false;
+                }
+                if !ok {
+                    return None;
+                }
+                Routing::Probability(weights)
+            }
+        };
+        Some((outputs.to_vec(), routing))
+    }
+
+    /// The incoming conveyors of a server, in the order its rule uses them.
+    /// A rule is required with two or more.
+    fn input_rule(
+        &mut self,
+        name: &Spanned<String>,
+        rule: &Option<Spanned<raw::RawInputRule>>,
+        inputs: &[usize],
+        conveyor_names: &[&str],
+    ) -> Option<(Vec<usize>, InputRule)> {
+        let list = |items: &[usize]| {
+            items
+                .iter()
+                .map(|&c| format!("`{}`", conveyor_names[c]))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        if inputs.is_empty() {
+            self.error(
+                name,
+                format!("server `{}` has no incoming conveyor", name.value),
+            );
+            return None;
+        }
+        let Some(rule) = rule else {
+            if inputs.len() == 1 {
+                return Some((inputs.to_vec(), InputRule::Single));
+            }
+            self.error(
+                name,
+                format!(
+                    "server `{}` has {} incoming conveyors ({}); add `input: {{ rule: first_come | priority | round_robin }}` to say which part it takes next",
+                    name.value,
+                    inputs.len(),
+                    list(inputs)
+                ),
+            );
+            return None;
+        };
+        let rule = &rule.value;
+        match (rule.rule.value, &rule.order) {
+            (raw::InputRuleKind::Priority, None) => {
+                self.error(
+                    &rule.rule,
                     format!(
-                        "{kind} `{}` has {} {direction} conveyors; routing and merging aren't supported yet, so it needs exactly one",
-                        name.value,
-                        conveyors.len()
+                        "`rule: priority` needs `order`, listing {} from highest priority to lowest",
+                        list(inputs)
                     ),
                 );
                 None
+            }
+            (raw::InputRuleKind::Priority, Some(order)) => {
+                let mut ordered = Vec::new();
+                let mut ok = true;
+                for conveyor in &order.value {
+                    match inputs
+                        .iter()
+                        .find(|&&c| conveyor_names[c] == conveyor.value)
+                    {
+                        None => {
+                            self.error(
+                                conveyor,
+                                format!(
+                                    "`{}` isn't an incoming conveyor of `{}` (those are {})",
+                                    conveyor.value,
+                                    name.value,
+                                    list(inputs)
+                                ),
+                            );
+                            ok = false;
+                        }
+                        Some(&c) if ordered.contains(&c) => {
+                            self.error(conveyor, format!("`{}` is listed twice", conveyor.value));
+                            ok = false;
+                        }
+                        Some(&c) => ordered.push(c),
+                    }
+                }
+                let missing: Vec<usize> = inputs
+                    .iter()
+                    .copied()
+                    .filter(|c| !ordered.contains(c))
+                    .collect();
+                if ok && !missing.is_empty() {
+                    self.error(order, format!("`order` is missing {}", list(&missing)));
+                    ok = false;
+                }
+                ok.then_some((ordered, InputRule::Priority))
+            }
+            (_, Some(order)) => {
+                self.error(
+                    order,
+                    "`order` only applies to `rule: priority`".to_string(),
+                );
+                None
+            }
+            (raw::InputRuleKind::FirstCome, None) => Some((inputs.to_vec(), InputRule::FirstCome)),
+            (raw::InputRuleKind::RoundRobin, None) => {
+                Some((inputs.to_vec(), InputRule::RoundRobin))
             }
         }
     }

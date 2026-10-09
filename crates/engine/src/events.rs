@@ -37,6 +37,12 @@ pub(crate) enum Event {
         server: usize,
         mode: usize,
     },
+    /// A server with several inputs picks its next part. Scheduled at the
+    /// current time, so it runs after every event already due now: parts
+    /// that reach their conveyor ends at the same moment all get considered.
+    Pull {
+        server: usize,
+    },
     WarmupEnd,
     RunEnd,
 }
