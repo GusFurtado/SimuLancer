@@ -1,3 +1,4 @@
+mod compare;
 mod measures;
 mod output;
 mod report;
@@ -35,6 +36,27 @@ enum Command {
     },
     /// Run a model's experiment, print a summary and write result files.
     Run(RunArgs),
+    /// Compare a scenario against a base model: paired replications with
+    /// common random numbers, and a confidence interval on each difference.
+    Compare(CompareArgs),
+}
+
+#[derive(Args)]
+struct CompareArgs {
+    /// The base model.
+    base: PathBuf,
+    /// The scenario to compare against the base. Its experiment settings
+    /// (seed, replications, warm-up, run length) must match the base's.
+    scenario: PathBuf,
+    /// Number of replications for both, overriding the models' setting.
+    #[arg(short, long)]
+    replications: Option<u32>,
+    /// Threads to run replications on [default: all CPU cores].
+    #[arg(short, long)]
+    threads: Option<usize>,
+    /// Where to write comparison.json [default: results/<base>-vs-<scenario>].
+    #[arg(short, long)]
+    output_dir: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -77,14 +99,98 @@ fn main() -> ExitCode {
                 },
             }
         }
-        Command::Run(args) => match run(args) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(message) => {
-                eprintln!("error: {message}");
-                ExitCode::FAILURE
-            }
-        },
+        Command::Run(args) => report_errors(run(args)),
+        Command::Compare(args) => report_errors(compare_scenarios(args)),
     }
+}
+
+fn report_errors(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("error: {message}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn thread_count(requested: Option<usize>) -> usize {
+    requested
+        .unwrap_or_else(|| thread::available_parallelism().map_or(1, |n| n.get()))
+        .max(1)
+}
+
+fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
+    let base = load(&args.base).ok_or("the base model has errors (see above)")?;
+    let scenario = load(&args.scenario).ok_or("the scenario has errors (see above)")?;
+    let (mut base_spec, mut scenario_spec) = (base.spec.clone(), scenario.spec.clone());
+    if let Some(n) = args.replications {
+        if n == 0 {
+            return Err("--replications must be at least 1".into());
+        }
+        base_spec.experiment.replications = n;
+        scenario_spec.experiment.replications = n;
+    }
+    let e = &base_spec.experiment;
+    if *e != scenario_spec.experiment {
+        let describe = |x: &outliers_sim_engine::spec::Experiment| {
+            format!(
+                "seed {}, {} replications, warm-up {}, run length {}",
+                x.seed,
+                x.replications,
+                duration(x.warmup.as_secs_f64()),
+                duration(x.run_length.as_secs_f64())
+            )
+        };
+        return Err(format!(
+            "a paired comparison needs the same experiment settings in both models\n  base:     {}\n  scenario: {}",
+            describe(e),
+            describe(&scenario_spec.experiment)
+        ));
+    }
+    let threads = thread_count(args.threads);
+    let out_dir = args.output_dir.clone().unwrap_or_else(|| {
+        Path::new("results").join(format!("{}-vs-{}", base.name, scenario.name))
+    });
+    fs::create_dir_all(&out_dir).map_err(|e| format!("can't create {}: {e}", out_dir.display()))?;
+
+    let started = Instant::now();
+    let n = e.replications;
+    let base_results = parallel_replications(n, threads, |r| simulate(&base_spec, r, &mut NoTrace));
+    let scenario_results =
+        parallel_replications(n, threads, |r| simulate(&scenario_spec, r, &mut NoTrace));
+    let elapsed = started.elapsed();
+
+    let comparisons = compare::compare(
+        measures::collect(&base_spec, &base.outputs.summary, &base_results),
+        measures::collect(&scenario_spec, &scenario.outputs.summary, &scenario_results),
+    );
+    println!(
+        "{} (base) vs {} (scenario): {} paired replication{} × {} after {} warm-up, seed {} ({:.2} s)\n",
+        base.name,
+        scenario.name,
+        n,
+        if n == 1 { "" } else { "s" },
+        duration(e.run_length.as_secs_f64()),
+        duration(e.warmup.as_secs_f64()),
+        e.seed,
+        elapsed.as_secs_f64(),
+    );
+    print!("{}", report::comparison_table(&comparisons));
+    if let Some(gain) = compare::median_precision_gain(&comparisons) {
+        println!(
+            "\nCommon random numbers made the confidence intervals {gain:.1}× narrower (median) than independent runs would."
+        );
+    }
+    if n < 2 {
+        println!("\nwarning: confidence intervals need at least 2 replications");
+    }
+
+    let path = out_dir.join("comparison.json");
+    output::write_comparison(&path, &base.name, &scenario.name, &base_spec, &comparisons)
+        .map_err(|e| format!("can't write {}: {e}", path.display()))?;
+    println!("\nwrote {}", path.display());
+    Ok(())
 }
 
 fn run(args: &RunArgs) -> Result<(), String> {
@@ -113,10 +219,7 @@ fn run(args: &RunArgs) -> Result<(), String> {
             args.log_replication
         ));
     }
-    let threads = args
-        .threads
-        .unwrap_or_else(|| thread::available_parallelism().map_or(1, |n| n.get()))
-        .max(1);
+    let threads = thread_count(args.threads);
     let out_dir = args
         .output_dir
         .clone()
@@ -376,6 +479,12 @@ fn dist(d: &Distribution) -> String {
         ),
         Distribution::Lognormal { mean, sd } => {
             format!("lognormal(mean {}, sd {})", duration(mean), duration(sd))
+        }
+        Distribution::Weibull { shape, scale } => {
+            format!("weibull(shape {shape}, scale {})", duration(scale))
+        }
+        Distribution::Gamma { shape, scale } => {
+            format!("gamma(shape {shape}, scale {})", duration(scale))
         }
     };
     format!("{body}, mean {}", duration(d.mean()))

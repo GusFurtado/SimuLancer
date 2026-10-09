@@ -68,7 +68,21 @@ Working name. Separate from the `outliers` workspace.
 - Objects keep file order (no hash maps), so indices, and therefore results, are deterministic.
 - Names: letters, digits, `_` and `-`, starting with a letter or `_`. They end up in event logs, CSV columns and command lines.
 - Units: time `ms s min h d`; length `mm cm m km`; speed `<length>/<time>`. A number and its unit must be separated by a space (`12 m`, not `12m`).
-- Distributions: `constant` (or a bare time), `exponential(mean)`, `uniform(min, max)`, `triangular(min, mode, max)`, `lognormal(mean, sd)`, where the lognormal parameters are the mean and sd of the distribution itself. Arguments can be positional or named. No `normal`, since it can go negative; `weibull`/`gamma` are likely next for failures.
+- Distributions:
+  - `constant` (or a bare time)
+  - `exponential(mean)`
+  - `uniform(min, max)`
+  - `triangular(min, mode, max)`
+  - `lognormal(mean, sd)`, where the parameters are the mean and sd of the distribution itself
+  - `weibull(shape, scale)`, added 2026-10-09
+  - `gamma(shape, scale)`, added 2026-10-09
+
+  Arguments can be positional or named. Shape parameters are plain numbers without units; every other argument is a time. There's no `normal`, since it can go negative.
+- Weibull is the standard choice for failures that get more likely with age (shape > 1) or less likely (shape < 1); shape 1 is exponential. Gamma fits repair and process times with a mode above zero. Sampling:
+  - Weibull: inverse transform, one number per draw.
+  - Gamma: Marsaglia–Tsang rejection, which uses a varying number of draws. This doesn't hurt common random numbers: each input has its own stream, so its k-th sample is the same in both scenarios however many draws each sample took.
+
+  Both are checked by moment tests (including shape < 1) and by M/G/1 queueing tests.
 - Topology (since 2026-10-09, see "Routing and merging"): sources need at least one outgoing conveyor, servers at least one incoming and one outgoing, sinks at least one incoming. Every server must be reachable from a source, and every source and server must have a path to a sink (loops are fine as long as there's a way out).
 - Outputs defaults: `event_log: none`; `summary`: all items.
 
@@ -182,6 +196,15 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
   - the viewer replays a model with a priority merge, a three-input first-come merge, rework and a self-loop, and every part the log says is in the system is visible.
 - **Example:** `examples/two-cells.yaml` (with a layout): `shortest_queue` into two mills, a `first_come` merge at inspection, 10% rework to mill A with `priority` over new parts. With `first_available` instead, mean time in system was 24.6 min instead of 9.1 min. The rule matters, and now it's one visible line in the model.
 - **Viewer auto layout:** objects without a layout file go in columns by distance from the sources. Backward conveyors and self-loops are drawn around the top, each in its own lane.
+
+## Scenario comparison (implemented 2026-10-09)
+
+- `outliers-sim compare base.yaml scenario.yaml` runs both models with the same seed and replication numbers. Random streams come from (seed, replication, object name), so wherever the two models share names they see the same arrivals, process times and failures (common random numbers).
+- **Paired differences:** for each measure in both models (matched by object type, object and measure name), the difference is computed per replication (scenario − base). The report shows its mean, a 95% t confidence interval and a verdict: *higher* or *lower* when the CI excludes zero, otherwise *no clear difference*; *identical* when every pair is equal.
+- **Precision of pairing:** `comparison.json` also stores the Welch CI an unpaired comparison would have had. The CLI prints the median gain; for the c2 buffer example, pairing makes the CIs 5.6× narrower. A model compared with itself gives exactly zero differences (tested).
+- **Experiment settings must match:** seed, replications, warm-up and run length, or the comparison is refused with a message showing both. `--replications` overrides both.
+- **Renaming breaks pairing:** an object renamed between the two models gets different random numbers and isn't compared. Scenarios are full copies of the model for now (e.g. `examples/conveyor-line-longer-c2.yaml`); scenario files that only list changes are a possible next step.
+- **Display:** differences of percentages are shown in percentage points (pp). Small nonzero differences get extra decimals instead of showing as `+0.00` next to "higher".
 
 ## Open questions
 
