@@ -86,6 +86,7 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(index))
+        .route("/app.js", get(app_js))
         .route("/api/v1/models", get(list_models))
         .route("/api/v1/models/{file}", get(get_model).put(save_scenario))
         .route("/api/v1/check", axum::routing::post(check))
@@ -209,6 +210,9 @@ impl AppState {
                     .iter()
                     .filter_map(|f| f.file_name()?.to_str().map(String::from))
                     .collect();
+                if out_dir.join("scenario.yaml").exists() {
+                    j.files.push("scenario.yaml".into());
+                }
             }
             Err(error) => {
                 j.status = Status::Failed;
@@ -269,12 +273,23 @@ fn model_file(state: &AppState, name: &str) -> Result<PathBuf, String> {
 
 // --- pages -----------------------------------------------------------------
 
-async fn index() -> Html<&'static str> {
-    Html(
-        "<!doctype html><meta charset=utf-8><title>outliers-sim</title>\
-         <p>outliers-sim is running. The web interface is coming; the HTTP API \
-         is at <a href=\"/api/v1/models\">/api/v1/models</a>.</p>",
+/// The web interface: plain HTML and JS compiled into the binary.
+const INDEX_HTML: &str = include_str!("web/index.html");
+const APP_JS: &str = include_str!("web/app.js");
+
+async fn index() -> Response {
+    ([(header::CACHE_CONTROL, "no-cache")], Html(INDEX_HTML)).into_response()
+}
+
+async fn app_js() -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        APP_JS,
     )
+        .into_response()
 }
 
 // --- models ------------------------------------------------------------------
@@ -888,6 +903,33 @@ mod tests {
         let (status, body) = call(&app, "POST", "/api/v1/runs", Some(json!({ "scenario": { "base": "two-cells.yaml", "changes": { "experiment.replications": 0 } } }))).await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
         assert_eq!(body["errors"][0]["change"], "experiment.replications");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn serves_the_web_interface() {
+        let (app, root) = app("web");
+        for (uri, media_type, marker) in [
+            ("/", "text/html", "<script src=\"app.js\">"),
+            ("/app.js", "text/javascript", "const API = \"api/v1\";"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{uri}");
+            let content_type = response.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert!(
+                content_type.starts_with(media_type),
+                "{uri}: {content_type}"
+            );
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            assert!(String::from_utf8_lossy(&body).contains(marker), "{uri}");
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

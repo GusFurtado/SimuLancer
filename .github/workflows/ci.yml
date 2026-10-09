@@ -27,3 +27,19 @@ jobs:
             case "$model" in *.layout.yaml) continue ;; esac
             cargo run -q -- validate "$model"
           done
+
+  web-ui:
+    # Drives the web interface in a real (headless) Firefox and keeps the
+    # screenshots as an artifact, so the UI can be reviewed from GitHub.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Browser test
+        run: SHOTS="$PWD/ui-screenshots" tests/ui/run.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: ui-screenshots

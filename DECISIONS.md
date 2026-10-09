@@ -220,7 +220,7 @@ changes:
 - **The examples' scenario copies are now scenario files:** `conveyor-line-longer-c2.yaml`, `two-cells-first-available.yaml` and `two-cells-round-robin.yaml`, each about 8 lines.
 - **The format is meant to be the web UI's save format and the API's payload:** a change set is just a map of paths to values.
 
-## Web application and API (decided 2026-10-09; `serve` + API implemented, UI next)
+## Web application and API (decided 2026-10-09; `serve`, API and web UI implemented)
 
 The target deployment: IT hosts the simulator on a server, and users open it in a browser to configure scenarios, press play, and get a report and animation.
 
@@ -240,7 +240,28 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   - **Security:** listens on `127.0.0.1` unless `--host` says otherwise. Model names are plain file names (no paths), and run files come from a fixed list, so requests can't reach outside the two folders. Responses are gzip-compressed; the event log goes from 7.3 MB to 0.8 MB.
   - **Dependencies added:** `axum`, `tokio`, `tower-http` (gzip). 109 crates in the CLI's build tree, still one static binary.
   - **Tested** through the router (6 tests: listing, detail, check, save/refuse, runs of files and unsaved scenarios, path traversal) and by hand with `curl` and the Python sweep example in `docs/api.md` against the real server.
-- **Order of work:** scenario files (done), `serve` + API (done), then the web UI (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
+- **Web UI as built** (`crates/cli/src/web/`, `index.html` + `app.js`, about 900 lines, no framework):
+  - **Opening a model** shows a 2D diagram (from the layout, or the same automatic layout as the viewer) and a property panel. Click an object or conveyor to edit it; click empty space for the experiment settings.
+  - **Forms by object type:**
+    - source: interarrival, when blocked, routing rule and weights;
+    - server: capacity, process time, input rule and priority order, routing rule, failures (add, edit, remove);
+    - conveyor: length, speed, spacing;
+    - experiment: replications, warm-up, run length, seed.
+  - **Edits become scenario changes** at the same paths the API uses. Setting a value back to the base's removes the change. Changed fields and objects are marked, with a reset link.
+  - **Validation as you type:** every edit is checked through `POST /check` (debounced). Errors appear under the field they belong to, and the object is outlined in red in the diagram.
+  - **Save as scenario** writes an 8-line scenario file through `PUT /models/{file}`. **Run** queues the file (if unchanged) or the unsaved scenario, then shows progress (replications done) and opens the results.
+  - **Results:** the report (the same self-contained `report.html`, in a frame), the **2D animation**, the **"3D" placeholder button** (explains that the Godot web view is planned and loads on demand), and download links.
+  - **2D animation:** a canvas port of `replay.gd`, with the same conveyor rules and state colors. Play/pause, speed from 1× to 3600×, timeline, wheel/pinch zoom, drag to pan, double-click to fit. The 7.3 MB event log arrives gzipped (0.8 MB).
+  - Light and dark mode with the report's tokens. Narrow screens stack the panels.
+- **Browser test** (`tests/ui/`, also a CI job): `run.sh` starts the server on a copy of the examples and a headless Firefox, and `test_ui.py` drives it through Firefox's built-in remote control (Marionette, a ~50-line client, no Selenium) as a user would:
+  - pick a model, select objects in the diagram;
+  - enter a bad speed and check the error appears on the field;
+  - change a routing rule, run, check the downloads and the report;
+  - play the animation and check its clock advances;
+  - open the 3D placeholder, save the scenario.
+
+  CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
+- **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
 ## Open questions
 
