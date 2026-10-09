@@ -68,7 +68,7 @@ jobs:
     # The image IT deploys: build it, start it, check it answers, stop it.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t outliers-sim:ci .
       - name: Start, check health and a run, stop
         run: |
