@@ -480,6 +480,12 @@ fn dist(d: &Distribution) -> String {
         Distribution::Lognormal { mean, sd } => {
             format!("lognormal(mean {}, sd {})", duration(mean), duration(sd))
         }
+        Distribution::Weibull { shape, scale } => {
+            format!("weibull(shape {shape}, scale {})", duration(scale))
+        }
+        Distribution::Gamma { shape, scale } => {
+            format!("gamma(shape {shape}, scale {})", duration(scale))
+        }
     };
     format!("{body}, mean {}", duration(d.mean()))
 }

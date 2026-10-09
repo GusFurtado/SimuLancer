@@ -68,7 +68,21 @@ Working name. Separate from the `outliers` workspace.
 - Objects keep file order (no hash maps), so indices, and therefore results, are deterministic.
 - Names: letters, digits, `_` and `-`, starting with a letter or `_`. They end up in event logs, CSV columns and command lines.
 - Units: time `ms s min h d`; length `mm cm m km`; speed `<length>/<time>`. A number and its unit must be separated by a space (`12 m`, not `12m`).
-- Distributions: `constant` (or a bare time), `exponential(mean)`, `uniform(min, max)`, `triangular(min, mode, max)`, `lognormal(mean, sd)`, where the lognormal parameters are the mean and sd of the distribution itself. Arguments can be positional or named. No `normal`, since it can go negative; `weibull`/`gamma` are likely next for failures.
+- Distributions:
+  - `constant` (or a bare time)
+  - `exponential(mean)`
+  - `uniform(min, max)`
+  - `triangular(min, mode, max)`
+  - `lognormal(mean, sd)`, where the parameters are the mean and sd of the distribution itself
+  - `weibull(shape, scale)`, added 2026-10-09
+  - `gamma(shape, scale)`, added 2026-10-09
+
+  Arguments can be positional or named. Shape parameters are plain numbers without units; every other argument is a time. There's no `normal`, since it can go negative.
+- Weibull is the standard choice for failures that get more likely with age (shape > 1) or less likely (shape < 1); shape 1 is exponential. Gamma fits repair and process times with a mode above zero. Sampling:
+  - Weibull: inverse transform, one number per draw.
+  - Gamma: Marsaglia–Tsang rejection, which uses a varying number of draws. This doesn't hurt common random numbers: each input has its own stream, so its k-th sample is the same in both scenarios however many draws each sample took.
+
+  Both are checked by moment tests (including shape < 1) and by M/G/1 queueing tests.
 - Topology (since 2026-10-09, see "Routing and merging"): sources need at least one outgoing conveyor, servers at least one incoming and one outgoing, sinks at least one incoming. Every server must be reachable from a source, and every source and server must have a path to a sink (loops are fine as long as there's a way out).
 - Outputs defaults: `event_log: none`; `summary`: all items.
 
