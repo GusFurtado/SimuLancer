@@ -33,6 +33,14 @@ Scenario files work anywhere a model does (`validate`, `run`, `compare`). Errors
 - `replications.csv`: raw values per replication.
 - `events.jsonl`: an event log, if the model asks for one. See `outliers-sim run --help` for options.
 
+## Server and HTTP API
+
+```sh
+outliers-sim serve --models ./models --runs ./runs --port 8080
+```
+
+Serves the HTTP API (`docs/api.md`) that the upcoming web interface is built on. Scripts can list models, check and save scenarios, queue runs and fetch results. Runs execute on the server, one at a time on all cores.
+
 ## Routing and merging
 
 When a source or server has several outgoing conveyors, or a server has several incoming ones, the model has to say how parts choose. There are no hidden defaults:
