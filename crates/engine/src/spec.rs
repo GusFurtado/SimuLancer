@@ -5,6 +5,7 @@
 //! All durations are seconds and all lengths are meters.
 
 use crate::SimTime;
+use crate::stats::ln_gamma;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spec {
@@ -182,6 +183,18 @@ pub enum Distribution {
         mean: f64,
         sd: f64,
     },
+    /// `shape` is a plain number: below 1 failures get rarer with age, 1 is
+    /// exponential, above 1 is wear-out. `scale` is the characteristic life
+    /// (63.2% fail before it).
+    Weibull {
+        shape: f64,
+        scale: f64,
+    },
+    /// `shape` is a plain number; the mean is `shape × scale`.
+    Gamma {
+        shape: f64,
+        scale: f64,
+    },
 }
 
 impl Distribution {
@@ -192,6 +205,8 @@ impl Distribution {
             Distribution::Uniform { min, max } => (min + max) / 2.0,
             Distribution::Triangular { min, mode, max } => (min + mode + max) / 3.0,
             Distribution::Lognormal { mean, .. } => mean,
+            Distribution::Weibull { shape, scale } => scale * ln_gamma(1.0 + 1.0 / shape).exp(),
+            Distribution::Gamma { shape, scale } => shape * scale,
         }
     }
 }
