@@ -13,7 +13,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -28,12 +28,32 @@ jobs:
             cargo run -q -- validate "$model"
           done
 
+  viewer:
+    runs-on: ubuntu-latest
+    env:
+      # Same version as the tablet's Godot Editor app; keep in sync with
+      # viewer/project.godot (config/features).
+      GODOT_VERSION: 4.7.2
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Godot
+        run: |
+          name="Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          curl -sSfL -o godot.zip \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/${name}.zip"
+          unzip -q godot.zip
+          echo "GODOT=$PWD/${name}" >> "$GITHUB_ENV"
+      - name: Viewer checks
+        run: viewer/tests/run_all.sh
+
   web-ui:
     # Drives the web interface in a real (headless) Firefox and keeps the
     # screenshots as an artifact, so the UI can be reviewed from GitHub.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Browser test
