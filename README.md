@@ -39,7 +39,15 @@ Scenario files work anywhere a model does (`validate`, `run`, `compare`). Errors
 outliers-sim serve --models ./models --runs ./runs --port 8080
 ```
 
-Serves the HTTP API (`docs/api.md`) that the upcoming web interface is built on. Scripts can list models, check and save scenarios, queue runs and fetch results. Runs execute on the server, one at a time on all cores.
+Then open `http://localhost:8080`. The web interface works like this:
+
+- pick a model;
+- click machines and conveyors in the diagram to change them; errors show next to the field as you type;
+- save the result as a scenario;
+- press Run;
+- read the report, or watch the 2D animation.
+
+Everything the interface does goes through the documented HTTP API (`docs/api.md`), so scripts can do the same: list models, check and save scenarios, queue runs and fetch results. Runs execute on the server, one at a time on all cores.
 
 ## Routing and merging
 
