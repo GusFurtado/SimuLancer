@@ -183,6 +183,15 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
 - **Example:** `examples/two-cells.yaml` (with a layout): `shortest_queue` into two mills, a `first_come` merge at inspection, 10% rework to mill A with `priority` over new parts. With `first_available` instead, mean time in system was 24.6 min instead of 9.1 min. The rule matters, and now it's one visible line in the model.
 - **Viewer auto layout:** objects without a layout file go in columns by distance from the sources. Backward conveyors and self-loops are drawn around the top, each in its own lane.
 
+## Scenario comparison (implemented 2026-10-09)
+
+- `outliers-sim compare base.yaml scenario.yaml` runs both models with the same seed and replication numbers. Random streams come from (seed, replication, object name), so wherever the two models share names they see the same arrivals, process times and failures (common random numbers).
+- **Paired differences:** for each measure in both models (matched by object type, object and measure name), the difference is computed per replication (scenario − base). The report shows its mean, a 95% t confidence interval and a verdict: *higher* or *lower* when the CI excludes zero, otherwise *no clear difference*; *identical* when every pair is equal.
+- **Precision of pairing:** `comparison.json` also stores the Welch CI an unpaired comparison would have had. The CLI prints the median gain; for the c2 buffer example, pairing makes the CIs 5.6× narrower. A model compared with itself gives exactly zero differences (tested).
+- **Experiment settings must match:** seed, replications, warm-up and run length, or the comparison is refused with a message showing both. `--replications` overrides both.
+- **Renaming breaks pairing:** an object renamed between the two models gets different random numbers and isn't compared. Scenarios are full copies of the model for now (e.g. `examples/conveyor-line-longer-c2.yaml`); scenario files that only list changes are a possible next step.
+- **Display:** differences of percentages are shown in percentage points (pp). Small nonzero differences get extra decimals instead of showing as `+0.00` next to "higher".
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?
