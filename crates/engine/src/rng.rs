@@ -89,6 +89,33 @@ impl Rng {
                 let mu = mean.ln() - sigma2 / 2.0;
                 (mu + sigma2.sqrt() * self.standard_normal()).exp()
             }
+            Distribution::Weibull { shape, scale } => {
+                scale * (-self.open01().ln()).powf(1.0 / shape)
+            }
+            Distribution::Gamma { shape, scale } => scale * self.standard_gamma(shape),
+        }
+    }
+
+    /// Gamma(shape, 1) by Marsaglia & Tsang (2000). A rejection method, so the
+    /// number of draws from the stream varies (about 2.1 to 2.6 on average).
+    fn standard_gamma(&mut self, shape: f64) -> f64 {
+        if shape < 1.0 {
+            // Gamma(a) = Gamma(a + 1) × U^(1/a)
+            let u = self.open01();
+            return self.standard_gamma(shape + 1.0) * u.powf(1.0 / shape);
+        }
+        let d = shape - 1.0 / 3.0;
+        let c = 1.0 / (9.0 * d).sqrt();
+        loop {
+            let x = self.standard_normal();
+            let v = 1.0 + c * x;
+            if v <= 0.0 {
+                continue;
+            }
+            let v = v * v * v;
+            if self.open01().ln() < 0.5 * x * x + d - d * v + d * v.ln() {
+                return d * v;
+            }
         }
     }
 

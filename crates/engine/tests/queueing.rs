@@ -226,6 +226,55 @@ fn mg1_lognormal() {
 }
 
 #[test]
+fn mg1_gamma() {
+    // gamma(shape 2, scale 21 s): mean 42 s, variance 2 × 21².
+    let (shape, scale) = (2.0, 21.0);
+    let (mean, variance) = (shape * scale, shape * scale * scale);
+    let s = spec(&single_queue(
+        "exponential(1 min)",
+        "    process_time: \"gamma(2, 21 s)\"",
+        None,
+    ));
+    let w = mg1_time_in_system(1.0 / 60.0, mean, variance + mean * mean);
+    check(
+        &replications(&s),
+        "M/G/1 (gamma) time in system",
+        w + TRANSIT,
+        0.02,
+        time_in_system,
+    );
+}
+
+#[test]
+fn mg1_weibull() {
+    // weibull(shape 2, scale 50 s): mean 50 Γ(1.5) = 25√π,
+    // variance 50² (Γ(2) − Γ(1.5)²) = 2500 (1 − π/4).
+    let pi = std::f64::consts::PI;
+    let (mean, variance) = (25.0 * pi.sqrt(), 2500.0 * (1.0 - pi / 4.0));
+    let s = spec(&single_queue(
+        "exponential(1 min)",
+        "    process_time: \"weibull(2, 50 s)\"",
+        None,
+    ));
+    let results = replications(&s);
+    let w = mg1_time_in_system(1.0 / 60.0, mean, variance + mean * mean);
+    check(
+        &results,
+        "M/G/1 (Weibull) time in system",
+        w + TRANSIT,
+        0.02,
+        time_in_system,
+    );
+    check(
+        &results,
+        "M/G/1 (Weibull) utilization",
+        mean / 60.0,
+        0.01,
+        |r| r.servers[0].busy,
+    );
+}
+
+#[test]
 fn mg1_with_breakdowns() {
     // Exponential failures on busy time with preemptive resume: each part's
     // completion time is C = S + the repairs during S. Failures arrive at
