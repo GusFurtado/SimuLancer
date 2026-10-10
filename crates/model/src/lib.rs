@@ -10,6 +10,7 @@ mod layout;
 mod raw;
 mod scenario;
 mod units;
+mod yaml_out;
 
 use outliers_sim_engine::Spec;
 use serde::de::DeserializeOwned;
@@ -22,6 +23,7 @@ pub use scenario::{
     Merged, SCENARIO_FORMAT, Scenario, ScenarioError, is_scenario, load_scenario, merge,
     parse_scenario,
 };
+pub use yaml_out::to_yaml;
 
 /// The `format:` value this version reads.
 pub const FORMAT: &str = "outliers-sim/0.1";

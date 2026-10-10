@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Browser test of the web interface: starts `outliers-sim serve` on a copy of
-# the examples and a headless Firefox, then drives a user session
+# Browser test of the web pages: starts `outliers-sim serve` on a fresh data
+# folder (which gets the example projects) and a headless Firefox, then drives
+# an engineer's and a manager's session
 # (tests/ui/test_ui.py). Screenshots go to $SHOTS (default: a temp folder).
 #
 # Needs Firefox and Python 3. Usage: tests/ui/run.sh
@@ -18,14 +19,13 @@ MARIONETTE="${MARIONETTE:-2830}"
 cleanup() {
   [ -n "${SERVER:-}" ] && kill "$SERVER" 2>/dev/null || true
   [ -n "${BROWSER:-}" ] && kill "$BROWSER" 2>/dev/null || true
-  rm -rf "$WORK/models" "$WORK/runs" "$WORK/profile"
+  rm -rf "$WORK/data" "$WORK/profile"
 }
 trap cleanup EXIT
 
 cargo build -q --release --manifest-path "$ROOT/Cargo.toml"
-mkdir -p "$WORK/models" "$WORK/profile"
-cp "$ROOT"/examples/*.yaml "$WORK/models/"
-"$ROOT/target/release/outliers-sim" serve --models "$WORK/models" --runs "$WORK/runs" --port "$PORT" >"$WORK/server.log" 2>&1 &
+mkdir -p "$WORK/profile"
+"$ROOT/target/release/outliers-sim" serve --data "$WORK/data" --port "$PORT" >"$WORK/server.log" 2>&1 &
 SERVER=$!
 echo "user_pref(\"marionette.port\", $MARIONETTE);" >"$WORK/profile/user.js"
 firefox --headless --marionette --no-remote --profile "$WORK/profile" >"$WORK/firefox.log" 2>&1 &

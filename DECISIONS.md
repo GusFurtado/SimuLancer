@@ -288,6 +288,28 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - **Release workflow** (`.github/workflows/release.yml`): on a `v*` tag, it builds the static binary archive and creates a GitHub release, and pushes the image to `ghcr.io/<owner>/outliers-sim`. Not run yet; it runs only when a version is tagged. Its packaging step was reproduced locally.
 - **Performance fix found while packaging:** the first static build was **24× slower** than the glibc one, because musl's allocator struggles with the engine's per-event temporary allocations (conveyor position lists, routing helper lists). Those are now allocation-free: lazy position iterators, in-place updates, index loops. Static is now within about 35% of glibc (0.19 s vs 0.14 s for 120 replications of the conveyor line), and the glibc build itself got about 25% faster. Results are **byte-identical** before and after (summary, per-replication data and full event logs of every example compared).
 
+## Three audiences, three interfaces (decided and started 2026-10-09)
+
+The product has three kinds of users, with completely separate interfaces over one API:
+
+1. **The developer** hosts the app, uses the API, and builds integrations, automations and webhooks, maybe even their own UI.
+2. **The engineer** knows the domain and the math but isn't necessarily tech-savvy. They build the model in the UI (`/build`), and git versions it.
+3. **The manager** wants answers like "how much does throughput go up with a faster machine?". They open a project, build scenarios from the parameters the engineer exposes, and compare reports (`/decide`).
+
+Decisions so far:
+
+- **No access control for now:** just separate pages (`/`, `/build`, `/decide`). Roles come later, likely through the reverse proxy.
+- **Git stays local:** one repository per project, no remote.
+- **No review step:** the engineer publishes when they want; in practice they model alone.
+- **Projects** (`<data>/projects/<id>/`): `project.yaml` (format `outliers-sim-project/0.1`, name, description, `model:` file), the model and its `*.layout.yaml`. Git is run as a command with a fixed identity and no user config (hooks, signing). The engineer never sees it.
+- **Engineer flow:** edits are pending changes in the browser, checked as they type, exactly like scenario changes. **Save version** applies them, rewrites the model file and commits with the engineer's message. **Publish** tags the last saved version `vN`. A published version's description defaults to that commit's message, so managers see what changed instead of "Version 2". Publishing needs a valid model and refuses an already-published or dirty working copy.
+- **Saving rewrites the model file in standard formatting** (`outliers_sim_model::to_yaml`: block-style maps and lists of maps, flow lists of plain values, quotes only when needed). Comments in hand-written files are lost on the first save from the builder. A test checks the writer round-trips every example to the identical model. Keeping formatting would need a YAML writer that edits in place; not worth it yet.
+- **Managers only see published versions,** read straight from git at their tag (`git show vN:file`). Later saves never change what they're looking at.
+- **Runs** take a project, a version (absent for the working copy, `latest`, `vN`) and optional changes. Each run keeps the exact model text it ran (`model.yaml`), so results stay traceable even for unsaved edits.
+- **The API changed shape** (projects instead of a flat models folder); `docs/api.md` is rewritten. `serve --data <dir>` replaces `--models`/`--runs`. An empty data folder gets the example projects, saved and published as v1.
+- **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
+- **Next:** exposed decisions and results in `project.yaml` (choices that can change several paths at once, bounded numeric knobs, and friendly result names), manager scenarios pinned to a published version, and plain-language comparisons on `/decide`.
+
 ## Open questions
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?

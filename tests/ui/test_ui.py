@@ -1,80 +1,98 @@
-"""Drives the web interface through a user session in Firefox (Marionette).
+"""Drives the web pages through an engineer's and a manager's session in
+Firefox (Marionette).
 
 Usage: test_ui.py <server url> <marionette port> <screenshot dir>
-Run by tests/ui/run.sh, which starts the server and Firefox.
+Run by tests/ui/run.sh, which starts the server (with the example projects)
+and Firefox.
 """
 import os, sys, time
 from marionette import Browser
 
-url, port, out = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+url, port, out = sys.argv[1].rstrip("/"), int(sys.argv[2]), sys.argv[3]
 os.makedirs(out, exist_ok=True)
 
 def check(condition, what):
     if not condition:
         raise AssertionError(what)
 
+def click_text(selector, text):
+    b.js(f"[...document.querySelectorAll({selector!r})].find(x => x.textContent.trim().startsWith({text!r})).click()")
+
+def click_in_diagram(title):
+    b.js(f"""[...document.querySelectorAll('.diagram rect, .diagram polyline.hit')]
+             .find(r => r.querySelector('title')?.textContent.startsWith({title!r}))
+             .dispatchEvent(new MouseEvent('click', {{bubbles: true}}))""")
+
 b = Browser(port)
 b.call("WebDriver:SetWindowRect", {"width": 1400, "height": 950})
-b.go(url)
-b.wait("return document.querySelectorAll('#models button').length > 0")
-models = b.js("return [...document.querySelectorAll('#models button')].map(x => x.textContent)")
-check(any(m.startswith("two-cells-round-robin") and "scenario of two-cells.yaml" in m for m in models), f"models listed: {models}")
-b.screenshot(f"{out}/1-home.png")
 
-b.js("[...document.querySelectorAll('#models button')].find(x => x.textContent.startsWith('two-cells') && x.textContent.includes('model')).click()")
+# --- The landing page: three doors. -------------------------------------------
+b.go(url + "/")
+b.wait("return document.querySelectorAll('a.door').length === 3")
+b.screenshot(f"{out}/1-landing.png")
+
+# --- Engineer: edit, save a version, publish, run. ----------------------------
+b.go(url + "/build")
+b.wait("return document.querySelectorAll('#projects button').length >= 2")
+click_text("#projects button", "Two cells")
 b.wait("return document.querySelector('.diagram svg') !== null")
-b.screenshot(f"{out}/2-editor.png")
+check("published v1" in b.js("return document.querySelector('.versions').textContent"), "v1 in versions")
+b.screenshot(f"{out}/2-build.png")
 
-# Select the inspect server in the diagram.
-b.js("""[...document.querySelectorAll('.diagram rect')].find(r => r.querySelector('title')?.textContent === 'server inspect')
-       .dispatchEvent(new MouseEvent('click', {bubbles: true}))""")
-b.wait("return document.querySelector('.panel h3')?.textContent === 'inspect'")
-b.screenshot(f"{out}/3-inspect.png")
-
-# A bad value on a conveyor: the error must show on the field.
-b.js("""[...document.querySelectorAll('.diagram polyline.hit')].find(p => p.querySelector('title')?.textContent.startsWith('conveyor c_a:'))
-       .dispatchEvent(new MouseEvent('click', {bubbles: true}))""")
+click_in_diagram("conveyor c_a:")
 b.wait("return document.querySelector('.panel h3')?.textContent === 'c_a'")
 b.js("const i = document.getElementById('f-conveyors-c_a-speed'); i.value = '5 min'; i.dispatchEvent(new Event('change'))")
 b.wait("return document.querySelector('.field.error .message') !== null", 10)
 message = b.js("return document.querySelector('.field.error .message').textContent")
 check("is a time, but a speed is expected" in message, f"field error: {message}")
-b.screenshot(f"{out}/4-error.png")
+check(b.js("return document.getElementById('save').disabled") is False, "save enabled with changes")
+b.screenshot(f"{out}/3-error.png")
 b.js("document.querySelector('.field.error .reset').click()")
 b.wait("return document.querySelector('.field.error') === null", 10)
 
-# Change the source's routing rule, then run with 5 replications.
-b.js("""[...document.querySelectorAll('.diagram rect')].find(r => r.querySelector('title')?.textContent === 'source arrivals')
-       .dispatchEvent(new MouseEvent('click', {bubbles: true}))""")
+click_in_diagram("source arrivals")
 b.wait("return document.querySelector('.panel h3')?.textContent === 'arrivals'")
 b.js("const s = document.getElementById('f-sources.arrivals.output-rule'); s.value = 'round_robin'; s.dispatchEvent(new Event('change'))")
-b.js("const n = document.getElementById('scenario-name'); n.value = 'ui-round-robin'; n.dispatchEvent(new Event('input'))")
-b.wait("return document.querySelector('.actions .hint').textContent.includes('1 change')")
-b.screenshot(f"{out}/5-changed.png")
+b.wait("return document.querySelector('.actions .hint').textContent.includes('1 unsaved change')")
+check(b.js("return document.getElementById('publish').disabled") is True, "can't publish with unsaved changes")
+b.js("const m = document.getElementById('save-message'); m.value = 'Alternate cells at the source'; m.dispatchEvent(new Event('input'))")
+b.js("document.getElementById('save').click()")
+b.wait("return document.querySelector('.actions .hint')?.textContent === 'all changes saved'", 10)
+versions = b.js("return document.querySelector('.versions').textContent")
+check("Alternate cells at the source" in versions, f"saved version listed: {versions}")
+b.js("document.getElementById('publish').click()")
+b.wait("return document.querySelector('.versions .pill')?.textContent === 'published v2'", 10)
+b.screenshot(f"{out}/4-published.png")
+
 b.js("document.getElementById('run').click()")
 b.wait("return document.querySelector('iframe.report') !== null", 60)
 time.sleep(1.5)
-b.screenshot(f"{out}/6-report.png")
+title = b.js("return document.querySelector('iframe.report').contentDocument.querySelector('h1')?.textContent")
+check(title == "two-cells", f"report title: {title}")
 downloads = b.js("return [...document.querySelectorAll('.results-bar a')].map(a => a.textContent)")
-check(downloads == ["summary.json", "replications.csv", "events.jsonl", "layout.json", "scenario.yaml"], f"downloads: {downloads}")
-report_title = b.js("return document.querySelector('iframe.report').contentDocument.querySelector('h1')?.textContent")
-check(report_title == "ui-round-robin", f"report title: {report_title}")
-
-b.js("[...document.querySelectorAll('.results-bar button')].find(x => x.textContent === 'Animation').click()")
+check(downloads == ["summary.json", "replications.csv", "events.jsonl", "layout.json", "model.yaml"], f"downloads: {downloads}")
+b.screenshot(f"{out}/5-report.png")
+click_text(".results-bar button", "Animation")
 b.wait("return document.querySelector('.animation canvas') !== null", 30)
 time.sleep(4)
 clock = b.js("return document.querySelector('.overlay .clock').textContent")
 check(clock.startswith("day 1  00:0") and clock != "day 1  00:00:00", f"animation clock: {clock}")
-b.screenshot(f"{out}/7-animation.png")
-
-b.js("[...document.querySelectorAll('.results-bar button')].find(x => x.textContent === '3D').click()")
+b.screenshot(f"{out}/6-animation.png")
+click_text(".results-bar button", "3D")
 b.wait("return document.body.textContent.includes('3D animation: planned')")
-b.screenshot(f"{out}/8-3d.png")
 
-b.js("[...document.querySelectorAll('.tabs button')].find(x => x.textContent === 'Model').click()")
-b.wait("return document.querySelector('.actions') !== null")
-b.js("document.querySelector('.actions button').click()")  # Save as scenario
-b.wait("return document.querySelector('.head p')?.textContent === 'Scenario of two-cells.yaml'", 10)
-current = b.js("return document.querySelector('#models .current')?.textContent")
-check(current.startswith("ui-round-robin"), f"saved scenario selected: {current}")
-print("web UI session: all checks passed")
+# --- Manager: sees the published version, runs it. ------------------------------
+b.go(url + "/decide")
+b.wait("return document.querySelectorAll('#projects button').length >= 2")
+listed = b.js("return [...document.querySelectorAll('#projects button')].map(x => x.textContent)")
+check(any(p.startswith("Two cells") and "v2" in p for p in listed), f"manager sees v2: {listed}")
+click_text("#projects button", "Two cells")
+b.wait("return document.querySelector('.head h2')?.textContent === 'Two cells'")
+check("Alternate cells at the source" in b.js("return document.querySelector('main').textContent"), "version message shown")
+check(b.js("return document.querySelector('.diagram, #save, #publish')") is None, "no engineer tools on the manager page")
+b.screenshot(f"{out}/7-decide.png")
+b.js("document.getElementById('run').click()")
+b.wait("return document.querySelector('iframe.report') !== null", 60)
+time.sleep(1.5)
+b.screenshot(f"{out}/8-decide-report.png")
+print("web UI sessions (engineer and manager): all checks passed")

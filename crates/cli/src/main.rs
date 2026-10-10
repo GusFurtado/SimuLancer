@@ -2,6 +2,7 @@ mod compare;
 mod files;
 mod measures;
 mod output;
+mod projects;
 mod report;
 mod runner;
 mod server;

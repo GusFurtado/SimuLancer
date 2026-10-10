@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use outliers_sim_model::{Diagnostic, Layout, LoadError, Model, ScenarioError};
+use outliers_sim_model::{Layout, LoadError, Model, ScenarioError};
 
 /// Why a file couldn't be loaded.
 #[derive(Debug)]
@@ -55,20 +55,6 @@ impl LoadFailure {
                 }
                 text
             }
-        }
-    }
-
-    /// The file the errors are in, and the errors.
-    pub fn diagnostics(&self) -> (PathBuf, Vec<Diagnostic>) {
-        match self {
-            LoadFailure::Io { file, error } => (
-                file.clone(),
-                vec![Diagnostic {
-                    position: None,
-                    message: format!("can't read the file: {error}"),
-                }],
-            ),
-            LoadFailure::Invalid(f) => (f.file.clone(), f.error.diagnostics().to_vec()),
         }
     }
 }
