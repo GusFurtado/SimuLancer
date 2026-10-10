@@ -214,3 +214,17 @@
   .words h4 { margin: 0 0 6px; }
   .words ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
   .words li { margin: 3px 0; }
+
+  /* /build: the For managers tab. */
+  button.expose { box-shadow: none; background: none; color: var(--accent); font-size: 12px; padding: 2px 0; margin-top: 3px; }
+  button.expose.on { color: var(--ink-2); }
+  .decision-edit .title-input { font-weight: 600; font-size: 15px; }
+  .options { display: grid; gap: 10px; margin-top: 4px; }
+  .option { padding: 8px 10px; border-radius: 8px; background: var(--page); box-shadow: inset 0 0 0 1px var(--ring); }
+  .option .row { align-items: center; }
+  .option .row > .pill, .option .row > button { flex: 0 0 auto; }
+  ul.changes { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--ink-2); }
+  code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .result-row { align-items: center; margin-bottom: 6px; }
+  .result-row > select { flex: 0 0 150px; }
+  .offer { margin-top: 12px; max-width: 560px; }

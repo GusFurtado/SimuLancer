@@ -478,6 +478,23 @@ mod tests {
     }
 
     #[test]
+    fn project_files_round_trip() {
+        for text in [
+            include_str!("../../../examples/projects/two-cells.yaml"),
+            include_str!("../../../examples/projects/conveyor-line.yaml"),
+        ] {
+            let file: ProjectFile = serde_saphyr::from_str(text).unwrap();
+            let again: ProjectFile = serde_saphyr::from_str(&file.to_text()).unwrap();
+            assert_eq!(
+                serde_json::to_value(&file).unwrap(),
+                serde_json::to_value(&again).unwrap(),
+                "{}",
+                file.to_text()
+            );
+        }
+    }
+
+    #[test]
     fn ids_are_checked() {
         let p = temp("ids");
         for bad in ["", "../x", "Two", "a/b", ".hidden"] {

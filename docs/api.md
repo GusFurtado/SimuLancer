@@ -126,6 +126,8 @@ Creates a project from another one's working copy, with a fresh history.
 | `decisions` | What can be changed on the Decide page: `id`, `label`, `description`, `kind` (`choice` with `choices`: `id`, `label`, `changes`; or `number` with `path`, `min`, `max`, `step`, `unit`) and `current` (the first option's id, or the number in the model). |
 | `results` | What the Decide page shows: `label`, `object`, `measure`, `unit`, `better` (`higher`, `lower`, `neither`). |
 | `decision_problems` | What's wrong with them, as sentences. Empty when the version can be published. |
+| `project_file` | `project.yaml` as JSON, including the `decisions` and `results` as written. |
+| `measures` | What the model reports (`object_type`, `object`, `measure`, `unit`): what results can name. |
 
 ### `POST /api/v1/projects/{id}/check`
 
@@ -133,7 +135,11 @@ Creates a project from another one's working copy, with a fresh history.
 { "changes": { "conveyors.c_a.speed": "5 min" } }
 ```
 
-Checks changes against the working copy and returns `{ "ok": true, "errors": [] }` or the errors above. Nothing is saved.
+Checks changes against the working copy. Nothing is saved.
+
+- **Pending decisions and results:** the body may also carry `decisions` and/or `results`, which replace `project.yaml`'s.
+- **Response:** `{ "ok": true, "errors": [], "decisions": [...], "results": [...], "decision_problems": [...] }`, where `decisions`, `results` and `decision_problems` are as in `GET /projects/{id}`.
+- **When the model itself has errors,** `ok` is false, `errors` lists them as above, and only the structure of the decisions is checked.
 
 ### `POST /api/v1/projects/{id}/save`
 
@@ -141,13 +147,18 @@ Checks changes against the working copy and returns `{ "ok": true, "errors": [] 
 { "changes": { "servers.mill_b.capacity": 2 }, "message": "Second spindle on mill B" }
 ```
 
-Applies the changes to the working copy and saves a version. The model file is rewritten in standard formatting; comments in it aren't kept. Responses:
+Applies the changes to the working copy and saves a version.
+
+- **With `decisions` and/or `results`,** `project.yaml` is updated in the same version.
+- **Formatting:** the files are rewritten in standard formatting, and comments in them aren't kept.
+
+Responses:
 
 | Status | When |
 |---|---|
 | `200` | `{ "ok": true, "saved": <commit>, "decision_problems": [...] }` |
 | `422` | the changes have errors (nothing is saved) |
-| `400` | no changes |
+| `400` | no changes, decisions or results |
 
 ### `POST /api/v1/projects/{id}/publish`
 

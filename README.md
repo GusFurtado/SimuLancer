@@ -41,7 +41,7 @@ outliers-sim serve --data ./data --port 8080
 
 Then open `http://localhost:8080`. There's a page for each job:
 
-- **Build.** Open a project and click machines and conveyors in its diagram to change them; errors show next to the field as you type. Run to check, **save a version** with a short message, then **publish** it to the Decide page. Versions are git commits and tags in the project's repository; nobody needs to know git.
+- **Build.** Open a project and click machines and conveyors in its diagram to change them; errors show next to the field as you type. Run to check, **save a version** with a short message, then **publish** it to the Decide page. On the *Decisions* tab, choose what can be changed on the Decide page ("⚑ Make this a decision" under a number, or "Offer as an option…" for a set of edits) and which results it shows. Versions are git commits and tags in the project's repository; nobody needs to know git.
 - **Decide.** Published versions only. Build scenarios from the decisions the model offers (a set of options, or a number within limits), compare them with the current setup, and read the answer in plain language: *"Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better"*. Every scenario's report and 2D animation are one click away.
 - **API.** Everything the pages do goes through the documented HTTP API (`docs/api.md`): projects, versions, runs and results as JSON.
 
