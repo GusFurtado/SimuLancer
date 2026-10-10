@@ -308,6 +308,18 @@ fn describe(path: &Path, model: &Model) -> String {
             s.capacity,
             per_type(spec, &s.process_time)
         );
+        if !s.needs.is_empty() {
+            let needs: Vec<String> = s
+                .needs
+                .iter()
+                .map(|&(r, units)| format!("{units} {}", spec.resources[r].name))
+                .collect();
+            out += &format!(
+                "  {:<12}   needs {} while processing\n",
+                "",
+                needs.join(", ")
+            );
+        }
         for f in &s.failures {
             out += &format!(
                 "  {:<12}   fails ({}) after {}, down for {}\n",
@@ -329,6 +341,12 @@ fn describe(path: &Path, model: &Model) -> String {
         }
         if let Some(text) = routing(spec, &s.outputs, &s.routing) {
             out += &format!("  {:<12}   {text}\n", "");
+        }
+    }
+    if !spec.resources.is_empty() {
+        out += "\nresources\n";
+        for r in &spec.resources {
+            out += &format!("  {:<12} capacity {}\n", r.name, r.capacity);
         }
     }
     out += "\nconveyors\n";

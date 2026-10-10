@@ -133,6 +133,20 @@ pub fn merge(scenario: &Scenario, base_source: &str) -> Result<Merged, LoadError
     })
 }
 
+/// Top-level model sections that changes may create when the model doesn't
+/// have them yet.
+const SECTIONS: &[&str] = &[
+    "units",
+    "entities",
+    "sources",
+    "servers",
+    "conveyors",
+    "sinks",
+    "resources",
+    "schedules",
+    "outputs",
+];
+
 /// Replaces (or adds, for the last segment of a map) the value at `path`.
 /// `null` removes a map entry: how an object or conveyor is deleted.
 fn set(tree: &mut Value, path: &str, value: Value) -> Result<(), String> {
@@ -166,6 +180,11 @@ fn set(tree: &mut Value, path: &str, value: Value) -> Result<(), String> {
                         map.insert(segment.to_string(), value);
                     }
                     return Ok(());
+                }
+                // A model section the file doesn't have yet (no resources so
+                // far, say) can be started; any other unknown name is a typo.
+                if i == 0 && !map.contains_key(*segment) && SECTIONS.contains(segment) {
+                    map.insert(segment.to_string(), Value::Object(Default::default()));
                 }
                 if !map.contains_key(*segment) {
                     let keys: Vec<&str> = map.keys().map(String::as_str).collect();

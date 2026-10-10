@@ -82,6 +82,15 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
             add("server", &s.name, "blocked", Unit::Fraction, &|r| {
                 r.servers[i].blocked
             });
+            if !s.needs.is_empty() {
+                add(
+                    "server",
+                    &s.name,
+                    "waiting for resources",
+                    Unit::Fraction,
+                    &|r| r.servers[i].waiting_for_resources,
+                );
+            }
             if !s.failures.is_empty() {
                 add("server", &s.name, "failed", Unit::Fraction, &|r| {
                     r.servers[i].failed
@@ -90,6 +99,13 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
                     r.servers[i].failures as f64
                 });
             }
+        }
+    }
+    if wants(SummaryItem::ServerStates) {
+        for (i, res) in spec.resources.iter().enumerate() {
+            add("resource", &res.name, "busy", Unit::Fraction, &|r| {
+                r.resources[i].busy
+            });
         }
     }
     if wants(SummaryItem::ConveyorOccupancy) {

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node, OnFailure, PerType,
-    Routing, Server, Sink, Source, Spec, WhenBlocked,
+    Resource, Routing, Server, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -63,6 +63,10 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Kind::Conveyor,
         ),
         (raw.sinks.0.iter().map(|(n, _)| n).collect(), Kind::Sink),
+        (
+            raw.resources.0.iter().map(|(n, _)| n).collect(),
+            Kind::Resource,
+        ),
     ];
     for (names, kind) in &all_names {
         for (i, name) in names.iter().enumerate() {
@@ -71,7 +75,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 Some(existing) => b.error(
                     name,
                     format!(
-                        "`{}` is already used by a {}; names must be unique across sources, servers, conveyors and sinks",
+                        "`{}` is already used by a {}; names must be unique across sources, servers, conveyors, sinks and resources",
                         name.value,
                         existing.kind.describe()
                     ),
@@ -185,6 +189,20 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         }
     }
 
+    let mut resources = Vec::new();
+    for (name, r) in &raw.resources.0 {
+        if r.capacity.value == 0 {
+            b.error(
+                &r.capacity,
+                format!("resource `{}` needs a capacity of at least 1", name.value),
+            );
+        }
+        resources.push(Resource {
+            name: name.value.clone(),
+            capacity: r.capacity.value,
+        });
+    }
+
     let mut servers = Vec::new();
     for (i, (name, s)) in raw.servers.0.iter().enumerate() {
         let capacity = match &s.capacity {
@@ -199,6 +217,56 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             None => Some(1),
         };
         let process_time = b.per_type_distribution(name, &s.process_time, &types);
+        let mut needs = Vec::new();
+        let mut needs_ok = true;
+        for (resource, units) in &s.needs.0 {
+            match objects.get(resource.value.as_str()) {
+                Some(Object {
+                    kind: Kind::Resource,
+                    index,
+                }) => {
+                    let capacity = raw.resources.0[*index].1.capacity.value;
+                    if units.value == 0 {
+                        b.error(
+                            units,
+                            format!(
+                                "server `{}` needs at least 1 `{}`; remove it if none",
+                                name.value, resource.value
+                            ),
+                        );
+                        needs_ok = false;
+                    } else if units.value > capacity {
+                        b.error(
+                            units,
+                            format!(
+                                "server `{}` needs {} `{}`, but there are only {capacity}: it could never start",
+                                name.value, units.value, resource.value
+                            ),
+                        );
+                        needs_ok = false;
+                    }
+                    needs.push((*index, units.value));
+                }
+                _ => {
+                    let known: Vec<String> = raw
+                        .resources
+                        .0
+                        .iter()
+                        .map(|(n, _)| format!("`{}`", n.value))
+                        .collect();
+                    b.error(
+                        resource,
+                        format!(
+                            "server `{}` needs `{}`, which isn't listed under `resources` (resources: {})",
+                            name.value,
+                            resource.value,
+                            if known.is_empty() { "none".into() } else { known.join(", ") }
+                        ),
+                    );
+                    needs_ok = false;
+                }
+            }
+        }
         let mut failures = Vec::new();
         let mut failures_ok = true;
         for (j, f) in s.failures.iter().enumerate() {
@@ -250,14 +318,16 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some(capacity),
             Some(process_time),
             true,
+            true,
             Some((inputs, input_rule)),
             Some((outputs, routing)),
-        ) = (capacity, process_time, failures_ok, input, output)
+        ) = (capacity, process_time, failures_ok, needs_ok, input, output)
         {
             servers.push(Server {
                 name: name.value.clone(),
                 capacity,
                 process_time,
+                needs,
                 failures,
                 inputs,
                 input_rule,
@@ -308,6 +378,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         servers,
         conveyors,
         sinks,
+        resources,
         experiment: experiment.expect("no diagnostics means the experiment is valid"),
     };
     check_reachability(&spec, &raw)?;
@@ -513,6 +584,7 @@ enum Kind {
     Server,
     Conveyor,
     Sink,
+    Resource,
 }
 
 impl Kind {
@@ -522,6 +594,7 @@ impl Kind {
             Kind::Server => "server",
             Kind::Conveyor => "conveyor",
             Kind::Sink => "sink",
+            Kind::Resource => "resource",
         }
     }
 }
@@ -785,6 +858,7 @@ impl Builder {
                 let reason = match kind {
                     Kind::Source => "nothing can go into a source",
                     Kind::Sink => "nothing comes out of a sink",
+                    Kind::Resource => "it's a resource, which servers use, not a place parts go",
                     _ => "conveyors can't connect directly to other conveyors",
                 };
                 self.error(

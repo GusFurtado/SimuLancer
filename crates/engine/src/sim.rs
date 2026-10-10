@@ -27,6 +27,12 @@
 //!   first), `priority` (input order) or `round_robin` (in turn, skipping
 //!   empty inputs). The choice is made in a `Pull` event at the current time,
 //!   after every event already due, so simultaneous arrivals compete fairly.
+//! - Shared resources: a server starts a part only when it can take every
+//!   resource unit it needs at once. Units are held while processing (also
+//!   while suspended by a failure) and given back when processing finishes.
+//!   Servers waiting for units wait in one queue, first come first served:
+//!   when units come back, waiting servers try again in the order they
+//!   started waiting.
 //! - Failure clocks run only while the server is up. `busy_time` clocks run
 //!   only while at least one slot is processing. While the server is down it
 //!   does nothing: no processing, no taking parts, no releasing blocked parts.
@@ -38,8 +44,8 @@ use std::collections::VecDeque;
 use crate::SimTime;
 use crate::events::{Event, EventList};
 use crate::results::{
-    ConveyorResult, ReplicationResult, ServerResult, SinkResult, SourceResult, Tally, TimeAverage,
-    Totals, TypeResult,
+    ConveyorResult, ReplicationResult, ResourceResult, ServerResult, SinkResult, SourceResult,
+    Tally, TimeAverage, Totals, TypeResult,
 };
 use crate::rng::Rng;
 use crate::spec::{Conveyor, FailureClock, InputRule, Node, OnFailure, Routing, Spec, WhenBlocked};
@@ -115,6 +121,9 @@ struct ServerState {
     slot_generation: Vec<u64>,
     /// Slots holding finished parts, in the order they finished.
     blocked_order: VecDeque<usize>,
+    /// Waiting in the resource queue: a part is ready, units aren't.
+    waiting_for_resources: bool,
+    waiting: TimeAverage,
     failures: Vec<FailureState>,
     /// The failure the server is currently down for.
     down_for: Option<usize>,
@@ -245,6 +254,11 @@ pub fn simulate<O: Observer>(spec: &Spec, replication: u32, observer: &mut O) ->
     sim.result()
 }
 
+struct ResourceState {
+    in_use: u32,
+    busy: TimeAverage,
+}
+
 struct Sim<'a, O: Observer> {
     spec: &'a Spec,
     replication: u32,
@@ -256,6 +270,9 @@ struct Sim<'a, O: Observer> {
     sources: Vec<SourceState>,
     servers: Vec<ServerState>,
     conveyors: Vec<ConveyorState>,
+    resources: Vec<ResourceState>,
+    /// Servers waiting for resource units, in the order they started waiting.
+    resource_queue: VecDeque<usize>,
     sink_exited: Vec<u64>,
     sink_times: Vec<Tally>,
     /// Per sink, per part type: parts that exited and their times in system.
@@ -313,6 +330,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                     slots: vec![Slot::Idle; s.capacity as usize],
                     slot_generation: vec![0; s.capacity as usize],
                     blocked_order: VecDeque::new(),
+                    waiting_for_resources: false,
+                    waiting: TimeAverage::default(),
                     failures,
                     down_for: None,
                     processed: 0,
@@ -348,6 +367,15 @@ impl<'a, O: Observer> Sim<'a, O> {
             sources,
             servers,
             conveyors,
+            resources: spec
+                .resources
+                .iter()
+                .map(|_| ResourceState {
+                    in_use: 0,
+                    busy: TimeAverage::default(),
+                })
+                .collect(),
+            resource_queue: VecDeque::new(),
             sink_exited: vec![0; spec.sinks.len()],
             sink_times: vec![Tally::default(); spec.sinks.len()],
             sink_by_type: vec![vec![(0, Tally::default()); spec.entities.len()]; spec.sinks.len()],
@@ -701,12 +729,45 @@ impl<'a, O: Observer> Sim<'a, O> {
             if !s.is_up() || s.idle_slot().is_none() {
                 return;
             }
+            if !self.resources_available(server) {
+                if self.any_input_waiting(server) && !self.servers[server].waiting_for_resources {
+                    self.servers[server].waiting_for_resources = true;
+                    self.resource_queue.push_back(server);
+                }
+                return;
+            }
             let Some(conveyor) = self.choose_input(server) else {
                 return;
             };
             let part = self.take_head(conveyor);
             self.start_process(server, part);
             self.after_departure(conveyor);
+        }
+    }
+
+    fn resources_available(&self, server: usize) -> bool {
+        self.spec.servers[server]
+            .needs
+            .iter()
+            .all(|&(r, units)| self.resources[r].in_use + units <= self.spec.resources[r].capacity)
+    }
+
+    fn any_input_waiting(&self, server: usize) -> bool {
+        let spec = self.spec;
+        spec.servers[server]
+            .inputs
+            .iter()
+            .any(|&c| self.conveyors[c].head_at_end(&spec.conveyors[c], self.now))
+    }
+
+    /// Units came back: waiting servers try again, in the order they
+    /// started waiting. Those that still can't start queue up again, in the
+    /// same order.
+    fn serve_resource_queue(&mut self) {
+        let waiting = std::mem::take(&mut self.resource_queue);
+        for server in waiting {
+            self.servers[server].waiting_for_resources = false;
+            self.pull(server);
         }
     }
 
@@ -737,6 +798,9 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn start_process(&mut self, server: usize, part: Part) {
+        for &(r, units) in &self.spec.servers[server].needs {
+            self.resources[r].in_use += units;
+        }
         let s = &mut self.servers[server];
         let slot = s.idle_slot().expect("caller checked for a free slot");
         let total = duration(
@@ -788,6 +852,9 @@ impl<'a, O: Observer> Sim<'a, O> {
         );
         s.slots[slot] = Slot::Blocked { part, target };
         s.blocked_order.push_back(slot);
+        for &(r, units) in &spec.needs {
+            self.resources[r].in_use -= units;
+        }
         self.observer.record(
             self.now,
             TraceEvent::FinishedProcess {
@@ -797,6 +864,9 @@ impl<'a, O: Observer> Sim<'a, O> {
         );
         self.update_failure_clocks(server);
         self.release_blocked(server);
+        if !self.spec.servers[server].needs.is_empty() {
+            self.serve_resource_queue();
+        }
     }
 
     /// Moves finished parts onto their outgoing conveyors where there's
@@ -996,6 +1066,10 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.busy.set(now, busy);
             s.blocked.set(now, blocked);
             s.failed.set(now, failed);
+            s.waiting.set(now, u64::from(s.waiting_for_resources));
+        }
+        for r in &mut self.resources {
+            r.busy.set(now, u64::from(r.in_use));
         }
         for (c, spec) in self.conveyors.iter_mut().zip(&self.spec.conveyors) {
             let n = c.belt.len() as u64;
@@ -1018,6 +1092,10 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.busy.reset(now);
             s.blocked.reset(now);
             s.failed.reset(now);
+            s.waiting.reset(now);
+        }
+        for r in &mut self.resources {
+            r.busy.reset(now);
         }
         for c in &mut self.conveyors {
             c.entered = 0;
@@ -1070,6 +1148,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                         failed,
                         processed: s.processed,
                         failures: s.failure_count,
+                        waiting_for_resources: s.waiting.mean(),
                     }
                 })
                 .collect(),
@@ -1081,6 +1160,14 @@ impl<'a, O: Observer> Sim<'a, O> {
                     max_parts: c.parts.max(),
                     full: c.full.mean(),
                     entered: c.entered,
+                })
+                .collect(),
+            resources: self
+                .resources
+                .iter()
+                .zip(&self.spec.resources)
+                .map(|(r, spec)| ResourceResult {
+                    busy: r.busy.mean() / f64::from(spec.capacity),
                 })
                 .collect(),
             sinks: self

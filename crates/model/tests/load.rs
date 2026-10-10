@@ -498,3 +498,45 @@ fn part_type_problems_are_reported() {
         );
     }
 }
+
+#[test]
+fn resource_problems_are_reported() {
+    let base = TYPED.replace(
+        "servers:\n  mill:\n",
+        "resources:\n  operator: { capacity: 1 }\nservers:\n  mill:\n    needs: { operator: 1 }\n",
+    );
+    assert_eq!(load_str(&base).unwrap().spec.servers[0].needs, vec![(0, 1)]);
+    for (from, to, expected) in [
+        (
+            "needs: { operator: 1 }",
+            "needs: { operator: 2 }",
+            "there are only 1: it could never start",
+        ),
+        (
+            "needs: { operator: 1 }",
+            "needs: { helper: 1 }",
+            "`helper`, which isn't listed under `resources` (resources: `operator`)",
+        ),
+        (
+            "needs: { operator: 1 }",
+            "needs: { operator: 0 }",
+            "needs at least 1 `operator`",
+        ),
+        (
+            "operator: { capacity: 1 }",
+            "operator: { capacity: 0 }",
+            "needs a capacity of at least 1",
+        ),
+        (
+            "operator: { capacity: 1 }",
+            "mill: { capacity: 1 }",
+            "already used by a server",
+        ),
+    ] {
+        let errors = errors(&base.replacen(from, to, 1));
+        assert!(
+            errors.iter().any(|(_, e)| e.contains(expected)),
+            "{to}: expected `{expected}` in {errors:?}"
+        );
+    }
+}

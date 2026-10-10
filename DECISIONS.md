@@ -310,6 +310,18 @@ Decisions so far:
 - **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
 - **Next (planned 2026-10-10, in this order):** manager comparisons; then exposing decisions from the builder; then drawing models in the builder (place, connect, delete and rename objects; conveyor length follows the drawing by default; whole-model saves including the layout; distribution pickers; undo).
 
+## Shared resources (implemented 2026-10-10)
+
+- **`resources: { name: { capacity: N } }`**, with servers saying `needs: { name: units }`. Resources share the object namespace, so a measure's object name is never ambiguous.
+- **All at once:** a server starts a part only when it can take every unit it needs at once. It never holds some units while waiting for others, which rules out deadlocks over resources. A need above the resource's capacity is an error ("it could never start").
+- **Held while processing,** including while suspended by a failure. Units go back when processing ends, not when the part leaves, so an operator doesn't stand by a blocked machine.
+- **One queue, first come first served:** when units come back, every waiting server tries again in the order it started waiting. Servers that still can't start rejoin the queue in the same order. A server joins only when it's up, has a free slot and a part is waiting at its input.
+- **Results:** `resource <name>: busy`, the time-weighted share of units in use. `server <name>: waiting for resources`, the share of time it was queued for units. That time is part of *idle*, so the server states still add up to 1. Both are reported with `server_states`.
+- **Starting a section with a change:** a change may now create a top-level model section the file doesn't have yet (`resources.operator: { capacity: 1 }` on a model without `resources`). Other unknown top-level names are still reported as typos. Without this, the Build page and API scripts couldn't add the first resource.
+- **Build page:**
+  - *Resources* in the model settings (add, rename, remove, units available). "⚑ Make this a decision" works on the number of units, for "hire a second operator".
+  - *Needs while processing* on servers.
+
 ## Part types (implemented 2026-10-10)
 
 - **Where types come from:** `entities` lists the part types. A source `creates` one type, or a mix with shares adding up to 1. Each arrival's type is drawn from the source's own `type` stream, which is only used for mixes, so single-type models give byte-identical results to before.
