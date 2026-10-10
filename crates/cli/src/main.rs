@@ -1,10 +1,13 @@
 mod compare;
+mod decisions;
 mod files;
 mod measures;
 mod output;
+mod plain;
 mod projects;
 mod report;
 mod runner;
+mod scenarios;
 mod server;
 
 use std::fs;

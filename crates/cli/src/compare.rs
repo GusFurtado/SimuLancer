@@ -39,54 +39,56 @@ pub struct Comparison {
 /// Pairs up measures present in both scenarios (same object type, object
 /// and measure), in the base's order.
 pub fn compare(base: Vec<Measure>, scenario: Vec<Measure>) -> Vec<Comparison> {
-    let mut out = Vec::new();
-    for b in base {
-        let Some(s) = scenario
-            .iter()
-            .find(|s| s.object_type == b.object_type && s.object == b.object && s.name == b.name)
-        else {
-            continue;
-        };
-        let differences: Vec<f64> = b
-            .values
-            .iter()
-            .zip(&s.values)
-            .map(|(x, y)| {
-                if x.is_finite() && y.is_finite() {
-                    y - x
-                } else {
-                    f64::NAN
-                }
-            })
-            .collect();
-        let difference = Summary::of(&differences, CONFIDENCE);
-        let base_summary = Summary::of(&b.values, CONFIDENCE);
-        let scenario_summary = Summary::of(&s.values, CONFIDENCE);
-        let verdict = if difference.n < 2 {
-            Verdict::Unknown
-        } else if differences
-            .iter()
-            .filter(|d| d.is_finite())
-            .all(|d| *d == 0.0)
-        {
-            Verdict::Identical
-        } else if difference.mean.abs() <= difference.half_width {
-            Verdict::NoClearDifference
-        } else if difference.mean > 0.0 {
-            Verdict::Higher
-        } else {
-            Verdict::Lower
-        };
-        out.push(Comparison {
-            unpaired_half_width: welch_half_width(&base_summary, &scenario_summary),
-            base: b,
-            base_summary,
-            scenario_summary,
-            difference,
-            verdict,
-        });
+    base.into_iter()
+        .filter_map(|b| {
+            let s = scenario.iter().find(|s| {
+                s.object_type == b.object_type && s.object == b.object && s.name == b.name
+            })?;
+            Some(compare_pair(b, s))
+        })
+        .collect()
+}
+
+/// One measure in both scenarios, replication by replication.
+pub fn compare_pair(b: Measure, s: &Measure) -> Comparison {
+    let differences: Vec<f64> = b
+        .values
+        .iter()
+        .zip(&s.values)
+        .map(|(x, y)| {
+            if x.is_finite() && y.is_finite() {
+                y - x
+            } else {
+                f64::NAN
+            }
+        })
+        .collect();
+    let difference = Summary::of(&differences, CONFIDENCE);
+    let base_summary = Summary::of(&b.values, CONFIDENCE);
+    let scenario_summary = Summary::of(&s.values, CONFIDENCE);
+    let verdict = if difference.n < 2 {
+        Verdict::Unknown
+    } else if differences
+        .iter()
+        .filter(|d| d.is_finite())
+        .all(|d| *d == 0.0)
+    {
+        Verdict::Identical
+    } else if difference.mean.abs() <= difference.half_width {
+        Verdict::NoClearDifference
+    } else if difference.mean > 0.0 {
+        Verdict::Higher
+    } else {
+        Verdict::Lower
+    };
+    Comparison {
+        unpaired_half_width: welch_half_width(&base_summary, &scenario_summary),
+        base: b,
+        base_summary,
+        scenario_summary,
+        difference,
+        verdict,
     }
-    out
 }
 
 fn welch_half_width(a: &Summary, b: &Summary) -> f64 {

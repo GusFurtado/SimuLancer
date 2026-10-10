@@ -7,6 +7,9 @@
 //!   model.layout.yaml   its layout (optional)
 //! ```
 //!
+//! `project.yaml` also says what managers may change and what they read
+//! (`decisions` and `results`, see the `decisions` module).
+//!
 //! The engineer saves versions (git commits) and publishes them (tags `v1`,
 //! `v2`, ...). Managers only see published versions, read straight from git
 //! at their tag, so later edits never change what they're looking at.
@@ -17,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 pub const PROJECT_FORMAT: &str = "outliers-sim-project/0.1";
 pub const PROJECT_FILE: &str = "project.yaml";
@@ -30,9 +34,21 @@ pub struct ProjectFile {
     pub description: Option<String>,
     /// The model file, relative to the project folder.
     pub model: String,
+    /// What managers may change: decision id -> decision.
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub decisions: Map<String, Value>,
+    /// What managers read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub results: Vec<Value>,
 }
 
 impl ProjectFile {
+    /// As `project.yaml` text.
+    pub fn to_text(&self) -> String {
+        let tree = serde_json::to_value(self).expect("a project file is plain data");
+        outliers_sim_model::to_yaml(&tree)
+    }
+
     pub fn layout_file(&self) -> String {
         let stem = self.model.strip_suffix(".yaml").unwrap_or(&self.model);
         format!("{stem}.layout.yaml")
@@ -346,36 +362,26 @@ pub fn seed_examples(projects: &Projects) -> Result<Vec<String>, String> {
     let examples = [
         (
             "conveyor-line",
-            "Conveyor line",
+            include_str!("../../../examples/projects/conveyor-line.yaml"),
             include_str!("../../../examples/conveyor-line.yaml"),
             include_str!("../../../examples/conveyor-line.layout.yaml"),
         ),
         (
             "two-cells",
-            "Two cells",
+            include_str!("../../../examples/projects/two-cells.yaml"),
             include_str!("../../../examples/two-cells.yaml"),
             include_str!("../../../examples/two-cells.layout.yaml"),
         ),
     ];
     let mut created = Vec::new();
-    for (id, name, model, layout) in examples {
-        let description = outliers_sim_model::load_str(model)
-            .ok()
-            .and_then(|m| m.description);
-        let project = ProjectFile {
-            format: PROJECT_FORMAT.into(),
-            name: name.into(),
-            description,
-            model: "model.yaml".into(),
-        };
-        let project_yaml = serde_saphyr::to_string(&project).map_err(|e| e.to_string())?;
+    for (id, project, model, layout) in examples {
         let layout = layout
             .replace("model: conveyor-line.yaml", "model: model.yaml")
             .replace("model: two-cells.yaml", "model: model.yaml");
         projects.create(
             id,
             &[
-                (PROJECT_FILE.into(), project_yaml),
+                (PROJECT_FILE.into(), project.into()),
                 ("model.yaml".into(), model.into()),
                 ("model.layout.yaml".into(), layout),
             ],

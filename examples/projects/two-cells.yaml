@@ -1,0 +1,42 @@
+# The project file of the two-cells example, as `outliers-sim serve` creates
+# it: which file is the model, and what managers may change and read.
+
+format: outliers-sim-project/0.1
+name: Two cells
+description: Two parallel cells, one inspection station, 10% rework back to cell A.
+model: model.yaml
+
+# What managers may change. Each decision is either a set of options (the
+# first one is the current setup) or a number within bounds.
+decisions:
+  arrival_routing:
+    label: How new parts are assigned to the cells
+    choices:
+      shortest_queue:
+        label: To the cell with the shorter queue
+      round_robin:
+        label: Alternate between the cells
+        changes: { sources.arrivals.output: { rule: round_robin } }
+      first_available:
+        label: To cell A, unless its conveyor is full
+        changes: { sources.arrivals.output: { rule: first_available } }
+  inspectors:
+    label: Inspectors
+    description: People working side by side at the inspection station.
+    path: servers.inspect.capacity
+    min: 1
+    max: 3
+  mill_b_repairs:
+    label: Repairs on mill B
+    choices:
+      current:
+        label: Current crew (5 to 15 minutes)
+      faster_crew:
+        label: Faster crew (3 to 8 minutes)
+        changes: { servers.mill_b.failures.0.downtime: "uniform(3 min, 8 min)" }
+
+# What managers read, and which way is better.
+results:
+  - { label: Parts shipped per hour, object: shipping, measure: throughput, better: higher }
+  - { label: Lead time, object: shipping, measure: time in system, better: lower }
+  - { label: Inspection busy, object: inspect, measure: busy }

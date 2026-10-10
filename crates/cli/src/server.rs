@@ -7,7 +7,8 @@
 //!
 //! The web pages use only the public API. Simulations run on the server, one
 //! run at a time on all cores; later runs wait in a queue. Projects are git
-//! repositories in `<data>/projects`; each run's results go to `<data>/runs/<id>`.
+//! repositories in `<data>/projects`; managers' scenarios are in
+//! `<data>/scenarios`; each run's results go to `<data>/runs/<id>`.
 
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
@@ -28,14 +29,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tower_http::compression::CompressionLayer;
 
+use crate::compare::compare_pair;
+use crate::decisions::{self, Exposed, Target};
+use crate::measures::{self, Measure};
 use crate::output::layout_json;
+use crate::plain;
 use crate::projects::{self, PROJECT_FILE, ProjectFile, Projects};
 use crate::runner::{self, RunOptions};
+use crate::scenarios::Scenarios;
 use crate::thread_count;
 
 #[derive(Args)]
 pub struct ServeArgs {
-    /// Data folder: `projects/` (one git repository per project) and `runs/`.
+    /// Data folder: `projects/` (one git repository per project), `scenarios/`
+    /// (managers' scenarios) and `runs/`.
     /// Created if missing; an empty one gets the example projects.
     #[arg(long, default_value = "data")]
     data: PathBuf,
@@ -63,7 +70,8 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
         let created = projects::seed_examples(&projects)?;
         println!("created example projects: {}", created.join(", "));
     }
-    let state = AppState::start(projects, runs_dir, thread_count(args.threads));
+    let scenarios = Scenarios::new(args.data.join("scenarios"));
+    let state = AppState::start(projects, scenarios, runs_dir, thread_count(args.threads));
     let address = SocketAddr::new(args.host, args.port);
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     runtime.block_on(async {
@@ -116,6 +124,19 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/projects/{id}/check", post(check))
         .route("/api/v1/projects/{id}/save", post(save))
         .route("/api/v1/projects/{id}/publish", post(publish))
+        .route(
+            "/api/v1/projects/{id}/scenarios",
+            get(list_scenarios).post(create_scenario),
+        )
+        .route(
+            "/api/v1/projects/{id}/scenarios/{scenario}",
+            axum::routing::put(update_scenario).delete(delete_scenario),
+        )
+        .route(
+            "/api/v1/comparisons",
+            get(list_comparisons).post(start_comparison),
+        )
+        .route("/api/v1/comparisons/{id}", get(get_comparison))
         .route("/api/v1/runs", get(list_runs).post(start_run))
         .route("/api/v1/runs/{id}", get(get_run))
         .route("/api/v1/runs/{id}/files/{name}", get(get_run_file))
@@ -187,9 +208,11 @@ fn asset(name: &'static str) -> impl Fn() -> std::future::Ready<Response> + Clon
 
 pub struct AppState {
     projects: Projects,
+    scenarios: Scenarios,
     runs: PathBuf,
     threads: usize,
     jobs: Mutex<Vec<Job>>,
+    comparisons: Mutex<Vec<ComparisonJob>>,
     queue: mpsc::Sender<String>,
     next_id: AtomicU64,
 }
@@ -220,6 +243,8 @@ struct Job {
     status: Status,
     error: Option<String>,
     files: Vec<String>,
+    /// Once done: every measure, one value per replication (for comparisons).
+    measures: Option<Arc<Vec<Measure>>>,
 }
 
 impl Job {
@@ -239,13 +264,20 @@ impl Job {
 
 impl AppState {
     /// Creates the state and starts the worker thread that runs queued jobs.
-    pub fn start(projects: Projects, runs: PathBuf, threads: usize) -> Arc<AppState> {
+    pub fn start(
+        projects: Projects,
+        scenarios: Scenarios,
+        runs: PathBuf,
+        threads: usize,
+    ) -> Arc<AppState> {
         let (queue, jobs_ready) = mpsc::channel::<String>();
         let state = Arc::new(AppState {
             projects,
+            scenarios,
             runs,
             threads,
             jobs: Mutex::new(Vec::new()),
+            comparisons: Mutex::new(Vec::new()),
             queue,
             next_id: AtomicU64::new(1),
         });
@@ -303,6 +335,9 @@ impl AppState {
                     .filter_map(|f| f.file_name()?.to_str().map(String::from))
                     .chain(["model.yaml".to_string()])
                     .collect();
+                j.measures = Some(Arc::new(
+                    outcome.measures.into_iter().map(|(m, _)| m).collect(),
+                ));
             }
             Err(error) => {
                 j.status = Status::Failed;
@@ -504,6 +539,53 @@ fn apply_changes(
     }
 }
 
+/// What a project exposes to managers at a version, and the problems with it.
+fn exposed(
+    state: &AppState,
+    id: &str,
+    version: Option<&str>,
+) -> Result<(Exposed, Vec<String>), String> {
+    let project = state.projects.project_file(id, version)?;
+    let source = state.projects.read(id, version, &project.model)?;
+    let model = outliers_sim_model::load_str(&source).ok();
+    let measures = model
+        .as_ref()
+        .map(|m| measures::collect(&m.spec, &m.outputs.summary, &[]));
+    let try_changes = |changes: &Map<String, Value>| -> Result<(), String> {
+        apply_changes(&source, &project.model, changes)
+            .map(|_| ())
+            .map_err(|errors| {
+                errors
+                    .iter()
+                    .map(|e| match (e["change"].as_str(), e["message"].as_str()) {
+                        (Some(change), Some(message)) => format!("`{change}`: {message}"),
+                        (None, Some(message)) => message.to_string(),
+                        _ => e.to_string(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+    };
+    let target = measures.as_ref().map(|measures| Target {
+        source: &source,
+        measures,
+        try_changes: &try_changes,
+    });
+    Ok(decisions::read(
+        &project.decisions,
+        &project.results,
+        target.as_ref(),
+    ))
+}
+
+/// Problems in project.yaml, in the shape of model errors.
+fn project_problems(problems: &[String]) -> Vec<Value> {
+    problems
+        .iter()
+        .map(|message| json!({ "change": null, "file": PROJECT_FILE, "line": null, "column": null, "message": message }))
+        .collect()
+}
+
 // --- health ----------------------------------------------------------------------
 
 /// For load balancers and monitoring: 200 while the server and its run
@@ -559,10 +641,7 @@ async fn create_project(
     };
     let mut project = source.clone();
     project.name = body.name.clone().unwrap_or_else(|| body.id.clone());
-    let mut files = vec![(
-        PROJECT_FILE.to_string(),
-        serde_saphyr::to_string(&project).unwrap_or_default(),
-    )];
+    let mut files = vec![(PROJECT_FILE.to_string(), project.to_text())];
     for file in [source.model.clone(), source.layout_file()] {
         if let Ok(Some(text)) = state.projects.read_optional(&body.from, None, &file) {
             files.push((file, text));
@@ -618,6 +697,13 @@ async fn get_project(
     if resolved.is_none() {
         body["history"] = json!(state.projects.history(&id).unwrap_or_default());
     }
+    let (exposed, problems) = match exposed(&state, &id, resolved.as_deref()) {
+        Ok(found) => found,
+        Err(e) => (Exposed::default(), vec![e]),
+    };
+    body["decisions"] = json!(exposed.decisions);
+    body["results"] = json!(exposed.results);
+    body["decision_problems"] = json!(problems);
     match load(&state, &id, resolved.as_deref(), &Map::new()) {
         Ok(loaded) => {
             body["valid"] = json!(true);
@@ -679,7 +765,11 @@ async fn save(
         .projects
         .save(&id, &[(&loaded.project.model, &loaded.text)], &body.message)
     {
-        Ok(commit) => Json(json!({ "ok": true, "saved": commit })).into_response(),
+        Ok(commit) => {
+            let problems = exposed(&state, &id, None).map_or_else(|e| vec![e], |(_, p)| p);
+            Json(json!({ "ok": true, "saved": commit, "decision_problems": problems }))
+                .into_response()
+        }
         Err(e) => error(StatusCode::CONFLICT, e),
     }
 }
@@ -699,6 +789,13 @@ async fn publish(
 ) -> Response {
     if let Err(problem) = load(&state, &id, None, &Map::new()) {
         return problem.into_response();
+    }
+    match exposed(&state, &id, None) {
+        Err(e) => return not_found_or_bad(e),
+        Ok((_, problems)) if !problems.is_empty() => {
+            return invalid(project_problems(&problems));
+        }
+        Ok(_) => {}
     }
     match state.projects.publish(&id, &body.message) {
         Ok(version) => Json(json!({ "ok": true, "published": version })).into_response(),
@@ -755,6 +852,32 @@ async fn start_run(
         };
         format!("{} {version_name}{changed}", loaded.project.name)
     });
+    match enqueue(
+        &state,
+        &request.project,
+        version_name,
+        label,
+        loaded,
+        request.replications,
+    ) {
+        Ok(id) => {
+            let jobs = state.jobs.lock().expect("jobs lock");
+            let job = jobs.iter().find(|j| j.id == id).expect("just queued");
+            (StatusCode::ACCEPTED, Json(job.to_json())).into_response()
+        }
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+/// Queues a run and returns its id.
+fn enqueue(
+    state: &AppState,
+    project: &str,
+    version: String,
+    label: String,
+    loaded: Loaded,
+    replications: Option<u32>,
+) -> Result<String, String> {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
@@ -762,29 +885,50 @@ async fn start_run(
     let job = Job {
         id: id.clone(),
         label,
-        project: request.project.clone(),
-        version: version_name,
-        total: request
-            .replications
-            .unwrap_or(loaded.model.spec.experiment.replications),
+        project: project.to_string(),
+        version,
+        total: replications.unwrap_or(loaded.model.spec.experiment.replications),
         model: loaded.model,
         layout: loaded.layout,
         model_text: loaded.text,
-        replications: request.replications,
+        replications,
         progress: Arc::new(AtomicU32::new(0)),
         status: Status::Queued,
         error: None,
         files: Vec::new(),
+        measures: None,
     };
-    let body = job.to_json();
     state.jobs.lock().expect("jobs lock").push(job);
-    if state.queue.send(id).is_err() {
-        return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "the run queue has stopped",
-        );
-    }
-    (StatusCode::ACCEPTED, Json(body)).into_response()
+    state
+        .queue
+        .send(id.clone())
+        .map_err(|_| "the run queue has stopped".to_string())?;
+    Ok(id)
+}
+
+/// A queued, running or finished run of exactly this model, to reuse.
+fn same_run(
+    state: &AppState,
+    project: &str,
+    version: &str,
+    loaded: &Loaded,
+    replications: Option<u32>,
+) -> Option<String> {
+    let total = replications.unwrap_or(loaded.model.spec.experiment.replications);
+    state
+        .jobs
+        .lock()
+        .expect("jobs lock")
+        .iter()
+        .rev()
+        .find(|j| {
+            j.project == project
+                && j.version == version
+                && j.total == total
+                && j.status != Status::Failed
+                && j.model_text == loaded.text
+        })
+        .map(|j| j.id.clone())
 }
 
 async fn list_runs(State(state): State<Arc<AppState>>) -> Response {
@@ -836,6 +980,439 @@ async fn get_run_file(
     }
 }
 
+// --- managers' scenarios -------------------------------------------------------------
+
+/// A scenario as the API shows it: with what it changes, in words.
+fn scenario_json(scenario: &crate::scenarios::Scenario, exposed: Option<&Exposed>) -> Value {
+    let mut value = json!(scenario);
+    value["summary"] = json!(exposed.map(|e| e.describe(&scenario.decisions)));
+    value
+}
+
+async fn list_scenarios(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+    Query(query): Query<VersionQuery>,
+) -> Response {
+    if let Err(e) = state.projects.dir(&id) {
+        return not_found_or_bad(e);
+    }
+    let version = match query.version.as_deref() {
+        None => None,
+        Some(v) => match state.projects.version_tag(&id, v) {
+            Ok(tag) => Some(tag),
+            Err(e) => return not_found_or_bad(e),
+        },
+    };
+    let scenarios = match state.scenarios.list(&id) {
+        Ok(s) => s,
+        Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, e),
+    };
+    let mut described = std::collections::HashMap::new();
+    let list: Vec<Value> = scenarios
+        .iter()
+        .filter(|s| version.as_ref().is_none_or(|v| &s.version == v))
+        .map(|s| {
+            let exposed = described
+                .entry(s.version.clone())
+                .or_insert_with(|| exposed(&state, &id, Some(&s.version)).ok().map(|(e, _)| e));
+            scenario_json(s, exposed.as_ref())
+        })
+        .collect();
+    Json(json!({ "scenarios": list })).into_response()
+}
+
+/// Checks a manager's picks against a published version: the changes they
+/// make, or why they can't be used.
+fn check_picks(
+    state: &AppState,
+    id: &str,
+    version: &str,
+    picks: &Map<String, Value>,
+) -> Result<(Exposed, Map<String, Value>), LoadProblem> {
+    let (exposed, _) = exposed(state, id, Some(version)).map_err(LoadProblem::Request)?;
+    let changes = exposed.changes_for(picks).map_err(|message| {
+        LoadProblem::Invalid(vec![
+            json!({ "change": null, "file": null, "line": null, "column": null, "message": message }),
+        ])
+    })?;
+    load(state, id, Some(version), &changes)?;
+    Ok((exposed, changes))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NewScenario {
+    name: Option<String>,
+    /// `latest` (the default) or `vN`; stored as the version's name.
+    version: Option<String>,
+    #[serde(default)]
+    decisions: Map<String, Value>,
+}
+
+async fn create_scenario(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<NewScenario>,
+) -> Response {
+    let version = match state
+        .projects
+        .version_tag(&id, body.version.as_deref().unwrap_or("latest"))
+    {
+        Ok(tag) => tag,
+        Err(e) => return not_found_or_bad(e),
+    };
+    let exposed = match check_picks(&state, &id, &version, &body.decisions) {
+        Ok((exposed, _)) => exposed,
+        Err(problem) => return problem.into_response(),
+    };
+    let name = match body.name.as_deref().map(str::trim) {
+        Some(name) if !name.is_empty() => name.to_string(),
+        _ => match exposed.describe(&body.decisions) {
+            summary if summary.is_empty() => format!("As published in {version}"),
+            summary => summary,
+        },
+    };
+    match state.scenarios.add(&id, &name, &version, body.decisions) {
+        Ok(scenario) => (
+            StatusCode::CREATED,
+            Json(scenario_json(&scenario, Some(&exposed))),
+        )
+            .into_response(),
+        Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ScenarioUpdate {
+    name: Option<String>,
+    decisions: Option<Map<String, Value>>,
+}
+
+async fn update_scenario(
+    State(state): State<Arc<AppState>>,
+    UrlPath((id, scenario)): UrlPath<(String, String)>,
+    Json(body): Json<ScenarioUpdate>,
+) -> Response {
+    let existing = match state.scenarios.get(&id, &scenario) {
+        Ok(s) => s,
+        Err(e) => return error(StatusCode::NOT_FOUND, e),
+    };
+    if body.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
+        return error(StatusCode::BAD_REQUEST, "a scenario needs a name");
+    }
+    let picks = body.decisions.as_ref().unwrap_or(&existing.decisions);
+    let exposed = match check_picks(&state, &id, &existing.version, picks) {
+        Ok((exposed, _)) => exposed,
+        Err(problem) => return problem.into_response(),
+    };
+    match state.scenarios.update(
+        &id,
+        &scenario,
+        body.name.as_deref().map(str::trim),
+        body.decisions,
+    ) {
+        Ok(updated) => Json(scenario_json(&updated, Some(&exposed))).into_response(),
+        Err(e) => error(StatusCode::NOT_FOUND, e),
+    }
+}
+
+async fn delete_scenario(
+    State(state): State<Arc<AppState>>,
+    UrlPath((id, scenario)): UrlPath<(String, String)>,
+) -> Response {
+    match state.scenarios.remove(&id, &scenario) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => error(StatusCode::NOT_FOUND, e),
+    }
+}
+
+// --- comparisons ----------------------------------------------------------------------
+
+/// Scenarios compared with the current setup of one published version. Each
+/// is an ordinary run; replication r of every run uses the same random
+/// numbers, so the differences are measured replication by replication.
+#[derive(Clone)]
+struct ComparisonJob {
+    id: String,
+    project: String,
+    version: String,
+    exposed: Exposed,
+    /// The current setup first, then the scenarios.
+    items: Vec<Item>,
+}
+
+#[derive(Clone)]
+struct Item {
+    name: String,
+    /// The saved scenario's id, if it is one.
+    scenario: Option<String>,
+    decisions: Map<String, Value>,
+    run: String,
+}
+
+impl ComparisonJob {
+    fn to_json(&self, jobs: &[Job]) -> Value {
+        let runs: Vec<Option<&Job>> = self
+            .items
+            .iter()
+            .map(|i| jobs.iter().find(|j| j.id == i.run))
+            .collect();
+        let mut seen = Vec::new();
+        let (mut done, mut total) = (0, 0);
+        for job in runs.iter().flatten() {
+            if !seen.contains(&&job.id) {
+                seen.push(&job.id);
+                done += job.progress.load(Ordering::Relaxed);
+                total += job.total;
+            }
+        }
+        let failed = self
+            .items
+            .iter()
+            .zip(&runs)
+            .find(|(_, j)| j.is_none_or(|j| j.status == Status::Failed));
+        let status = if failed.is_some() {
+            Status::Failed
+        } else if runs.iter().flatten().all(|j| j.status == Status::Done) {
+            Status::Done
+        } else if runs.iter().flatten().all(|j| j.status == Status::Queued) {
+            Status::Queued
+        } else {
+            Status::Running
+        };
+        let error = failed.map(|(item, job)| {
+            format!(
+                "{}: {}",
+                item.name,
+                job.and_then(|j| j.error.clone())
+                    .unwrap_or_else(|| "the run is gone".into())
+            )
+        });
+        let base = runs[0].and_then(|j| j.measures.clone());
+        let scenarios: Vec<Value> = self
+            .items
+            .iter()
+            .zip(&runs)
+            .skip(1)
+            .map(|(item, job)| {
+                let results = match (&base, job.and_then(|j| j.measures.clone())) {
+                    (Some(base), Some(measures)) if status == Status::Done => {
+                        json!(
+                            self.exposed
+                                .results
+                                .iter()
+                                .filter_map(|spec| {
+                                    let find = |list: &[Measure]| {
+                                        list.iter()
+                                            .find(|m| {
+                                                m.object == spec.object && m.name == spec.measure
+                                            })
+                                            .cloned()
+                                    };
+                                    let (b, s) = (find(base)?, find(&measures)?);
+                                    Some(plain::describe(spec, &compare_pair(b, &s)))
+                                })
+                                .collect::<Vec<_>>()
+                        )
+                    }
+                    _ => Value::Null,
+                };
+                json!({
+                    "name": item.name,
+                    "scenario": item.scenario,
+                    "decisions": item.decisions,
+                    "summary": self.exposed.describe(&item.decisions),
+                    "run": item.run,
+                    "results": results,
+                })
+            })
+            .collect();
+        json!({
+            "id": self.id,
+            "project": self.project,
+            "version": self.version,
+            "status": status,
+            "progress": { "done": done, "total": total },
+            "error": error,
+            "replications": runs[0].map(|j| j.total),
+            "current": { "name": self.items[0].name, "run": self.items[0].run },
+            "results": self.exposed.results,
+            "scenarios": scenarios,
+        })
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ScenarioRef {
+    /// A saved scenario's id.
+    Saved(String),
+    /// Picks given in the request.
+    Inline {
+        name: Option<String>,
+        #[serde(default)]
+        decisions: Map<String, Value>,
+    },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CompareRequest {
+    project: String,
+    /// `latest` or `vN`. Defaults to the saved scenarios' version, or `latest`.
+    version: Option<String>,
+    scenarios: Vec<ScenarioRef>,
+    /// Overrides the model's number of replications.
+    replications: Option<u32>,
+}
+
+const MAX_SCENARIOS: usize = 12;
+
+async fn start_comparison(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<CompareRequest>,
+) -> Response {
+    let project = request.project.as_str();
+    if request.scenarios.is_empty() || request.scenarios.len() > MAX_SCENARIOS {
+        return error(
+            StatusCode::BAD_REQUEST,
+            format!("compare 1 to {MAX_SCENARIOS} scenarios with the current setup"),
+        );
+    }
+    if request.replications == Some(0) {
+        return error(StatusCode::BAD_REQUEST, "`replications` must be at least 1");
+    }
+    // The saved scenarios, and the version they were all made on.
+    let mut saved = Vec::new();
+    for r in &request.scenarios {
+        if let ScenarioRef::Saved(id) = r {
+            match state.scenarios.get(project, id) {
+                Ok(s) => saved.push(s),
+                Err(e) => return error(StatusCode::NOT_FOUND, e),
+            }
+        }
+    }
+    let requested = match request.version.as_deref() {
+        Some(v) => match state.projects.version_tag(project, v) {
+            Ok(tag) => Some(tag),
+            Err(e) => return not_found_or_bad(e),
+        },
+        None => None,
+    };
+    let mut versions: Vec<&str> = saved.iter().map(|s| s.version.as_str()).collect();
+    versions.extend(requested.as_deref());
+    versions.sort_unstable();
+    versions.dedup();
+    let version = match versions.as_slice() {
+        [] => match state.projects.version_tag(project, "latest") {
+            Ok(tag) => tag,
+            Err(e) => return not_found_or_bad(e),
+        },
+        [one] => one.to_string(),
+        several => {
+            return error(
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "these scenarios were made on different versions ({}); compare scenarios of one version at a time",
+                    several.join(", ")
+                ),
+            );
+        }
+    };
+
+    let mut wanted = vec![("Current setup".to_string(), None, Map::new())];
+    let mut saved = saved.into_iter();
+    for r in request.scenarios {
+        wanted.push(match r {
+            ScenarioRef::Saved(_) => {
+                let s = saved.next().expect("one per saved reference");
+                (s.name, Some(s.id), s.decisions)
+            }
+            ScenarioRef::Inline { name, decisions } => (
+                name.unwrap_or_else(|| format!("Scenario {}", wanted.len())),
+                None,
+                decisions,
+            ),
+        });
+    }
+    let mut exposed_found = None;
+    let mut items = Vec::new();
+    for (name, scenario, picks) in wanted {
+        let (exposed, changes) = match check_picks(&state, project, &version, &picks) {
+            Ok(found) => found,
+            Err(problem) => return problem.into_response(),
+        };
+        let loaded = match load(&state, project, Some(&version), &changes) {
+            Ok(l) => l,
+            Err(problem) => return problem.into_response(),
+        };
+        let run = match same_run(&state, project, &version, &loaded, request.replications) {
+            Some(id) => id,
+            None => {
+                let label = format!("{} {version} · {name}", loaded.project.name);
+                match enqueue(
+                    &state,
+                    project,
+                    version.clone(),
+                    label,
+                    loaded,
+                    request.replications,
+                ) {
+                    Ok(id) => id,
+                    Err(e) => return error(StatusCode::INTERNAL_SERVER_ERROR, e),
+                }
+            }
+        };
+        exposed_found = Some(exposed);
+        items.push(Item {
+            name,
+            scenario,
+            decisions: picks,
+            run,
+        });
+    }
+    let comparison = ComparisonJob {
+        id: format!("c{}", state.next_id.fetch_add(1, Ordering::Relaxed)),
+        project: project.to_string(),
+        version,
+        exposed: exposed_found.unwrap_or_default(),
+        items,
+    };
+    let body = comparison.to_json(&state.jobs.lock().expect("jobs lock"));
+    state
+        .comparisons
+        .lock()
+        .expect("comparisons lock")
+        .push(comparison);
+    (StatusCode::ACCEPTED, Json(body)).into_response()
+}
+
+async fn list_comparisons(State(state): State<Arc<AppState>>) -> Response {
+    let comparisons = state.comparisons.lock().expect("comparisons lock").clone();
+    let jobs = state.jobs.lock().expect("jobs lock");
+    let list: Vec<Value> = comparisons.iter().rev().map(|c| c.to_json(&jobs)).collect();
+    Json(json!({ "comparisons": list })).into_response()
+}
+
+async fn get_comparison(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+) -> Response {
+    let comparison = state
+        .comparisons
+        .lock()
+        .expect("comparisons lock")
+        .iter()
+        .find(|c| c.id == id)
+        .cloned();
+    match comparison {
+        Some(c) => Json(c.to_json(&state.jobs.lock().expect("jobs lock"))).into_response(),
+        None => error(StatusCode::NOT_FOUND, format!("no comparison `{id}`")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -852,7 +1429,12 @@ mod tests {
         fs::create_dir_all(root.join("projects")).unwrap();
         let projects = Projects::new(root.join("projects"));
         projects::seed_examples(&projects).unwrap();
-        let state = AppState::start(projects, root.join("runs"), 2);
+        let state = AppState::start(
+            projects,
+            Scenarios::new(root.join("scenarios")),
+            root.join("runs"),
+            2,
+        );
         (router(state), root)
     }
 
@@ -1082,6 +1664,150 @@ mod tests {
         let (status, _) = call(&app, "GET", "/api/v1/runs/nope/files/report.html", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         let (status, _) = call(&app, "GET", "/api/v1/runs/nope/files/secret.txt", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn examples_expose_decisions_and_results() {
+        let (app, root) = app("exposed");
+        for id in ["two-cells", "conveyor-line"] {
+            let (_, project) = call(
+                &app,
+                "GET",
+                &format!("/api/v1/projects/{id}?version=latest"),
+                None,
+            )
+            .await;
+            assert_eq!(project["decision_problems"], json!([]), "{id}");
+            assert!(project["decisions"].as_array().unwrap().len() >= 3, "{id}");
+            assert!(project["results"].as_array().unwrap().len() >= 3, "{id}");
+        }
+        let (_, project) = call(&app, "GET", "/api/v1/projects/two-cells", None).await;
+        let inspectors = &project["decisions"][1];
+        assert_eq!(inspectors["kind"], "number");
+        assert_eq!(inspectors["current"], 1.0);
+        assert_eq!(project["results"][1]["unit"], "s");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn publishing_needs_working_decisions() {
+        let (app, root) = app("broken-decisions");
+        // The engineer removes the inspection station's capacity line, which
+        // the `inspectors` decision needs.
+        let dir = root.join("projects/two-cells");
+        let model = fs::read_to_string(dir.join("model.yaml")).unwrap();
+        fs::write(
+            dir.join("model.yaml"),
+            model.replace("    capacity: 1 ", "    #capacity: 1 "),
+        )
+        .unwrap();
+        let (_, project) = call(&app, "GET", "/api/v1/projects/two-cells", None).await;
+        assert!(
+            project["decision_problems"][0]
+                .as_str()
+                .unwrap()
+                .contains("has no `servers.inspect.capacity`"),
+            "{project}"
+        );
+        crate::projects::git(&dir, &["commit", "-qam", "Drop capacity"]).unwrap();
+        let (status, body) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/two-cells/publish",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["errors"][0]["file"], "project.yaml");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn managers_save_scenarios_and_compare_them() {
+        let (app, root) = app("compare");
+        let url = "/api/v1/projects/two-cells/scenarios";
+        let (status, two) = call(
+            &app,
+            "POST",
+            url,
+            Some(json!({ "decisions": { "inspectors": 2 } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{two}");
+        assert_eq!(two["name"], "Inspectors: 2", "named after its changes");
+        assert_eq!(two["version"], "v1", "pinned to the published version");
+
+        for (bad, message) in [
+            (json!({ "inspectors": 9 }), "between 1 and 3"),
+            (json!({ "arrival_routing": "random" }), "no option"),
+            (json!({ "speed": 1 }), "no decision `speed`"),
+        ] {
+            let (status, body) = call(&app, "POST", url, Some(json!({ "decisions": bad }))).await;
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert!(
+                body["errors"][0]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains(message),
+                "{body}"
+            );
+        }
+        let (_, renamed) = call(
+            &app,
+            "PUT",
+            &format!("{url}/s1"),
+            Some(json!({ "name": "Second inspector" })),
+        )
+        .await;
+        assert_eq!(renamed["name"], "Second inspector");
+        let (_, list) = call(&app, "GET", url, None).await;
+        assert_eq!(list["scenarios"][0]["summary"], "Inspectors: 2");
+
+        // Compare the saved scenario, and one that changes nothing.
+        let request = json!({
+            "project": "two-cells",
+            "scenarios": ["s1", { "name": "Same as now", "decisions": { "inspectors": 1 } }],
+            "replications": 4,
+        });
+        let (status, started) = call(&app, "POST", "/api/v1/comparisons", Some(request)).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+        let id = started["id"].as_str().unwrap();
+        assert_eq!(
+            started["scenarios"][1]["run"], started["current"]["run"],
+            "a scenario that changes nothing reuses the current setup's run"
+        );
+        let mut done = Value::Null;
+        for _ in 0..600 {
+            let (_, c) = call(&app, "GET", &format!("/api/v1/comparisons/{id}"), None).await;
+            if c["status"] == "done" || c["status"] == "failed" {
+                done = c;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert_eq!(done["status"], "done", "{done}");
+        assert_eq!(done["replications"], 4);
+        let results = done["scenarios"][0]["results"].as_array().unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[1]["label"], "Lead time");
+        let sentence = results[1]["sentence"].as_str().unwrap();
+        assert!(sentence.starts_with("Lead time: "), "{sentence}");
+        assert!(sentence.contains("between"), "{sentence}");
+        // The same model with the same random numbers: identical results.
+        let same = &done["scenarios"][1]["results"][0];
+        assert_eq!(same["verdict"], "identical", "{same}");
+
+        let (status, _) = call(&app, "DELETE", &format!("{url}/s1"), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/comparisons",
+            Some(json!({ "project": "two-cells", "scenarios": ["s1"] })),
+        )
+        .await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         fs::remove_dir_all(root).unwrap();
     }

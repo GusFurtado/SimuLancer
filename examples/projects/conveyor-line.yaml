@@ -1,0 +1,42 @@
+# The project file of the conveyor-line example, as `outliers-sim serve`
+# creates it: which file is the model, and what managers may change and read.
+
+format: outliers-sim-project/0.1
+name: Conveyor line
+description: Two-server serial line with accumulating conveyors and random failures.
+model: model.yaml
+
+# What managers may change. Each decision is either a set of options (the
+# first one is the current setup) or a number within bounds.
+decisions:
+  buffer:
+    label: Buffer between the lathe and the mill
+    description: Length of conveyor c2. Every 0.5 m holds one more part.
+    path: conveyors.c2.length
+    unit: m
+    min: 4
+    max: 24
+    step: 2
+  lathe_maintenance:
+    label: Lathe maintenance
+    choices:
+      current:
+        label: Repair when it breaks (a failure every 45 min of work, on average)
+      preventive:
+        label: Preventive maintenance (failures half as often)
+        changes: { servers.lathe.failures.0.uptime: "exponential(90 min)" }
+  mill:
+    label: Mill
+    choices:
+      current:
+        label: Current mill
+      faster:
+        label: A 10% faster mill
+        changes: { servers.mill.process_time: "triangular(0.54 min, 0.81 min, 0.99 min)" }
+
+# What managers read, and which way is better.
+results:
+  - { label: Parts shipped per hour, object: shipping, measure: throughput, better: higher }
+  - { label: Lead time, object: shipping, measure: time in system, better: lower }
+  - { label: Lathe blocked by a full buffer, object: lathe, measure: blocked, better: lower }
+  - { label: Arrivals held back by a full conveyor, object: arrivals, measure: blocked, better: lower }

@@ -155,7 +155,7 @@ function renderEditor() {
   const general = state.errors.filter(e => !e.change);
   const history = state.detail.history || [];
   const lastSaved = history[0];
-  const canPublish = changed === 0 && lastSaved && !lastSaved.published && state.detail.valid;
+  const canPublish = changed === 0 && lastSaved && !lastSaved.published && state.detail.valid && !state.detail.decision_problems.length;
   content.replaceChildren(
     el("div", { class: "actions" },
       el("input", {
@@ -173,6 +173,7 @@ function renderEditor() {
       el("div", { class: "stack" },
         el("div", { class: "card diagram" }, diagram(tree),
           el("p", { class: "hint" }, "Click an object or conveyor to edit it; click empty space for the experiment settings.")),
+        managersCard(),
         versionsCard()),
       el("div", { class: "card panel" }, panel(tree))));
 }
@@ -186,6 +187,24 @@ function versionsCard() {
     history.slice(0, 12).map(c => el("div", { class: "item" },
       c.message, " ", c.published ? el("span", { class: "pill" }, `published ${c.published}`) : null,
       el("span", { class: "sub" }, `${new Date(c.date).toLocaleString()} · ${c.short}`))));
+}
+
+/** What managers may change and read in this project (project.yaml). */
+function managersCard() {
+  const d = state.detail;
+  const problems = d.decision_problems || [];
+  const number = n => String(Math.round(n * 1e6) / 1e6);
+  const describe = dec => dec.kind === "choice"
+    ? dec.choices.map((c, i) => i === 0 ? `${c.label} (now)` : c.label).join(" · ")
+    : `${number(dec.min)} to ${number(dec.max)}${dec.unit ? " " + dec.unit : ""}${dec.step ? `, steps of ${number(dec.step)}` : ""} (now ${dec.current === null ? "?" : number(dec.current)})`;
+  return el("div", { class: "card", id: "managers" },
+    el("h3", { style: "margin: 0 0 8px; font-size: 15px" }, "What managers can change"),
+    problems.length ? el("div", { class: "status" }, "Fix these before publishing:", el("ul", {}, problems.map(p => el("li", {}, p)))) : null,
+    d.decisions.length
+      ? el("dl", { class: "decisions" }, ...d.decisions.flatMap(dec => [el("dt", {}, dec.label), el("dd", {}, describe(dec))]))
+      : el("p", { class: "hint", style: "margin: 0" }, "Nothing yet: managers can only run the model as published."),
+    d.results.length ? el("p", { class: "hint" }, "They read: ", d.results.map(r => r.label + (r.better === "higher" ? " (higher is better)" : r.better === "lower" ? " (lower is better)" : "")).join(" · ")) : null,
+    el("p", { class: "hint" }, "Defined in the project's project.yaml (decisions and results)."));
 }
 
 function statusBox(general = []) {
