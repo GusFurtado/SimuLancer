@@ -41,7 +41,7 @@ outliers-sim serve --data ./data --port 8080
 
 Then open `http://localhost:8080`. There's a page for each kind of user:
 
-- **Build (engineers).** Open a project and click machines and conveyors in its diagram to change them; errors show next to the field as you type. Run to check, **save a version** with a short message, then **publish** it for managers. Versions are git commits and tags in the project's repository; the engineer never sees git.
+- **Build (engineers).** Open a project and click machines and conveyors in its diagram to change them; errors show next to the field as you type. Run to check, **save a version** with a short message, then **publish** it for managers. On the *For managers* tab, choose what managers may change ("⚑ Let managers change this" under a number, or "Offer as an option…" for a set of edits) and which results they read. Versions are git commits and tags in the project's repository; the engineer never sees git.
 - **Decide (managers).** Published versions only. Build scenarios from the decisions the engineers expose (a set of options, or a number within limits), compare them with the current setup, and read the answer in plain language: *"Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better"*. Every scenario's report and 2D animation are one click away.
 - **API (developers).** Everything the pages do goes through the documented HTTP API (`docs/api.md`): projects, versions, runs and results as JSON.
 

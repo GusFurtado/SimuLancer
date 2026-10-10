@@ -1,6 +1,7 @@
 "use strict";
-// The engineer's builder (/build): edit a project's model, save versions,
-// publish them for managers, run and inspect results. Shared code: common.js.
+// The engineer's builder (/build): edit a project's model, choose what
+// managers may change and read, save versions, publish them for managers, run
+// and inspect results. Shared code: common.js.
 
 const state = {
   projects: [],
@@ -12,7 +13,11 @@ const state = {
   changes: {},       // unsaved changes: path -> value
   errors: [],        // from POST /check
   selected: null,    // { section, name } or null (experiment)
-  tab: "model",      // "model" | "results"
+  tab: "model",      // "model" | "managers" | "results"
+  draft: null,       // project.yaml's { decisions, results } with unsaved edits
+  exposed: null,     // the draft as checked: { decisions, results, decision_problems }
+  offer: null,       // the "offer as an option" form: { decision, newLabel, optionLabel, currentLabel }
+  written: new Set(), // paths whose defaults were written into the model for a decision
   run: null,
   view: "report",
   message: null,     // { kind: "ok" | "error", text, list?, progress? }
@@ -98,9 +103,13 @@ async function openProject(id, keepMessage = false) {
     changes: {},
     errors: (data.errors || []).map(e => ({ change: null, message: `${e.file}${e.line ? ":" + e.line : ""}: ${e.message}` })),
     selected: null,
-    tab: "model",
+    tab: keepMessage && state.tab === "managers" ? "managers" : "model",
     message: keepMessage ? state.message : null,
     saveMessage: "",
+    draft: savedDraft(data),
+    written: new Set(),
+    exposed: { decisions: data.decisions, results: data.results, decision_problems: data.decision_problems },
+    offer: null,
   });
   if (!data.tree) {
     state.message = { kind: "error", text: "This model can't be read.", list: state.errors.map(e => e.message) };
@@ -109,10 +118,26 @@ async function openProject(id, keepMessage = false) {
   render();
 }
 
+/** project.yaml's decisions and results as saved. */
+function savedDraft(detail) {
+  const file = detail.project_file || {};
+  return { decisions: clone(file.decisions || {}), results: clone(file.results || []) };
+}
+
+const draftChanged = () => state.draft && !equal(state.draft, savedDraft(state.detail));
+
+/** What to send to check and save: model changes, plus the draft if edited. */
+function pending() {
+  const body = { changes: state.changes };
+  if (draftChanged()) Object.assign(body, state.draft);
+  return body;
+}
+
 const scheduleCheck = debounce(async () => {
   if (!state.project) return;
-  const { data } = await api("POST", `projects/${encodeURIComponent(state.project)}/check`, { changes: state.changes });
+  const { data } = await api("POST", `projects/${encodeURIComponent(state.project)}/check`, pending());
   state.errors = data.errors || [];
+  state.exposed = { decisions: data.decisions || [], results: data.results || [], decision_problems: data.decision_problems || [] };
   renderEditor();
 }, 250);
 
@@ -134,6 +159,8 @@ function render() {
     ),
     el("div", { class: "tabs" },
       state.project ? el("button", { class: state.tab === "model" ? "current" : null, onclick: () => { state.tab = "model"; render(); } }, "Model") : null,
+      state.project ? el("button", { id: "tab-managers", class: state.tab === "managers" ? "current" : null, onclick: () => { state.tab = "managers"; render(); } },
+        "For managers", (state.exposed?.decision_problems || []).length ? el("span", { class: "badge bad", style: "margin-left: 6px" }, "!") : null) : null,
       state.run ? el("button", { class: state.tab === "results" ? "current" : null, onclick: () => { state.tab = "results"; render(); } }, "Results") : null),
     el("div", { id: "content" }));
   if (results) {
@@ -145,37 +172,57 @@ function render() {
 
 function renderEditor() {
   const content = document.getElementById("content");
-  if (!content || state.tab !== "model") return;
+  if (!content || (state.tab !== "model" && state.tab !== "managers")) return;
   if (!state.baseTree) {
     content.replaceChildren(statusBox());
     return;
   }
+  if (state.tab === "managers") return renderManagers(content);
   const tree = currentTree();
-  const changed = Object.keys(state.changes).length;
   const general = state.errors.filter(e => !e.change);
-  const history = state.detail.history || [];
-  const lastSaved = history[0];
-  const canPublish = changed === 0 && lastSaved && !lastSaved.published && state.detail.valid && !state.detail.decision_problems.length;
-  content.replaceChildren(
-    el("div", { class: "actions" },
-      el("input", {
-        id: "save-message", placeholder: "What changed? (e.g. Faster mill B)", value: state.saveMessage,
-        oninput: e => { state.saveMessage = e.target.value; }, "aria-label": "Version message",
-      }),
-      el("button", { id: "save", onclick: saveVersion, disabled: changed === 0 }, "Save version"),
-      el("button", { id: "publish", onclick: publishVersion, disabled: !canPublish,
-        title: canPublish ? "Make the last saved version available to managers" : "Save your changes first; already-published versions can't be published again" }, "Publish"),
-      el("button", { class: "primary", id: "run", onclick: startRun }, "▶ Run"),
-      el("span", { class: "hint", style: "margin: 0" },
-        changed ? `${changed} unsaved change${changed === 1 ? "" : "s"}` : "all changes saved")),
+  content.replaceChildren(...[
+    actionsBar(),
+    state.offer ? offerForm() : null,
     statusBox(general),
     el("div", { class: "editor", style: "margin-top: 14px" },
       el("div", { class: "stack" },
         el("div", { class: "card diagram" }, diagram(tree),
           el("p", { class: "hint" }, "Click an object or conveyor to edit it; click empty space for the experiment settings.")),
-        managersCard(),
         versionsCard()),
-      el("div", { class: "card panel" }, panel(tree))));
+      el("div", { class: "card panel" }, panel(tree))),
+  ].filter(Boolean));
+}
+
+/** Save, publish, run: the same on the Model and For managers tabs. */
+function actionsBar() {
+  const modelChanges = Object.keys(state.changes).length;
+  const changed = modelChanges + (draftChanged() ? 1 : 0);
+  const history = state.detail.history || [];
+  const lastSaved = history[0];
+  const problems = state.exposed?.decision_problems || [];
+  const canPublish = changed === 0 && lastSaved && !lastSaved.published && state.detail.valid && !problems.length;
+  const describe = () => {
+    if (!changed) return "all changes saved";
+    const parts = [];
+    if (modelChanges) parts.push(`${modelChanges} unsaved change${modelChanges === 1 ? "" : "s"}`);
+    if (draftChanged()) parts.push("unsaved edits for managers");
+    return parts.join(", ");
+  };
+  return el("div", { class: "actions" },
+    el("input", {
+      id: "save-message", placeholder: "What changed? (e.g. Faster mill B)", value: state.saveMessage,
+      oninput: e => { state.saveMessage = e.target.value; }, "aria-label": "Version message",
+    }),
+    el("button", { id: "save", onclick: saveVersion, disabled: changed === 0 }, "Save version"),
+    el("button", { id: "publish", onclick: publishVersion, disabled: !canPublish,
+      title: canPublish ? "Make the last saved version available to managers"
+        : problems.length ? "Fix the problems on the For managers tab first"
+        : "Save your changes first; already-published versions can't be published again" }, "Publish"),
+    el("button", { class: "primary", id: "run", onclick: startRun }, "▶ Run"),
+    state.tab === "model" && Object.keys(state.changes).some(p => !state.written.has(p)) && !state.offer
+      ? el("button", { id: "offer", onclick: startOffer, title: "Instead of saving these changes into the model, let managers choose them" }, "Offer as an option…")
+      : null,
+    el("span", { class: "hint", id: "pending", style: "margin: 0" }, describe()));
 }
 
 function versionsCard() {
@@ -187,24 +234,6 @@ function versionsCard() {
     history.slice(0, 12).map(c => el("div", { class: "item" },
       c.message, " ", c.published ? el("span", { class: "pill" }, `published ${c.published}`) : null,
       el("span", { class: "sub" }, `${new Date(c.date).toLocaleString()} · ${c.short}`))));
-}
-
-/** What managers may change and read in this project (project.yaml). */
-function managersCard() {
-  const d = state.detail;
-  const problems = d.decision_problems || [];
-  const number = n => String(Math.round(n * 1e6) / 1e6);
-  const describe = dec => dec.kind === "choice"
-    ? dec.choices.map((c, i) => i === 0 ? `${c.label} (now)` : c.label).join(" · ")
-    : `${number(dec.min)} to ${number(dec.max)}${dec.unit ? " " + dec.unit : ""}${dec.step ? `, steps of ${number(dec.step)}` : ""} (now ${dec.current === null ? "?" : number(dec.current)})`;
-  return el("div", { class: "card", id: "managers" },
-    el("h3", { style: "margin: 0 0 8px; font-size: 15px" }, "What managers can change"),
-    problems.length ? el("div", { class: "status" }, "Fix these before publishing:", el("ul", {}, problems.map(p => el("li", {}, p)))) : null,
-    d.decisions.length
-      ? el("dl", { class: "decisions" }, ...d.decisions.flatMap(dec => [el("dt", {}, dec.label), el("dd", {}, describe(dec))]))
-      : el("p", { class: "hint", style: "margin: 0" }, "Nothing yet: managers can only run the model as published."),
-    d.results.length ? el("p", { class: "hint" }, "They read: ", d.results.map(r => r.label + (r.better === "higher" ? " (higher is better)" : r.better === "lower" ? " (lower is better)" : "")).join(" · ")) : null,
-    el("p", { class: "hint" }, "Defined in the project's project.yaml (decisions and results)."));
 }
 
 function statusBox(general = []) {
@@ -290,6 +319,7 @@ function field(label, path, kind = "text", options = [], placeholder = null) {
     el("label", { for: id }, label,
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path), title: "Back to the base model's value" }, "reset") : null),
     input,
+    exposeButton(label, path, value, placeholder),
     error ? el("div", { class: "message" }, error.message) : null);
 }
 
@@ -413,11 +443,212 @@ function failures(tree, p) {
     el("button", { onclick: add }, "Add a failure"));
 }
 
+// --- what managers may change: the For managers tab ------------------------------------------
+
+/** A number as the model writes it: `2`, or `8 m`. */
+function parseNumber(value) {
+  if (typeof value === "number") return { n: value, unit: null };
+  const m = typeof value === "string" && value.trim().match(/^(-?\d+(?:\.\d+)?)\s+(\S+)$/);
+  return m ? { n: Number(m[1]), unit: m[2] } : null;
+}
+
+const numberDecisionAt = path => Object.entries(state.draft.decisions).find(([, d]) => d.path === path);
+
+/** "⚑ Let managers change this" under number fields. */
+function exposeButton(label, path, value, placeholder) {
+  if (path.startsWith("experiment.") || !state.draft) return null;
+  const existing = numberDecisionAt(path);
+  if (existing) {
+    return el("button", { class: "expose on", onclick: () => { state.tab = "managers"; render(); },
+      title: "Managers can change this; set its limits on the For managers tab" }, `⚑ Managers can change this (${existing[1].label})`);
+  }
+  const parsed = parseNumber(value ?? (placeholder ? parseFloat(placeholder) : undefined));
+  if (!parsed || Number.isNaN(parsed.n)) return null;
+  return el("button", { class: "expose", "data-expose": path, onclick: () => exposeNumber(label, path, value, parsed) }, "⚑ Let managers change this");
+}
+
+function slug(text, taken) {
+  const base = (text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40)) || "decision";
+  let id = base;
+  for (let i = 2; taken.includes(id); i++) id = `${base}_${i}`;
+  return id;
+}
+
+function exposeNumber(label, path, value, { n, unit }) {
+  if (value === undefined) {
+    // The model must write the value for a decision to set it: the default.
+    setChange(path, n);
+    state.written.add(path);
+  }
+  const object = path.split(".")[1];
+  const integer = unit === null && Number.isInteger(n);
+  const decision = integer
+    ? { label: `${object}: ${label}`, path, min: Math.max(1, Math.floor(n / 2)), max: Math.max(n * 2, n + 2) }
+    : { label: `${object}: ${label}`, path, min: n / 2, max: n * 2 };
+  if (unit) decision.unit = unit;
+  const id = slug(`${object} ${label.replace(/\(.*\)/, "")}`, Object.keys(state.draft.decisions));
+  state.draft.decisions[id] = decision;
+  state.tab = "managers";
+  state.message = { kind: "ok", text: `Managers can now change “${decision.label}”. Check its name and limits, then save a version.` };
+  scheduleCheck();
+  render();
+}
+
+function startOffer() {
+  const choices = Object.entries(state.draft.decisions).filter(([, d]) => d.choices);
+  state.offer = { decision: choices.length ? choices[0][0] : "", newLabel: "", optionLabel: state.saveMessage || "", currentLabel: "As it is now" };
+  renderEditor();
+}
+
+/** Turn the pending model changes into an option managers can pick. */
+function offerForm() {
+  const o = state.offer;
+  const choices = Object.entries(state.draft.decisions).filter(([, d]) => d.choices);
+  const isNew = o.decision === "";
+  const input = (key, placeholder, id) => el("input", { id, value: o[key], placeholder, oninput: e => { o[key] = e.target.value; } });
+  return el("div", { class: "card offer", id: "offer-form" },
+    el("div", { class: "group-title" }, "Offer these changes to managers as an option"),
+    el("p", { class: "hint", style: "margin: 0 0 10px" },
+      "These pending changes won't go into the model. Instead, managers can pick them in a scenario; the model stays as it is."),
+    el("div", { class: "field" }, el("label", {}, "Decision"),
+      el("select", { id: "offer-decision", onchange: e => { o.decision = e.target.value; renderEditor(); } },
+        ...choices.map(([id, d]) => el("option", { value: id, selected: o.decision === id ? true : null }, d.label)),
+        el("option", { value: "", selected: isNew ? true : null }, "A new decision…"))),
+    isNew ? el("div", { class: "field" }, el("label", {}, "What managers decide (e.g. Repairs on mill B)"), input("newLabel", "Decision", "offer-new-label")) : null,
+    isNew ? el("div", { class: "field" }, el("label", {}, "The current setup is called"), input("currentLabel", "As it is now", "offer-current-label")) : null,
+    el("div", { class: "field" }, el("label", {}, "This option is called (e.g. Faster crew)"), input("optionLabel", "Option", "offer-option-label")),
+    el("div", { class: "actions" },
+      el("button", { class: "primary", id: "offer-confirm", onclick: confirmOffer }, "Offer to managers"),
+      el("button", { onclick: () => { state.offer = null; renderEditor(); } }, "Cancel")));
+}
+
+function confirmOffer() {
+  const o = state.offer;
+  const optionLabel = o.optionLabel.trim();
+  if (!optionLabel || (o.decision === "" && !o.newLabel.trim())) {
+    state.message = { kind: "error", text: "Name the option (and the decision, if it's new)." };
+    return renderEditor();
+  }
+  let id = o.decision;
+  if (id === "") {
+    id = slug(o.newLabel, Object.keys(state.draft.decisions));
+    state.draft.decisions[id] = { label: o.newLabel.trim(), choices: { current: { label: o.currentLabel.trim() || "As it is now" } } };
+  }
+  const decision = state.draft.decisions[id];
+  const optionId = slug(optionLabel, Object.keys(decision.choices));
+  // Defaults written for number decisions stay in the model.
+  const offered = Object.fromEntries(Object.entries(state.changes).filter(([path]) => !state.written.has(path)));
+  decision.choices[optionId] = { label: optionLabel, changes: clone(offered) };
+  for (const path of Object.keys(offered)) delete state.changes[path];
+  state.offer = null;
+  state.tab = "managers";
+  state.message = { kind: "ok", text: `“${optionLabel}” is now an option of “${decision.label}”. The model is back as it was. Save a version to keep this.` };
+  scheduleCheck();
+  render();
+}
+
+function renderManagers(content) {
+  const d = state.draft;
+  const problems = state.exposed?.decision_problems || [];
+  const editDecision = (id, f) => { f(d.decisions[id]); scheduleCheck(); renderEditor(); };
+  const text = (value, onchange, attrs = {}) => el("input", { value: value ?? "", onchange: e => onchange(e.target.value), ...attrs });
+  const num = (value, onchange, attrs = {}) => el("input", { type: "number", step: "any", value: value ?? "", onchange: e => onchange(e.target.value === "" ? undefined : Number(e.target.value)), ...attrs });
+  const show = v => typeof v === "string" ? v : JSON.stringify(v);
+
+  const decisionCards = Object.entries(d.decisions).map(([id, dec]) => {
+    let body;
+    if (dec.choices) {
+      const options = Object.entries(dec.choices);
+      body = el("div", { class: "options" }, ...options.map(([cid, c], i) => el("div", { class: "option" },
+        el("div", { class: "row" },
+          text(c.label, v => editDecision(id, x => { x.choices[cid].label = v; }), { "aria-label": "Option name" }),
+          i === 0 ? el("span", { class: "pill" }, "current setup")
+            : el("button", { class: "link danger", onclick: () => editDecision(id, x => { delete x.choices[cid]; }) }, "Remove")),
+        i === 0 ? el("p", { class: "hint", style: "margin: 2px 0 0" }, "The model as it is.")
+          : el("ul", { class: "changes" }, ...Object.entries(c.changes || {}).map(([path, v]) => el("li", {}, el("code", {}, path), " → ", el("code", {}, show(v))))))),
+      el("p", { class: "hint", style: "margin: 4px 0 0" }, "To add an option, make the changes on the Model tab, then click “Offer as an option…”."));
+    } else {
+      body = el("div", {},
+        el("p", { class: "hint", style: "margin: 0 0 8px" }, "Sets ", el("code", {}, dec.path), dec.unit ? ` (in ${dec.unit})` : ""),
+        el("div", { class: "row" },
+          el("div", { class: "field" }, el("label", {}, "Lowest"), num(dec.min, v => editDecision(id, x => { x.min = v; }), { "data-bound": `${id}.min` })),
+          el("div", { class: "field" }, el("label", {}, "Highest"), num(dec.max, v => editDecision(id, x => { x.max = v; }), { "data-bound": `${id}.max` })),
+          el("div", { class: "field" }, el("label", {}, "In steps of (optional)"), num(dec.step, v => editDecision(id, x => { if (v === undefined) delete x.step; else x.step = v; })))));
+    }
+    return el("div", { class: "card decision-edit", "data-decision-id": id },
+      el("div", { class: "row", style: "align-items: center" },
+        text(dec.label, v => editDecision(id, x => { x.label = v; }), { class: "title-input", "aria-label": "Decision name" }),
+        el("button", { class: "link danger", style: "flex: 0", onclick: () => { delete d.decisions[id]; scheduleCheck(); renderEditor(); } }, "Delete")),
+      el("div", { class: "field", style: "margin-top: 8px" }, el("label", {}, "Explanation for managers (optional)"),
+        text(dec.description, v => editDecision(id, x => { if (v.trim()) x.description = v; else delete x.description; }))),
+      body);
+  });
+
+  const measures = state.detail.measures || [];
+  const resultLabel = m => `${m.object} · ${m.measure}`;
+  const resultsEditor = d.results.length
+    ? el("div", { class: "results-edit" }, ...d.results.map((r, i) => el("div", { class: "row result-row" },
+        text(r.label, v => { r.label = v; scheduleCheck(); renderEditor(); }, { "aria-label": "Result name" }),
+        el("span", { class: "hint", style: "margin: 0; align-self: center" }, `${r.object} · ${r.measure}`),
+        el("select", { onchange: e => { if (e.target.value === "neither") delete r.better; else r.better = e.target.value; scheduleCheck(); renderEditor(); } },
+          ...[["higher", "higher is better"], ["lower", "lower is better"], ["neither", "neither"]].map(([v, l]) =>
+            el("option", { value: v, selected: (r.better || "neither") === v ? true : null }, l))),
+        el("button", { class: "link danger", style: "flex: 0", onclick: () => { d.results.splice(i, 1); scheduleCheck(); renderEditor(); } }, "Remove"))))
+    : el("p", { class: "hint", style: "margin: 0" }, "Managers read the defaults: ",
+        (state.exposed?.results || []).map(r => r.label).join(" · ") || "nothing", ".");
+  const addResult = el("select", {
+    id: "add-result",
+    onchange: e => {
+      const m = measures[Number(e.target.value)];
+      if (!m) return;
+      if (!d.results.length) d.results = clone((state.exposed?.results || []).map(r => ({ label: r.label, object: r.object, measure: r.measure, ...(r.better !== "neither" ? { better: r.better } : {}) })));
+      const better = m.measure === "throughput" ? "higher" : ["time in system", "blocked", "failed", "full", "lost"].includes(m.measure) ? "lower" : undefined;
+      d.results.push({ label: `${m.object} ${m.measure}`, object: m.object, measure: m.measure, ...(better ? { better } : {}) });
+      scheduleCheck();
+      renderEditor();
+    },
+  }, el("option", { value: "" }, "+ Add a result…"), ...measures.map((m, i) => el("option", { value: i }, resultLabel(m))));
+
+  content.replaceChildren(...[
+    actionsBar(),
+    statusBox(),
+    problems.length ? el("div", { class: "status", id: "decision-problems" }, "Fix these before publishing:", el("ul", {}, problems.map(p => el("li", {}, p)))) : null,
+    el("div", { class: "editor", style: "margin-top: 14px" },
+      el("div", { class: "stack" },
+        el("div", {},
+          el("h3", { class: "section-title", style: "margin-top: 0" }, "Decisions managers can make"),
+          decisionCards.length ? el("div", { class: "stack" }, ...decisionCards)
+            : el("p", { class: "hint" }, "None yet. On the Model tab, click “⚑ Let managers change this” under a number, or make changes and click “Offer as an option…”.")),
+        el("div", { class: "card" },
+          el("h3", { class: "card-title" }, "What managers read"),
+          resultsEditor,
+          el("div", { class: "field", style: "margin: 10px 0 0" }, addResult))),
+      el("div", { class: "card", id: "manager-preview" },
+        el("h3", { class: "card-title" }, "What managers will see"),
+        el("p", { class: "hint", style: "margin: 0 0 10px" }, "On the Decide page, once you publish."),
+        previewDecisions(state.exposed?.decisions || []),
+        el("p", { class: "hint" }, "They read: ", (state.exposed?.results || []).map(r => r.label).join(" · ") || "nothing"))),
+  ].filter(Boolean));
+}
+
+function previewDecisions(decisions) {
+  if (!decisions.length) return el("p", { class: "hint", style: "margin: 0" }, "Nothing to change: managers can only run the model as published.");
+  const number = n => String(Math.round(n * 1e6) / 1e6);
+  const value = (dec, v) => dec.kind === "choice" ? (dec.choices.find(c => c.id === v)?.label ?? v) : `${number(v)}${dec.unit ? " " + dec.unit : ""}`;
+  return el("dl", { class: "decisions" }, ...decisions.flatMap(dec => [
+    el("dt", {}, dec.label, dec.description ? el("span", { class: "sub" }, dec.description) : null),
+    el("dd", {}, el("span", { class: "now" }, "Now: "), dec.current === null ? "?" : value(dec, dec.current),
+      el("span", { class: "sub" }, dec.kind === "choice"
+        ? `or: ${dec.choices.slice(1).map(c => c.label).join(" · ")}`
+        : `can be ${value(dec, dec.min)} to ${value(dec, dec.max)}`)),
+  ]));
+}
+
 // --- saving, publishing and running --------------------------------------------------------
 
 async function saveVersion() {
   const id = encodeURIComponent(state.project);
-  const { ok, data } = await api("POST", `projects/${id}/save`, { changes: state.changes, message: state.saveMessage });
+  const { ok, data } = await api("POST", `projects/${id}/save`, { ...pending(), message: state.saveMessage });
   if (!ok) {
     state.errors = data.errors || state.errors;
     state.message = { kind: "error", text: data.error || "Couldn't save." };

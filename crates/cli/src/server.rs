@@ -547,12 +547,19 @@ fn exposed(
 ) -> Result<(Exposed, Vec<String>), String> {
     let project = state.projects.project_file(id, version)?;
     let source = state.projects.read(id, version, &project.model)?;
-    let model = outliers_sim_model::load_str(&source).ok();
+    let (exposed, problems, _) = read_exposed(&project, &source);
+    Ok((exposed, problems))
+}
+
+/// What a project file exposes for a model's source, the problems with it,
+/// and the measures the model reports (none if the model has errors).
+fn read_exposed(project: &ProjectFile, source: &str) -> (Exposed, Vec<String>, Vec<Measure>) {
+    let model = outliers_sim_model::load_str(source).ok();
     let measures = model
         .as_ref()
         .map(|m| measures::collect(&m.spec, &m.outputs.summary, &[]));
     let try_changes = |changes: &Map<String, Value>| -> Result<(), String> {
-        apply_changes(&source, &project.model, changes)
+        apply_changes(source, &project.model, changes)
             .map(|_| ())
             .map_err(|errors| {
                 errors
@@ -567,15 +574,23 @@ fn exposed(
             })
     };
     let target = measures.as_ref().map(|measures| Target {
-        source: &source,
+        source,
         measures,
         try_changes: &try_changes,
     });
-    Ok(decisions::read(
-        &project.decisions,
-        &project.results,
-        target.as_ref(),
-    ))
+    let (exposed, problems) =
+        decisions::read(&project.decisions, &project.results, target.as_ref());
+    (exposed, problems, measures.unwrap_or_default())
+}
+
+/// The measures a model reports, for picking results.
+fn measures_json(measures: &[Measure]) -> Value {
+    json!(
+        measures
+            .iter()
+            .map(|m| json!({ "object_type": m.object_type, "object": m.object, "measure": m.name, "unit": m.unit }))
+            .collect::<Vec<_>>()
+    )
 }
 
 /// Problems in project.yaml, in the shape of model errors.
@@ -697,10 +712,9 @@ async fn get_project(
     if resolved.is_none() {
         body["history"] = json!(state.projects.history(&id).unwrap_or_default());
     }
-    let (exposed, problems) = match exposed(&state, &id, resolved.as_deref()) {
-        Ok(found) => found,
-        Err(e) => (Exposed::default(), vec![e]),
-    };
+    let (exposed, problems, measures) = read_exposed(&project, &source);
+    body["project_file"] = json!(project);
+    body["measures"] = measures_json(&measures);
     body["decisions"] = json!(exposed.decisions);
     body["results"] = json!(exposed.results);
     body["decision_problems"] = json!(problems);
@@ -725,24 +739,60 @@ async fn get_project(
 struct Changes {
     #[serde(default)]
     changes: Map<String, Value>,
+    /// New `decisions` for project.yaml (replacing the saved ones).
+    decisions: Option<Map<String, Value>>,
+    /// New `results` for project.yaml.
+    results: Option<Vec<Value>>,
     /// For saving: what changed, in a few words.
     #[serde(default)]
     message: String,
 }
 
-/// Checks pending changes against the working copy. Nothing is saved.
+impl Changes {
+    /// The project file with the pending decisions and results.
+    fn apply_to(&self, project: &mut ProjectFile) {
+        if let Some(decisions) = &self.decisions {
+            project.decisions = decisions.clone();
+        }
+        if let Some(results) = &self.results {
+            project.results = results.clone();
+        }
+    }
+
+    fn touches_project_file(&self) -> bool {
+        self.decisions.is_some() || self.results.is_some()
+    }
+}
+
+/// Checks pending changes (to the model, and to what managers may change)
+/// against the working copy. Nothing is saved.
 async fn check(
     State(state): State<Arc<AppState>>,
     UrlPath(id): UrlPath<String>,
     Json(body): Json<Changes>,
 ) -> Response {
-    match load(&state, &id, None, &body.changes) {
-        Ok(_) => Json(json!({ "ok": true, "errors": [] })).into_response(),
-        Err(LoadProblem::Request(e)) => not_found_or_bad(e),
+    let (ok, errors, mut project, source) = match load(&state, &id, None, &body.changes) {
+        Ok(loaded) => (true, Vec::new(), loaded.project, loaded.text),
+        Err(LoadProblem::Request(e)) => return not_found_or_bad(e),
         Err(LoadProblem::Invalid(problems)) => {
-            Json(json!({ "ok": false, "errors": problems })).into_response()
+            let project = match state.projects.project_file(&id, None) {
+                Ok(p) => p,
+                Err(e) => return not_found_or_bad(e),
+            };
+            // The model has errors: only the structure of decisions is checked.
+            (false, problems, project, String::new())
         }
-    }
+    };
+    body.apply_to(&mut project);
+    let (exposed, problems, _) = read_exposed(&project, &source);
+    Json(json!({
+        "ok": ok,
+        "errors": errors,
+        "decisions": exposed.decisions,
+        "results": exposed.results,
+        "decision_problems": problems,
+    }))
+    .into_response()
 }
 
 /// Applies pending changes to the working copy and saves a version (a commit).
@@ -751,7 +801,7 @@ async fn save(
     UrlPath(id): UrlPath<String>,
     Json(body): Json<Changes>,
 ) -> Response {
-    if body.changes.is_empty() {
+    if body.changes.is_empty() && !body.touches_project_file() {
         return error(
             StatusCode::BAD_REQUEST,
             "nothing to save: there are no changes",
@@ -761,10 +811,14 @@ async fn save(
         Ok(l) => l,
         Err(problem) => return problem.into_response(),
     };
-    match state
-        .projects
-        .save(&id, &[(&loaded.project.model, &loaded.text)], &body.message)
-    {
+    let mut project = loaded.project.clone();
+    body.apply_to(&mut project);
+    let project_text = project.to_text();
+    let mut files = vec![(loaded.project.model.as_str(), loaded.text.as_str())];
+    if body.touches_project_file() {
+        files.push((PROJECT_FILE, project_text.as_str()));
+    }
+    match state.projects.save(&id, &files, &body.message) {
         Ok(commit) => {
             let problems = exposed(&state, &id, None).map_or_else(|e| vec![e], |(_, p)| p);
             Json(json!({ "ok": true, "saved": commit, "decision_problems": problems }))
@@ -1721,6 +1775,72 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body["errors"][0]["file"], "project.yaml");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn engineers_edit_decisions_with_live_checks() {
+        let (app, root) = app("edit-decisions");
+        let (_, project) = call(&app, "GET", "/api/v1/projects/conveyor-line", None).await;
+        let mut decisions = project["project_file"]["decisions"].clone();
+        assert!(decisions["buffer"].is_object());
+        assert!(
+            project["measures"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|m| m["object"] == "mill" && m["measure"] == "busy")
+        );
+
+        // A new number decision, checked before saving: c3 isn't written in m.
+        decisions["exit_buffer"] = json!({ "label": "Exit buffer", "path": "conveyors.c3.speed", "min": 1, "max": 2, "unit": "m" });
+        let url = "/api/v1/projects/conveyor-line/check";
+        let (_, checked) = call(&app, "POST", url, Some(json!({ "decisions": decisions }))).await;
+        assert_eq!(checked["ok"], true);
+        assert!(
+            checked["decision_problems"][0]
+                .as_str()
+                .unwrap()
+                .contains("write it in m"),
+            "{checked}"
+        );
+        // Fixed, with pending model changes checked together.
+        decisions["exit_buffer"] = json!({ "label": "Exit buffer", "path": "conveyors.c3.length", "min": 4, "max": 12, "unit": "m" });
+        let results = json!([{ "label": "Mill busy", "object": "mill", "measure": "busy" }]);
+        let body = json!({ "changes": { "conveyors.c3.length": "8 m" }, "decisions": decisions, "results": results });
+        let (_, checked) = call(&app, "POST", url, Some(body.clone())).await;
+        assert_eq!(checked["decision_problems"], json!([]), "{checked}");
+        assert_eq!(checked["decisions"][3]["current"], 8.0);
+        assert_eq!(checked["results"][0]["unit"], "fraction");
+
+        let mut save = body;
+        save["message"] = json!("Exit buffer for managers");
+        let (status, saved) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/conveyor-line/save",
+            Some(save),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        let (_, project) = call(&app, "GET", "/api/v1/projects/conveyor-line", None).await;
+        assert_eq!(project["decisions"].as_array().unwrap().len(), 4);
+        assert_eq!(project["results"][0]["label"], "Mill busy");
+        assert_eq!(project["tree"]["conveyors"]["c3"]["length"], "8 m");
+
+        // Only decisions changed: still a version.
+        let mut fewer = project["project_file"]["decisions"].clone();
+        fewer.as_object_mut().unwrap().remove("mill");
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/conveyor-line/save",
+            Some(json!({ "decisions": fewer, "message": "No mill decision" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, project) = call(&app, "GET", "/api/v1/projects/conveyor-line", None).await;
+        assert_eq!(project["decisions"].as_array().unwrap().len(), 3);
         fs::remove_dir_all(root).unwrap();
     }
 

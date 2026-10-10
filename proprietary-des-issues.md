@@ -200,7 +200,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Research is hard to reproduce | Free tool, text models, fixed seeds: papers can ship reproducible models. | done |
 | **12. Collaboration and deployment** | | |
 | Not built for teams | Separate pages for engineers (build, save, publish) and managers (published versions only), plus the API for developers. Concurrent editing and roles come later. | partial |
-| Hard to share with stakeholders | Managers open a hosted page, build scenarios from the decisions the engineer exposed (options and bounded numbers, so they can't break the model), and read comparisons in plain language. Exporting a comparison for a meeting is planned. | partial |
+| Hard to share with stakeholders | Managers open a hosted page, build scenarios from the decisions the engineer exposed (options and bounded numbers, so they can't break the model), and read comparisons in plain language. Engineers choose those decisions in the builder, without writing files: a flag on any number, or "offer these edits as an option". Exporting a comparison for a meeting is planned. | partial |
 | Hard to put into production | The server and API are the product: a static binary or Docker image, health checks, deployment docs. Webhooks are planned. | partial |
 | **13. Scale and performance** | | |
 | Large models / big experiments | Fast native engine, all cores, no allocation per event. Not yet tested on very large models. | partial |
