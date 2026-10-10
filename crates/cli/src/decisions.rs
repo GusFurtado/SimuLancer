@@ -293,7 +293,7 @@ fn read_decision(
         }
         (None, None) => {
             return Err(format!(
-                "{name}: give `choices` (options to pick from) or `path` (a number managers set)"
+                "{name}: give `choices` (options to pick from) or `path` (a number to set)"
             ));
         }
         (Some(choices), None) => {

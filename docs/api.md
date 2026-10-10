@@ -1,6 +1,6 @@
 # HTTP API (v1)
 
-`outliers-sim serve` exposes this API. The web pages use nothing else: the engineer's builder (`/build`), the manager's page (`/decide`), and anything a developer writes, are all clients of this API.
+`outliers-sim serve` exposes this API. The web pages use nothing else: the Build page (`/build`), the Decide page (`/decide`), and anything you write yourself, are all clients of this API.
 
 ```sh
 outliers-sim serve --data ./data --port 8080          # this machine only
@@ -14,13 +14,13 @@ outliers-sim serve --data ./data --host 0.0.0.0       # other machines (put it b
 ## Concepts
 
 - **Projects** live in `<data>/projects/<id>/`, each a git repository with `project.yaml` (name, description, model file), the model and its layout. An empty data folder gets the example projects.
-- **Working copy** is the model as the engineer last saved it.
+- **Working copy** is the model as last saved on the Build page.
   - **Saving** applies changes and records a version (a git commit with a message).
   - **Publishing** marks the last saved version as `v1`, `v2`, … (a git tag).
-  - Managers work with published versions, which never change after publishing.
+  - The Decide page works with published versions, which never change after publishing.
 - **Versions** in requests are `latest` (newest published), a name like `v3`, or absent for the working copy.
 - **Changes** map dotted paths in the model to new values, e.g. `{"servers.mill_b.capacity": 2, "sources.arrivals.output": {"rule": "round_robin"}}`. List items by index: `servers.mill_b.failures.0.downtime`. Paths address the `tree` that `GET /projects/{id}` returns.
-- **Decisions and results** are what the engineer lets managers change and read, set in `project.yaml` (below). A manager's **scenario** picks a value for some decisions; it's stored with the published version it was made on, outside the project's git history.
+- **Decisions and results** are what the Decide page lets people change and read, set in `project.yaml` (below). A **scenario** picks a value for some decisions; it's stored with the published version it was made on, outside the project's git history.
 - **Comparisons** run the current setup and some scenarios with the same random numbers and describe each result's change in plain language.
 - **Runs** are queued and executed one at a time, each using all CPU cores (or `--threads`). Each run's results, including the exact model text that ran, go to `<data>/runs/<id>/`. The list of runs lives in memory; result folders stay on disk.
 
@@ -40,7 +40,7 @@ decisions:
         changes: { sources.arrivals.output: { rule: round_robin } }
   inspectors:
     label: Inspectors
-    path: servers.inspect.capacity             # a number managers set
+    path: servers.inspect.capacity             # a number people set on the Decide page
     min: 1
     max: 3
   buffer:
@@ -57,7 +57,7 @@ results:
 
 - **Options** are groups of changes (paths as in [changes](#concepts)). The first option is the model as it is, so it has none.
 - **Numbers** set one path, within `min` and `max`, optionally in steps of `step` from `min`. The model must already write the value (in `unit`, if given).
-- **Results** name a measure from `summary.json` (`object`, `measure`) and say which way is better (`higher`, `lower`, or leave it out). Without `results`, managers read each sink's throughput and time in system.
+- **Results** name a measure from `summary.json` (`object`, `measure`) and say which way is better (`higher`, `lower`, or leave it out). Without `results`, the Decide page shows each sink's throughput and time in system.
 - **Publishing is refused while anything is wrong:**
   - an option or bound gives an invalid model;
   - two decisions change the same thing;
@@ -123,8 +123,8 @@ Creates a project from another one's working copy, with a fresh history.
 | `valid`, `errors` | Whether the model loads, and why not. |
 | `versions` | Published versions, newest first: `name`, `number`, `date`, `message`, `commit`. |
 | `history` | Working copy only: saved versions, newest first, with `published` set to the version name where published. |
-| `decisions` | What managers may change: `id`, `label`, `description`, `kind` (`choice` with `choices`: `id`, `label`, `changes`; or `number` with `path`, `min`, `max`, `step`, `unit`) and `current` (the first option's id, or the number in the model). |
-| `results` | What managers read: `label`, `object`, `measure`, `unit`, `better` (`higher`, `lower`, `neither`). |
+| `decisions` | What can be changed on the Decide page: `id`, `label`, `description`, `kind` (`choice` with `choices`: `id`, `label`, `changes`; or `number` with `path`, `min`, `max`, `step`, `unit`) and `current` (the first option's id, or the number in the model). |
+| `results` | What the Decide page shows: `label`, `object`, `measure`, `unit`, `better` (`higher`, `lower`, `neither`). |
 | `decision_problems` | What's wrong with them, as sentences. Empty when the version can be published. |
 
 ### `POST /api/v1/projects/{id}/check`
@@ -179,7 +179,7 @@ Oldest first. `summary` is what the scenario changes, in words. `?version=` keep
 { "name": "Second inspector", "version": "latest", "decisions": { "inspectors": 2, "arrival_routing": "round_robin" } }
 ```
 
-- `version`: `latest` (the default) or `vN`; the scenario keeps the version's name (`v2`), so it never changes under the manager.
+- `version`: `latest` (the default) or `vN`; the scenario keeps the version's name (`v2`), so it never changes under its user.
 - `decisions`: decision id → option id or number. Decisions left out stay as they are.
 - `name`: defaults to the summary of the changes.
 
