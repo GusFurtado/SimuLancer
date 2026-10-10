@@ -1,12 +1,12 @@
 # The project file of the conveyor-line example, as `outliers-sim serve`
-# creates it: which file is the model, and what managers may change and read.
+# creates it: which file is the model, and what the Decide page lets people change and read.
 
 format: outliers-sim-project/0.1
 name: Conveyor line
 description: Two-server serial line with accumulating conveyors and random failures.
 model: model.yaml
 
-# What managers may change. Each decision is either a set of options (the
+# What can be changed on the Decide page. Each decision is either a set of options (the
 # first one is the current setup) or a number within bounds.
 decisions:
   buffer:
@@ -34,7 +34,7 @@ decisions:
         label: A 10% faster mill
         changes: { servers.mill.process_time: "triangular(0.54 min, 0.81 min, 0.99 min)" }
 
-# What managers read, and which way is better.
+# What the Decide page shows, and which way is better.
 results:
   - { label: Parts shipped per hour, object: shipping, measure: throughput, better: higher }
   - { label: Lead time, object: shipping, measure: time in system, better: lower }

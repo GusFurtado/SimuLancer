@@ -1,4 +1,4 @@
-"""Drives the web pages through an engineer's and a manager's session in
+"""Drives the web pages through a Build session and a Decide session in
 Firefox (Marionette).
 
 Usage: test_ui.py <server url> <marionette port> <screenshot dir>
@@ -56,7 +56,7 @@ b.wait("return document.querySelector('.panel h3')?.textContent === 'mill_a'")
 b.js("document.querySelector('[data-expose=\"servers.mill_a.capacity\"]').click()")
 b.wait("return document.querySelector('[data-decision-id=mill_a_capacity]') !== null")
 b.js("const i = document.querySelector('[data-bound=\"mill_a_capacity.max\"]'); i.value = '2'; i.dispatchEvent(new Event('change'))")
-b.wait("return document.querySelector('#manager-preview').textContent.includes('can be 1 to 2')", 10)
+b.wait("return document.querySelector('#decide-preview').textContent.includes('can be 1 to 2')", 10)
 check(b.js("return document.getElementById('decision-problems')") is None, "no problems with the new decision")
 
 # Offer a faster shipping conveyor as an option instead of changing the model.
@@ -74,13 +74,13 @@ b.js("const i = document.getElementById('offer-option-label'); i.value = 'Faster
 b.screenshot(f"{out}/4a-offer.png")
 b.js("document.getElementById('offer-confirm').click()")
 b.wait("return document.querySelector('[data-decision-id=shipping_conveyor]') !== null", 10)
-b.wait("return document.querySelector('#manager-preview').textContent.includes('Faster belt (0.6 m/s)')", 10)
+b.wait("return document.querySelector('#decide-preview').textContent.includes('Faster belt (0.6 m/s)')", 10)
 pending = b.js("return document.getElementById('pending').textContent")
-check(pending == "1 unsaved change, unsaved edits for managers", f"the capacity default stays in the model: {pending}")
+check(pending == "1 unsaved change, unsaved decision edits", f"the capacity default stays in the model: {pending}")
 check(b.js("return document.getElementById('publish').disabled") is True, "can't publish with unsaved changes")
 check(not b.js("return document.getElementById('content').textContent").startswith("null") and "null" not in b.js("return [...document.getElementById('content').childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('')"), "no stray text")
 b.screenshot(f"{out}/4b-managers.png")
-b.js("const m = document.getElementById('save-message'); m.value = 'Mill A capacity and shipping belt for managers'; m.dispatchEvent(new Event('input'))")
+b.js("const m = document.getElementById('save-message'); m.value = 'Mill A capacity and shipping belt as decisions'; m.dispatchEvent(new Event('input'))")
 b.js("document.getElementById('save').click()")
 b.wait("return document.getElementById('pending')?.textContent === 'all changes saved'", 10)
 b.js("document.getElementById('publish').click()")
@@ -88,7 +88,7 @@ b.wait("return document.querySelector('.status.ok')?.textContent.startsWith('Pub
 b.js("[...document.querySelectorAll('.tabs button')].find(x => x.textContent === 'Model').click()")
 b.wait("return document.querySelector('.versions .pill')?.textContent === 'published v2'", 10)
 versions = b.js("return document.querySelector('.versions').textContent")
-check("Mill A capacity and shipping belt for managers" in versions, f"saved version listed: {versions}")
+check("Mill A capacity and shipping belt as decisions" in versions, f"saved version listed: {versions}")
 b.screenshot(f"{out}/4-published.png")
 
 b.js("document.getElementById('run').click()")
@@ -155,4 +155,4 @@ click_text("#comparison .actions button", "Faster repairs")
 b.wait("return document.querySelector('#details iframe.report') !== null", 10)
 time.sleep(1.5)
 b.screenshot(f"{out}/10-scenario-report.png")
-print("web UI sessions (engineer and manager): all checks passed")
+print("web UI sessions (Build and Decide): all checks passed")

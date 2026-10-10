@@ -1,6 +1,6 @@
 "use strict";
-// The manager's page (/decide): published versions only. The decisions the
-// engineers made available, scenarios built from them, and comparisons with
+// The Decide page (/decide): published versions only. The decisions the
+// Build page made available, scenarios built from them, and comparisons with
 // the current setup in plain language.
 
 const state = {
@@ -23,7 +23,7 @@ async function loadProjects() {
   state.projects = (data.projects || []).filter(p => p.published);
   const list = document.getElementById("projects");
   if (!state.projects.length) {
-    list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "Nothing published yet. Your engineers publish projects from the Build page."));
+    list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "Nothing published yet. Projects are published from the Build page."));
     return;
   }
   list.replaceChildren(...state.projects.map(p => el("button", {
@@ -94,7 +94,7 @@ function render() {
         el("p", { style: "margin: 0 0 4px" }, el("span", { class: "pill" }, d.version), " ",
           version ? `${version.message} · published ${new Date(version.date).toLocaleString()}` : ""),
         el("p", { class: "hint", style: "margin: 0" },
-          "Your engineers haven't made any decisions available in this version yet, so there's nothing to compare. You can still run the model as it is.")),
+          "This version has no decisions to try yet, so there's nothing to compare. You can still run the model as it is.")),
       el("div", { class: "actions" }, el("button", { class: "primary", id: "run", onclick: runAsPublished }, "▶ Run the published model")),
       statusBox(), content);
     if (state.details) runResults(content, state.details.run, state.view, v => { state.view = v; render(); });
@@ -121,7 +121,7 @@ function currentSetupCard() {
   const d = state.detail;
   return el("div", { class: "card" },
     el("h3", { class: "card-title" }, "What you can change"),
-    el("p", { class: "hint", style: "margin: 0 0 10px" }, "Set by your engineers in ", el("b", {}, d.version), ". Each scenario changes some of these; everything else stays as it is now."),
+    el("p", { class: "hint", style: "margin: 0 0 10px" }, "Set in ", el("b", {}, d.version), " on the Build page. Each scenario changes some of these; everything else stays as it is now."),
     el("dl", { class: "decisions" }, ...d.decisions.flatMap(dec => [
       el("dt", {}, dec.label, dec.description ? el("span", { class: "sub" }, dec.description) : null),
       el("dd", {}, el("span", { class: "now" }, "Now: "), valueText(dec, dec.current),
@@ -273,7 +273,7 @@ async function followComparison(comparison) {
     const { ok, data } = await api("GET", `comparisons/${c.id}`);
     if (!ok) break;
     c = data;
-    if (state.project !== c.project) return;   // the manager moved on
+    if (state.project !== c.project) return;   // they moved on
   }
   state.message = c.status === "failed" ? { kind: "error", text: `The comparison failed: ${c.error}` } : null;
   state.comparison = c.status === "done" ? c : null;
