@@ -18,7 +18,7 @@ var end_time: float = 0.0
 var time: float = 0.0
 ## name -> {from, to, length, speed, spacing, capacity, belt: [{part, pos, since}]}
 var conveyors: Dictionary = {}
-## name -> {capacity, busy: [part], blocked: [part], failed: failure name or ""}
+## name -> {capacity, busy: [part], blocked: [part], failed: failure name or "", off: off shift}
 var servers: Dictionary = {}
 ## name -> parts exited
 var sinks: Dictionary = {}
@@ -69,7 +69,7 @@ func reset() -> void:
 		}
 	servers.clear()
 	for s: Dictionary in header["servers"]:
-		servers[s["name"]] = {"capacity": int(s["capacity"]), "busy": [], "blocked": [], "failed": ""}
+		servers[s["name"]] = {"capacity": int(s["capacity"]), "busy": [], "blocked": [], "failed": "", "off": false}
 	sinks.clear()
 	for name: String in header["sinks"]:
 		sinks[name] = 0
@@ -101,9 +101,11 @@ func belt(conveyor: String) -> Array:
 	return out
 
 
-## "failed", "blocked", "busy" or "idle", in that order of precedence.
+## "off", "failed", "blocked", "busy" or "idle", in that order of precedence.
 func server_state(server: String) -> String:
 	var s: Dictionary = servers[server]
+	if s["off"]:
+		return "off"
 	if s["failed"] != "":
 		return "failed"
 	if not s["blocked"].is_empty():
@@ -151,6 +153,10 @@ func _apply(e: Dictionary) -> void:
 			servers[e["server"]]["failed"] = e["failure"]
 		"repaired":
 			servers[e["server"]]["failed"] = ""
+		"shift_ended":
+			servers[e["server"]]["off"] = true
+		"shift_started":
+			servers[e["server"]]["off"] = false
 		"exited":
 			_leave_conveyor(int(e["part"]), e["sink"], t)
 			sinks[e["sink"]] += 1

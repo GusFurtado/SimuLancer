@@ -299,6 +299,12 @@ fn describe(path: &Path, model: &Model) -> String {
         if let Some(text) = routing(spec, &s.outputs, &s.routing) {
             out += &format!("  {:<12}   {text}\n", "");
         }
+        if let Some(i) = s.schedule {
+            out += &format!(
+                "  {:<12}   arrives on schedule {}\n",
+                "", spec.schedules[i].name
+            );
+        }
     }
     out += "\nservers\n";
     for s in &spec.servers {
@@ -318,6 +324,12 @@ fn describe(path: &Path, model: &Model) -> String {
                 "  {:<12}   needs {} while processing\n",
                 "",
                 needs.join(", ")
+            );
+        }
+        if let Some(i) = s.schedule {
+            out += &format!(
+                "  {:<12}   works on schedule {}\n",
+                "", spec.schedules[i].name
             );
         }
         for f in &s.failures {
@@ -346,7 +358,26 @@ fn describe(path: &Path, model: &Model) -> String {
     if !spec.resources.is_empty() {
         out += "\nresources\n";
         for r in &spec.resources {
-            out += &format!("  {:<12} capacity {}\n", r.name, r.capacity);
+            let schedule = r
+                .schedule
+                .map(|i| format!(", on schedule {}", spec.schedules[i].name))
+                .unwrap_or_default();
+            out += &format!("  {:<12} capacity {}{schedule}\n", r.name, r.capacity);
+        }
+    }
+    if !spec.schedules.is_empty() {
+        out += "\nschedules (weekly, from Monday 00:00)\n";
+        for s in &spec.schedules {
+            let hours: f64 = s
+                .periods
+                .iter()
+                .map(|(a, b)| (*b - *a).as_secs_f64() / 3600.0)
+                .sum();
+            out += &format!(
+                "  {:<12} {hours} h a week in {} periods\n",
+                s.name,
+                s.periods.len()
+            );
         }
     }
     out += "\nconveyors\n";

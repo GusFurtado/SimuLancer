@@ -540,3 +540,44 @@ fn resource_problems_are_reported() {
         );
     }
 }
+
+#[test]
+fn schedule_problems_are_reported() {
+    let base = TYPED.replace(
+        "servers:\n  mill:\n",
+        "schedules:\n  days: { shifts: [\"06:00-14:00\"], days: [mon, fri] }\nservers:\n  mill:\n    schedule: days\n",
+    );
+    let spec = load_str(&base).unwrap().spec;
+    assert_eq!(spec.servers[0].schedule, Some(0));
+    assert_eq!(spec.schedules[0].periods.len(), 2);
+    for (from, to, expected) in [
+        (
+            "schedule: days",
+            "schedule: nights",
+            "schedule `nights`, which isn't listed under `schedules` (schedules: `days`)",
+        ),
+        (
+            "\"06:00-14:00\"",
+            "\"6am-2pm\"",
+            "`6am-2pm` isn't a shift: write it like `06:00-14:00`",
+        ),
+        (
+            "\"06:00-14:00\"",
+            "\"06:00-06:00\"",
+            "starts and ends at the same time",
+        ),
+        ("\"06:00-14:00\"", "\"25:00-26:00\"", "isn't a shift"),
+        (
+            "days: [mon, fri]",
+            "days: [mon, funday]",
+            "`funday` isn't a day",
+        ),
+        ("shifts: [\"06:00-14:00\"]", "shifts: []", "has no shifts"),
+    ] {
+        let errors = errors(&base.replacen(from, to, 1));
+        assert!(
+            errors.iter().any(|(_, e)| e.contains(expected)),
+            "{to}: expected `{expected}` in {errors:?}"
+        );
+    }
+}

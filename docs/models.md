@@ -18,6 +18,7 @@ servers:   { ... } # machines and stations that work on parts
 conveyors: { ... } # how parts move between them
 sinks:     { ... } # where parts leave
 resources: { ... } # operators and tools servers share (optional)
+schedules: { ... } # weekly working times (optional)
 
 experiment: { ... }
 outputs:    { ... }   # optional
@@ -147,6 +148,34 @@ servers:
 - **Holding:** units are held while processing, including during a failure mid-part. They go back as soon as processing ends, even if the part then waits for room on its conveyor.
 - **Waiting:** servers waiting for units are served first come, first served.
 - **Results:** each resource reports *busy*, the share of its units in use. Each server that needs resources reports *waiting for resources*, the share of time a part was ready but the units weren't. That time is part of *idle*.
+
+## Schedules
+
+```yaml
+schedules:
+  two_shifts:
+    shifts: ["06:00-14:00", "14:00-22:00"]   # a shift ending at or before its start ends the next day
+    days: [mon, tue, wed, thu, fri]          # optional; every day when absent
+servers:
+  lathe: { process_time: "5 min", schedule: two_shifts }
+resources:
+  operator: { capacity: 2, schedule: two_shifts }
+sources:
+  arrivals: { creates: part, interarrival: "10 min", schedule: two_shifts }
+```
+
+Schedules repeat every week, and the simulation starts on **Monday at 00:00**. Shifts are written in 24-hour clock time, from `00:00` to `24:00`; a night shift is written `22:00-06:00`. Overlapping shifts merge.
+
+Off shift:
+
+- **A server stops, as if it had failed.**
+  - The part being processed pauses and resumes at the next shift.
+  - Nothing is taken in or sent out.
+  - Failure clocks pause.
+  - A repair in progress carries on.
+- **A resource hands out no units.** Units already in use finish their part first.
+- **A source creates nothing.** The first part of each shift arrives at the shift's start.
+- **Results:** servers and resources that follow a schedule report *off shift*, the share of time they were off. For servers it's one of the states that add up to 1; off shift counts before failed.
 
 ## Sinks
 

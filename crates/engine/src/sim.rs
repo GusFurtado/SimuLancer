@@ -33,6 +33,11 @@
 //!   Servers waiting for units wait in one queue, first come first served:
 //!   when units come back, waiting servers try again in the order they
 //!   started waiting.
+//! - Schedules repeat weekly; time 0 is Monday 00:00. Off shift, a source
+//!   creates nothing (the first arrival of each shift comes at its start); a
+//!   server stops like a failed one (processing pauses and resumes at the
+//!   next shift, nothing is taken or released, failure clocks pause); a
+//!   resource hands out no units, but units in use finish their part.
 //! - Failure clocks run only while the server is up. `busy_time` clocks run
 //!   only while at least one slot is processing. While the server is down it
 //!   does nothing: no processing, no taking parts, no releasing blocked parts.
@@ -74,6 +79,9 @@ struct SourceState {
     next_output: usize,
     /// Part waiting to get on a conveyor (`when_blocked: wait`).
     held: Option<(Part, Target)>,
+    off_shift: bool,
+    /// Bumped at each shift end, to cancel the pending arrival.
+    arrival_generation: u64,
     created: u64,
     lost: u64,
     blocked: TimeAverage,
@@ -127,6 +135,8 @@ struct ServerState {
     failures: Vec<FailureState>,
     /// The failure the server is currently down for.
     down_for: Option<usize>,
+    off_shift: bool,
+    off: TimeAverage,
     processed: u64,
     failure_count: u64,
     busy: TimeAverage,
@@ -135,8 +145,9 @@ struct ServerState {
 }
 
 impl ServerState {
+    /// Working: not failed and on shift.
     fn is_up(&self) -> bool {
-        self.down_for.is_none()
+        self.down_for.is_none() && !self.off_shift
     }
 
     fn idle_slot(&self) -> Option<usize> {
@@ -256,7 +267,9 @@ pub fn simulate<O: Observer>(spec: &Spec, replication: u32, observer: &mut O) ->
 
 struct ResourceState {
     in_use: u32,
+    off_shift: bool,
     busy: TimeAverage,
+    off: TimeAverage,
 }
 
 struct Sim<'a, O: Observer> {
@@ -293,6 +306,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                 type_rng: stream(format!("source/{}/type", s.name)),
                 next_output: 0,
                 held: None,
+                off_shift: false,
+                arrival_generation: 0,
                 created: 0,
                 lost: 0,
                 blocked: TimeAverage::default(),
@@ -334,6 +349,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                     waiting: TimeAverage::default(),
                     failures,
                     down_for: None,
+                    off_shift: false,
+                    off: TimeAverage::default(),
                     processed: 0,
                     failure_count: 0,
                     busy: TimeAverage::default(),
@@ -372,7 +389,9 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .iter()
                 .map(|_| ResourceState {
                     in_use: 0,
+                    off_shift: false,
                     busy: TimeAverage::default(),
+                    off: TimeAverage::default(),
                 })
                 .collect(),
             resource_queue: VecDeque::new(),
@@ -389,9 +408,39 @@ impl<'a, O: Observer> Sim<'a, O> {
             self.events
                 .schedule(self.spec.experiment.warmup, Event::WarmupEnd);
         }
+        // Who is off shift at time 0, and when each schedule next changes.
+        for (i, schedule) in self.spec.schedules.iter().enumerate() {
+            let on = schedule.is_on(SimTime::ZERO);
+            for (s, spec) in self.spec.sources.iter().enumerate() {
+                if spec.schedule == Some(i) {
+                    self.sources[s].off_shift = !on;
+                }
+            }
+            for (s, spec) in self.spec.servers.iter().enumerate() {
+                if spec.schedule == Some(i) {
+                    self.servers[s].off_shift = !on;
+                }
+            }
+            for (r, spec) in self.spec.resources.iter().enumerate() {
+                if spec.schedule == Some(i) {
+                    self.resources[r].off_shift = !on;
+                }
+            }
+            if let Some(at) = schedule.next_change(SimTime::ZERO) {
+                self.events
+                    .schedule(at, Event::ScheduleChange { schedule: i });
+            }
+        }
         for source in 0..self.spec.sources.len() {
-            self.events
-                .schedule(SimTime::ZERO, Event::Arrival { source });
+            if !self.sources[source].off_shift {
+                self.events.schedule(
+                    SimTime::ZERO,
+                    Event::Arrival {
+                        source,
+                        generation: 0,
+                    },
+                );
+            }
         }
         for server in 0..self.spec.servers.len() {
             self.update_failure_clocks(server);
@@ -403,7 +452,12 @@ impl<'a, O: Observer> Sim<'a, O> {
             match event {
                 Event::RunEnd => break,
                 Event::WarmupEnd => self.reset_statistics(),
-                Event::Arrival { source } => self.arrival(source),
+                Event::Arrival { source, generation } => {
+                    if self.sources[source].arrival_generation == generation {
+                        self.arrival(source);
+                    }
+                }
+                Event::ScheduleChange { schedule } => self.schedule_change(schedule),
                 Event::ReachEnd {
                     conveyor,
                     generation,
@@ -520,11 +574,124 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn schedule_arrival(&mut self, source: usize) {
+        if self.sources[source].off_shift {
+            return; // the next shift's start brings the next arrival
+        }
         let gap = self.sources[source]
             .rng
             .sample(&self.spec.sources[source].interarrival);
-        self.events
-            .schedule(self.now + duration(gap), Event::Arrival { source });
+        let generation = self.sources[source].arrival_generation;
+        self.events.schedule(
+            self.now + duration(gap),
+            Event::Arrival { source, generation },
+        );
+    }
+
+    // --- Schedules ---
+
+    fn schedule_change(&mut self, schedule: usize) {
+        let spec = self.spec;
+        let on = spec.schedules[schedule].is_on(self.now);
+        if let Some(at) = spec.schedules[schedule].next_change(self.now) {
+            self.events.schedule(at, Event::ScheduleChange { schedule });
+        }
+        for source in 0..spec.sources.len() {
+            if spec.sources[source].schedule != Some(schedule) {
+                continue;
+            }
+            let s = &mut self.sources[source];
+            s.off_shift = !on;
+            if on {
+                // The first arrival of the shift comes at its start.
+                if s.held.is_none() {
+                    let generation = s.arrival_generation;
+                    self.events
+                        .schedule(self.now, Event::Arrival { source, generation });
+                }
+            } else {
+                s.arrival_generation += 1;
+            }
+        }
+        for server in 0..spec.servers.len() {
+            if spec.servers[server].schedule != Some(schedule) {
+                continue;
+            }
+            self.observer.record(
+                self.now,
+                if on {
+                    TraceEvent::ShiftStarted { server }
+                } else {
+                    TraceEvent::ShiftEnded { server }
+                },
+            );
+            if on {
+                self.servers[server].off_shift = false;
+                if self.servers[server].down_for.is_none() {
+                    self.resume_slots(server);
+                }
+                self.update_failure_clocks(server);
+                self.release_blocked(server);
+            } else {
+                self.suspend_slots(server, OnFailure::Resume);
+                self.servers[server].off_shift = true;
+                self.update_failure_clocks(server);
+            }
+        }
+        let mut freed = false;
+        for r in 0..spec.resources.len() {
+            if spec.resources[r].schedule == Some(schedule) {
+                self.resources[r].off_shift = !on;
+                freed |= on;
+            }
+        }
+        if freed {
+            self.serve_resource_queue();
+        }
+    }
+
+    /// Pauses every part being processed (a failure, or the end of a shift).
+    fn suspend_slots(&mut self, server: usize, how: OnFailure) {
+        let now = self.now;
+        let s = &mut self.servers[server];
+        for (slot, generation) in s.slots.iter_mut().zip(&mut s.slot_generation) {
+            if let Slot::Busy {
+                part,
+                finish,
+                total,
+            } = *slot
+            {
+                let remaining = match how {
+                    OnFailure::Resume => finish - now,
+                    OnFailure::Restart => total,
+                };
+                *slot = Slot::Suspended {
+                    part,
+                    remaining,
+                    total,
+                };
+                *generation += 1; // cancel the scheduled ProcessDone
+            }
+        }
+    }
+
+    /// Continues every paused part (after a repair, or at a shift's start).
+    fn resume_slots(&mut self, server: usize) {
+        for slot in 0..self.servers[server].slots.len() {
+            if let Slot::Suspended {
+                part,
+                remaining,
+                total,
+            } = self.servers[server].slots[slot]
+            {
+                let finish = self.now + remaining;
+                self.servers[server].slots[slot] = Slot::Busy {
+                    part,
+                    finish,
+                    total,
+                };
+                self.schedule_process_done(server, slot, finish);
+            }
+        }
     }
 
     /// A conveyor the source was waiting for has room.
@@ -746,10 +913,10 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn resources_available(&self, server: usize) -> bool {
-        self.spec.servers[server]
-            .needs
-            .iter()
-            .all(|&(r, units)| self.resources[r].in_use + units <= self.spec.resources[r].capacity)
+        self.spec.servers[server].needs.iter().all(|&(r, units)| {
+            !self.resources[r].off_shift
+                && self.resources[r].in_use + units <= self.spec.resources[r].capacity
+        })
     }
 
     fn any_input_waiting(&self, server: usize) -> bool {
@@ -956,25 +1123,8 @@ impl<'a, O: Observer> Sim<'a, O> {
         state.generation += 1;
         s.down_for = Some(mode);
         s.failure_count += 1;
-        for (slot, generation) in s.slots.iter_mut().zip(&mut s.slot_generation) {
-            if let Slot::Busy {
-                part,
-                finish,
-                total,
-            } = *slot
-            {
-                let remaining = match on_failure {
-                    OnFailure::Resume => finish - now,
-                    OnFailure::Restart => total,
-                };
-                *slot = Slot::Suspended {
-                    part,
-                    remaining,
-                    total,
-                };
-                *generation += 1; // cancel the scheduled ProcessDone
-            }
-        }
+        self.suspend_slots(server, on_failure);
+        let s = &mut self.servers[server];
         let downtime = s.failures[mode]
             .downtime_rng
             .sample(&self.spec.servers[server].failures[mode].downtime);
@@ -1004,21 +1154,9 @@ impl<'a, O: Observer> Sim<'a, O> {
                 failure: mode,
             },
         );
-        for slot in 0..self.servers[server].slots.len() {
-            if let Slot::Suspended {
-                part,
-                remaining,
-                total,
-            } = self.servers[server].slots[slot]
-            {
-                let finish = self.now + remaining;
-                self.servers[server].slots[slot] = Slot::Busy {
-                    part,
-                    finish,
-                    total,
-                };
-                self.schedule_process_done(server, slot, finish);
-            }
+        // Off shift, paused parts wait for the next shift.
+        if !self.servers[server].off_shift {
+            self.resume_slots(server);
         }
         self.update_failure_clocks(server);
         self.release_blocked(server);
@@ -1053,7 +1191,17 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.blocked.set(now, u64::from(s.held.is_some()));
         }
         for (s, spec) in self.servers.iter_mut().zip(&self.spec.servers) {
-            let (busy, blocked, failed) = if s.is_up() {
+            s.off.set(
+                now,
+                if s.off_shift {
+                    u64::from(spec.capacity)
+                } else {
+                    0
+                },
+            );
+            let (busy, blocked, failed) = if s.off_shift {
+                (0, 0, 0)
+            } else if s.is_up() {
                 let count = |f: fn(&Slot) -> bool| s.slots.iter().filter(|x| f(x)).count() as u64;
                 (
                     count(|x| matches!(x, Slot::Busy { .. })),
@@ -1070,6 +1218,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
         for r in &mut self.resources {
             r.busy.set(now, u64::from(r.in_use));
+            r.off.set(now, u64::from(r.off_shift));
         }
         for (c, spec) in self.conveyors.iter_mut().zip(&self.spec.conveyors) {
             let n = c.belt.len() as u64;
@@ -1093,9 +1242,11 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.blocked.reset(now);
             s.failed.reset(now);
             s.waiting.reset(now);
+            s.off.reset(now);
         }
         for r in &mut self.resources {
             r.busy.reset(now);
+            r.off.reset(now);
         }
         for c in &mut self.conveyors {
             c.entered = 0;
@@ -1141,8 +1292,10 @@ impl<'a, O: Observer> Sim<'a, O> {
                     let busy = s.busy.mean() / capacity;
                     let blocked = s.blocked.mean() / capacity;
                     let failed = s.failed.mean() / capacity;
+                    let off_shift = s.off.mean() / capacity;
                     ServerResult {
-                        idle: (1.0 - busy - blocked - failed).max(0.0),
+                        idle: (1.0 - busy - blocked - failed - off_shift).max(0.0),
+                        off_shift,
                         busy,
                         blocked,
                         failed,
@@ -1168,6 +1321,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .zip(&self.spec.resources)
                 .map(|(r, spec)| ResourceResult {
                     busy: r.busy.mean() / f64::from(spec.capacity),
+                    off_shift: r.off.mean(),
                 })
                 .collect(),
             sinks: self

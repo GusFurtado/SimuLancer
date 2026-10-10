@@ -16,6 +16,8 @@ pub struct Spec {
     pub sinks: Vec<Sink>,
     /// Shared resources (operators, tools) that servers need while processing.
     pub resources: Vec<Resource>,
+    /// Weekly working times for sources, servers and resources.
+    pub schedules: Vec<Schedule>,
     pub experiment: Experiment,
 }
 
@@ -25,6 +27,58 @@ pub struct Spec {
 pub struct Resource {
     pub name: String,
     pub capacity: u32,
+    /// Index into [`Spec::schedules`]; `None` is always available.
+    pub schedule: Option<usize>,
+}
+
+/// When something works, repeating every week. Time 0 is Monday 00:00.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Schedule {
+    pub name: String,
+    /// Working periods within the week, as [start, end) offsets from Monday
+    /// 00:00: sorted, not overlapping, not touching, within one week.
+    pub periods: Vec<(SimTime, SimTime)>,
+}
+
+impl Schedule {
+    pub const WEEK: SimTime = SimTime::from_micros(7 * 24 * 3600 * 1_000_000);
+
+    /// Whether `t` falls in a working period.
+    pub fn is_on(&self, t: SimTime) -> bool {
+        let w = SimTime::from_micros(t.as_micros().rem_euclid(Self::WEEK.as_micros()));
+        self.periods.iter().any(|&(s, e)| s <= w && w < e)
+    }
+
+    /// The first time after `t` at which `is_on` changes, if it ever does.
+    pub fn next_change(&self, t: SimTime) -> Option<SimTime> {
+        let week = Self::WEEK.as_micros();
+        if self.periods.is_empty() || self.periods == [(SimTime::ZERO, Self::WEEK)] {
+            return None;
+        }
+        let w = t.as_micros().rem_euclid(week);
+        let base = t.as_micros() - w;
+        let boundaries = self
+            .periods
+            .iter()
+            .flat_map(|&(s, e)| [s.as_micros(), e.as_micros()]);
+        // Periods don't touch, so every boundary is a real change (a period
+        // ending at the week's end and one starting at 0 count as one).
+        let wraps = self.periods.first().is_some_and(|p| p.0 == SimTime::ZERO)
+            && self.periods.last().is_some_and(|p| p.1 == Self::WEEK);
+        let real = |b: i64| !(wraps && (b == 0 || b == week));
+        let next = boundaries
+            .clone()
+            .filter(|&b| b > w && real(b))
+            .min()
+            .map(|b| base + b)
+            .or_else(|| {
+                boundaries
+                    .filter(|&b| real(b))
+                    .min()
+                    .map(|b| base + week + b)
+            })?;
+        Some(SimTime::from_micros(next))
+    }
 }
 
 /// A source, server or sink: anything a conveyor can start or end at.
@@ -46,6 +100,8 @@ pub struct Source {
     /// Indices into [`Spec::conveyors`], in file order.
     pub outputs: Vec<usize>,
     pub routing: Routing,
+    /// Index into [`Spec::schedules`]: parts only arrive while it's on.
+    pub schedule: Option<usize>,
 }
 
 /// What a source does with a new part when its output conveyor is full.
@@ -65,6 +121,8 @@ pub struct Server {
     /// Resource units needed to process a part: (index into
     /// [`Spec::resources`], units), all taken at once.
     pub needs: Vec<(usize, u32)>,
+    /// Index into [`Spec::schedules`]; `None` works all the time.
+    pub schedule: Option<usize>,
     pub failures: Vec<Failure>,
     /// Indices into [`Spec::conveyors`]. In priority order for
     /// [`InputRule::Priority`], otherwise in file order.
