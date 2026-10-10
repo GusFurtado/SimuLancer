@@ -11,6 +11,7 @@ pub struct ReplicationResult {
     pub servers: Vec<ServerResult>,
     pub conveyors: Vec<ConveyorResult>,
     pub sinks: Vec<SinkResult>,
+    pub resources: Vec<ResourceResult>,
     /// Counts over the whole run, warm-up included, for conservation checks.
     pub totals: Totals,
 }
@@ -37,6 +38,15 @@ pub struct ServerResult {
     /// Parts that left the server.
     pub processed: u64,
     pub failures: u64,
+    /// Fraction of time a part was ready but resource units weren't (part
+    /// of `idle`).
+    pub waiting_for_resources: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResourceResult {
+    /// Time-weighted share of units in use.
+    pub busy: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

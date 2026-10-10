@@ -171,3 +171,37 @@ fn writing_a_model_back_as_yaml_keeps_it_identical() {
         );
     }
 }
+
+#[test]
+fn changes_can_start_a_section_and_remove_entries() {
+    // The model has no `resources` yet; a change can start the section.
+    let s = scenario(
+        "operator",
+        "two-cells.yaml",
+        "  resources.operator: { capacity: 1 }\n  servers.mill_a.needs: { operator: 1 }\n",
+    );
+    let model = load(&s, TWO_CELLS).unwrap();
+    assert_eq!(model.spec.resources[0].name, "operator");
+    // Unknown top-level names are still typos.
+    let s = scenario(
+        "typo",
+        "two-cells.yaml",
+        "  resource.operator: { capacity: 1 }\n",
+    );
+    assert!(
+        scenario_errors(&s, TWO_CELLS)[0]
+            .1
+            .contains("the model has no `resource`")
+    );
+    // `null` removes an entry.
+    let s = scenario(
+        "no-breakdowns",
+        "two-cells.yaml",
+        "  servers.mill_b.failures: null\n",
+    );
+    assert!(
+        load(&s, TWO_CELLS).unwrap().spec.servers[1]
+            .failures
+            .is_empty()
+    );
+}

@@ -382,7 +382,7 @@ const meters = text => { const m = typeof text === "string" && text.trim().match
 const lengthText = len => `${Math.max(0.5, Math.round(len * 10) / 10)} m`;
 const sectionOf = (tree, name) => ["sources", "servers", "sinks"].find(s => tree[s] && name in tree[s]);
 const isName = name => /^[A-Za-z][A-Za-z0-9_-]*$/.test(name);
-const allNames = tree => ["sources", "servers", "sinks", "conveyors"].flatMap(s => Object.keys(tree[s] || {}));
+const allNames = tree => ["sources", "servers", "sinks", "conveyors", "resources"].flatMap(s => Object.keys(tree[s] || {}));
 
 function freeName(tree, base) {
   const taken = allNames(tree);
@@ -795,6 +795,7 @@ function panel(tree) {
       return el("div", {}, header,
         field("Capacity (parts at once)", `${p}.capacity`, "int", [], "1 (default)"),
         processTime(tree, p),
+        needsField(tree, p),
         inputRule(tree, p, inputs),
         outputRule(tree, p, outputs),
         failures(tree, p));
@@ -814,7 +815,79 @@ function experimentPanel(tree) {
     field("Warm-up", "experiment.warmup", "text", [], "none"),
     field("Run length (after warm-up)", "experiment.run_length"),
     field("Seed", "experiment.seed", "int"),
-    partTypesPanel(tree));
+    partTypesPanel(tree),
+    resourcesPanel(tree));
+}
+
+// --- shared resources ---------------------------------------------------------------------------
+
+function resourcesPanel(tree) {
+  const resources = Object.keys(tree.resources || {});
+  return el("div", { class: "group", id: "resources" },
+    el("div", { class: "group-title" }, "Resources"),
+    el("p", { class: "hint", style: "margin: 0 0 8px" }, "Operators, tools or fixtures that servers share. A server holds what it needs while it processes a part."),
+    ...resources.map(r => el("div", { class: "resource" },
+      el("div", { class: "row", style: "align-items: center" },
+        el("input", { value: r, "aria-label": `resource ${r}`, "data-resource": r, onchange: e => renameResource(r, e.target.value.trim()) }),
+        el("button", { style: "flex: 0", onclick: () => deleteResource(r), title: `Remove ${r}` }, "Remove")),
+      field("Units available", `resources.${r}.capacity`, "int"))),
+    el("button", { id: "add-resource", onclick: () => setChange(`resources.${freeName(tree, "operator")}`, { capacity: 1 }) }, "+ Resource"));
+}
+
+/** Removes a resource and every server's need for it. */
+function deleteResource(name) {
+  const tree = currentTree();
+  batch(() => {
+    for (const [server, srv] of Object.entries(tree.servers || {})) {
+      if (srv.needs && name in srv.needs) {
+        const needs = { ...srv.needs }; delete needs[name];
+        setChange(`servers.${server}.needs`, Object.keys(needs).length ? needs : null);
+      }
+    }
+    setChange(`resources.${name}`, null);
+  });
+}
+
+function renameResource(oldName, newName) {
+  const tree = currentTree();
+  if (newName === oldName) return;
+  if (!isName(newName) || allNames(tree).includes(newName)) {
+    state.message = { kind: "error", text: `“${newName}” can't be used: names start with a letter, use letters, digits, _ and -, and must be unique.` };
+    return renderEditor();
+  }
+  batch(() => {
+    setChange("resources", Object.fromEntries(Object.entries(tree.resources).map(([k, v]) => [k === oldName ? newName : k, v])));
+    for (const [server, srv] of Object.entries(tree.servers || {})) {
+      if (srv.needs && oldName in srv.needs) {
+        setChange(`servers.${server}.needs`, Object.fromEntries(Object.entries(srv.needs).map(([k, v]) => [k === oldName ? newName : k, v])));
+      }
+    }
+    renameInDraft(`resources.${oldName}`, `resources.${newName}`, oldName, newName);
+  });
+}
+
+/** The resources a server holds while processing. */
+function needsField(tree, p) {
+  const resources = Object.keys(tree.resources || {});
+  if (!resources.length) return null;
+  const path = `${p}.needs`;
+  const needs = getAt(tree, path) || {};
+  const error = errorFor(path);
+  return el("div", { class: `group field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("div", { class: "group-title" }, "Needs while processing",
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
+    ...resources.map(r => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
+      el("span", {}, r),
+      el("input", {
+        value: needs[r] ?? "", inputmode: "numeric", placeholder: "0", "aria-label": `units of ${r}`, "data-need": r,
+        onchange: e => {
+          const n = Number(e.target.value);
+          const next = { ...needs };
+          if (!e.target.value.trim() || !n) delete next[r]; else next[r] = n;
+          setChange(path, Object.keys(next).length ? next : null);
+        },
+      }))),
+    error ? el("div", { class: "message" }, error.message) : null);
 }
 
 // --- part types --------------------------------------------------------------------------------

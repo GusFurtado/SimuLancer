@@ -25,6 +25,8 @@ pub struct RawModel {
     pub conveyors: OrderedMap<RawConveyor>,
     #[serde(default)]
     pub sinks: OrderedMap<RawSink>,
+    #[serde(default)]
+    pub resources: OrderedMap<RawResource>,
     pub experiment: RawExperiment,
     #[serde(default)]
     pub outputs: RawOutputs,
@@ -175,6 +177,9 @@ pub enum WhenBlocked {
 pub struct RawServer {
     pub capacity: Option<Spanned<u32>>,
     pub process_time: Spanned<RawPerType>,
+    /// Resource name -> units held while processing.
+    #[serde(default)]
+    pub needs: OrderedMap<Spanned<u32>>,
     #[serde(default)]
     pub failures: Vec<RawFailure>,
     /// Required with two or more incoming conveyors.
@@ -233,6 +238,12 @@ pub enum ConveyorKind {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawSink {}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawResource {
+    pub capacity: Spanned<u32>,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

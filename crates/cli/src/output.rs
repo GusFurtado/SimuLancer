@@ -280,6 +280,7 @@ impl<'a, W: Write> EventLog<'a, W> {
                 "capacity": c.capacity,
             })).collect::<Vec<_>>(),
             "sinks": spec.sinks.iter().map(|s| &s.name).collect::<Vec<_>>(),
+            "resources": spec.resources.iter().map(|r| json!({ "name": r.name, "capacity": r.capacity })).collect::<Vec<_>>(),
         });
         writeln!(out, "{header}")?;
         Ok(EventLog {

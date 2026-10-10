@@ -17,6 +17,7 @@ sources:   { ... } # where parts come from
 servers:   { ... } # machines and stations that work on parts
 conveyors: { ... } # how parts move between them
 sinks:     { ... } # where parts leave
+resources: { ... } # operators and tools servers share (optional)
 
 experiment: { ... }
 outputs:    { ... }   # optional
@@ -25,7 +26,7 @@ outputs:    { ... }   # optional
 ## Names
 
 - **Allowed characters:** names use letters, digits, `_` and `-`, and start with a letter or `_`.
-- **Uniqueness:** sources, servers, conveyors and sinks share one namespace. Part types have their own.
+- **Uniqueness:** sources, servers, conveyors, sinks and resources share one namespace. Part types have their own.
 
 ## Units
 
@@ -99,6 +100,7 @@ servers:
 - **Processing:** a server takes a part when it's up and has a free slot.
 - **Blocking:** a finished part stays in its slot until its outgoing conveyor has room. The server shows as *blocked* during that time.
 - **Process time per part type:** every type that can reach the server must have a time.
+- **`needs`:** resource units the server holds while it processes a part (see below).
 
 ## Routing and merging
 
@@ -130,6 +132,21 @@ conveyors:
 
 - **Accumulating:** parts queue up at the end when the next object can't take them.
 - **Capacity:** a conveyor holds `floor(length / spacing)` parts.
+
+## Resources
+
+```yaml
+resources:
+  operator: { capacity: 2 }        # units available
+servers:
+  lathe_a: { process_time: "30 s", needs: { operator: 1 } }
+  lathe_b: { process_time: "30 s", needs: { operator: 1 } }
+```
+
+- **Starting:** a server starts a part only when it can take every unit it needs at once. It never holds some units while waiting for others, so servers can't deadlock over them.
+- **Holding:** units are held while processing, including during a failure mid-part. They go back as soon as processing ends, even if the part then waits for room on its conveyor.
+- **Waiting:** servers waiting for units are served first come, first served.
+- **Results:** each resource reports *busy*, the share of its units in use. Each server that needs resources reports *waiting for resources*, the share of time a part was ready but the units weren't. That time is part of *idle*.
 
 ## Sinks
 

@@ -14,7 +14,17 @@ pub struct Spec {
     pub servers: Vec<Server>,
     pub conveyors: Vec<Conveyor>,
     pub sinks: Vec<Sink>,
+    /// Shared resources (operators, tools) that servers need while processing.
+    pub resources: Vec<Resource>,
     pub experiment: Experiment,
+}
+
+/// Units shared by servers: a server holds the units it needs while it
+/// processes a part.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Resource {
+    pub name: String,
+    pub capacity: u32,
 }
 
 /// A source, server or sink: anything a conveyor can start or end at.
@@ -52,6 +62,9 @@ pub struct Server {
     pub name: String,
     pub capacity: u32,
     pub process_time: PerType<Distribution>,
+    /// Resource units needed to process a part: (index into
+    /// [`Spec::resources`], units), all taken at once.
+    pub needs: Vec<(usize, u32)>,
     pub failures: Vec<Failure>,
     /// Indices into [`Spec::conveyors`]. In priority order for
     /// [`InputRule::Priority`], otherwise in file order.
