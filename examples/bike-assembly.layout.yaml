@@ -1,0 +1,17 @@
+# Visual layout for bike-assembly.yaml (meters, Y up). Frames come in on
+# the near side, wheels on the far side.
+model: bike-assembly.yaml
+units: m
+
+objects:
+  frames:   { position: [0, 0, -3] }
+  wheels:   { position: [0, 0, 3] }
+  assembly: { position: [10, 0, 0], model: machine_small }
+  oven:     { position: [20, 0, 0], model: machine_small }
+  shipping: { position: [28, 0, 0] }
+
+conveyors:
+  c_frames: { path: [[0.7, 0, -3], [10, 0, -3], [10, 0, -0.7]] }   # 9.3 + 2.3
+  c_wheels: { path: [[0.7, 0, 3], [10, 0, 3], [10, 0, 0.7]] }      # 9.3 + 2.3
+  c_bikes:  { path: [[10.7, 0, 0], [19.3, 0, 0]] }                 # 8.6
+  c_ship:   { path: [[20.7, 0, 0], [27.3, 0, 0]] }                 # 6.6

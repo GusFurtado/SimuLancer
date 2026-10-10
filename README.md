@@ -2,7 +2,7 @@
 
 Open-source discrete event simulation. Models are plain YAML files: you can diff them, review them, test them and run them headless.
 
-> Early development. Sources, accumulating conveyors, servers with failures, sinks, part types, shared resources and shifts; validated against queueing theory. The model format is described in [docs/models.md](docs/models.md).
+> Early development. Sources, accumulating conveyors, servers with failures, sinks, part types, shared resources, shifts, batches and assembly; validated against queueing theory. The model format is described in [docs/models.md](docs/models.md).
 
 ## Usage
 

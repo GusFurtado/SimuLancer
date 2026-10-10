@@ -232,8 +232,9 @@ class Replay {
     this.conveyors = {};
     for (const c of this.header.conveyors) this.conveyors[c.name] = { ...c, belt: [] };
     this.servers = {};
-    for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], failed: "", off: false };
-    this.created = this.lost = this.exited = 0;
+    // waiting: parts collected into a batch or kit, not yet processing.
+    for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], waiting: [], failed: "", off: false };
+    this.created = this.lost = this.exited = this.assembled = this.consumed = 0;
     this.types = new Map();   // part -> index into header.entities, while it's in the system
     this.time = 0;
     this.cursor = 0;
@@ -260,9 +261,28 @@ class Replay {
         c.belt.push({ part: e.part, pos: 0, since: e.t });
         break;
       }
-      case "started_process":
+      case "started_process": {
+        const s = this.servers[e.server];
+        if (s.waiting.includes(e.part)) s.waiting = s.waiting.filter(p => p !== e.part);
+        else this.leave(e.part, e.server, e.t);
+        s.busy.push(e.part);
+        break;
+      }
+      case "collected":
         this.leave(e.part, e.server, e.t);
-        this.servers[e.server].busy.push(e.part);
+        this.servers[e.server].waiting.push(e.part);
+        break;
+      case "consumed": {
+        const s = this.servers[e.server];
+        s.waiting = s.waiting.filter(p => p !== e.part);
+        this.types.delete(e.part);
+        this.consumed++;
+        break;
+      }
+      case "assembled":
+        this.assembled++;
+        this.types.set(e.part, Math.max(0, (this.header.entities || []).indexOf(e.entity)));
+        this.servers[e.server].waiting.push(e.part);
         break;
       case "finished_process": {
         const s = this.servers[e.server];
@@ -488,7 +508,7 @@ async function startAnimation(container, run) {
     }
     for (const [name, sv] of Object.entries(replay.servers)) {
       const [x, z] = layout.positions[name];
-      [...sv.busy, ...sv.blocked].forEach((part, i) => {
+      [...sv.busy, ...sv.blocked, ...sv.waiting].forEach((part, i) => {
         ctx.fillStyle = partColor(part);
         ctx.fillRect(X(x) - p / 2 + i * (p + 2), Y(z) - p / 2, p, p);
         ctx.strokeRect(X(x) - p / 2 + i * (p + 2), Y(z) - p / 2, p, p);
@@ -497,7 +517,8 @@ async function startAnimation(container, run) {
 
     clockText.textContent = clock(replay.time);
     phase.textContent = replay.time < replay.warmup ? `warm-up (statistics start at ${clock(replay.warmup)})` : `measuring · replication ${header.replication}`;
-    counts.textContent = `${replay.created} created · ${replay.created - replay.lost - replay.exited} in system · ${replay.exited} exited` + (replay.lost ? ` · ${replay.lost} lost` : "");
+    const inSystem = replay.created + replay.assembled - replay.consumed - replay.lost - replay.exited;
+    counts.textContent = `${replay.created} created · ${inSystem} in system · ${replay.exited} exited` + (replay.lost ? ` · ${replay.lost} lost` : "") + (replay.assembled ? ` · ${replay.assembled} assembled` : "");
     play.textContent = a.playing ? "Pause" : "Play";
     if (document.activeElement !== slider) slider.value = replay.time;
     a.frame = requestAnimationFrame(draw);

@@ -1,20 +1,21 @@
 extends SceneTree
 ## Headless test: the viewer's replay must reproduce the engine's state.
-## Run by tests/run_all.sh with three results folders made by `outliers-sim run`:
-##   godot --headless --path viewer -s res://tests/test_replay.gd -- <deterministic> <two-servers> <routing>
+## Run by tests/run_all.sh with four results folders made by `outliers-sim run`:
+##   godot --headless --path viewer -s res://tests/test_replay.gd -- <deterministic> <two-servers> <routing> <kits>
 
 var failures := 0
 
 
 func _initialize() -> void:
 	var args := OS.get_cmdline_user_args()
-	if args.size() != 3:
-		printerr("usage: -- <deterministic dir> <two-servers dir> <routing dir>")
+	if args.size() != 4:
+		printerr("usage: -- <deterministic dir> <two-servers dir> <routing dir> <kits dir>")
 		quit(2)
 		return
 	test_deterministic(args[0])
 	test_two_servers(args[1])
 	test_routing(args[2])
+	test_kits(args[3])
 	if failures == 0:
 		print("test_replay: all checks passed")
 	quit(1 if failures > 0 else 0)
@@ -122,3 +123,23 @@ func test_routing(dir: String) -> void:
 			used[e["conveyor"]] = true
 	for c: String in ["in_a", "in_b", "rework", "retest", "ship"]:
 		check(used.has(c), "some part used conveyor %s" % c)
+
+
+func test_kits(dir: String) -> void:
+	var r := load_replay(dir)
+	# Kits, batches and shifts: every part in the system is still somewhere
+	# visible, except one each blocked source may be holding.
+	var off_seen := false
+	for t: float in [1800.0, 3600.0, 23.5 * 3600.0, 24.5 * 3600.0, r.end_time]:
+		r.seek(t)
+		var visible := 0
+		for c: String in r.conveyors:
+			visible += r.belt(c).size()
+		for s: String in r.servers:
+			visible += r.server_parts(s).size()
+			off_seen = off_seen or r.server_state(s) == "off"
+		var hidden := r.in_system() - visible
+		check(hidden >= 0 and hidden <= r.header["sources"].size(),
+			"kits t=%d: %d in system, %d visible" % [t, r.in_system(), visible])
+	check(off_seen, "the oven was seen off shift")
+	check(r.assembled > 0 and r.consumed == 3 * r.assembled, "kits: %d assembled, %d consumed" % [r.assembled, r.consumed])

@@ -1,0 +1,29 @@
+# Assembly, a batch oven, a shared operator and a shift: every kind of
+# event the replay has to follow.
+format: outliers-sim/0.1
+name: kits
+entities: { frame: {}, wheel: {}, bike: {} }
+resources:
+  fitter: { capacity: 1 }
+schedules:
+  days: { shifts: ["01:00-23:00"] }
+sources:
+  frames: { creates: frame, interarrival: "exponential(60 s)" }
+  wheels: { creates: wheel, interarrival: "exponential(30 s)" }
+servers:
+  assembly:
+    assembles: { frame: 1, wheel: 2 }
+    makes: bike
+    process_time: "uniform(20 s, 40 s)"
+    needs: { fitter: 1 }
+    input: { rule: first_come }
+  oven: { batch: 4, process_time: "3 min", schedule: days }
+conveyors:
+  c_frames: { from: frames, to: assembly, length: "10 m", speed: "1 m/s", spacing: "1 m" }
+  c_wheels: { from: wheels, to: assembly, length: "10 m", speed: "1 m/s", spacing: "1 m" }
+  c_bikes:  { from: assembly, to: oven, length: "6 m", speed: "1 m/s", spacing: "1 m" }
+  c_ship:   { from: oven, to: shipping, length: "4 m", speed: "1 m/s", spacing: "0.5 m" }
+sinks:
+  shipping: {}
+experiment: { replications: 1, run_length: "26 h", seed: 3 }
+outputs: { event_log: jsonl }

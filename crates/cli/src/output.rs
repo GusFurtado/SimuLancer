@@ -349,6 +349,25 @@ impl<'a, W: Write> EventLog<'a, W> {
                 r#"{{"t":{t},"type":"repaired","server":"{}","failure":"{}"}}"#,
                 s.servers[server].name, s.servers[server].failures[failure].name
             ),
+            TraceEvent::Collected { part, server } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"collected","part":{part},"server":"{}"}}"#,
+                s.servers[server].name
+            ),
+            TraceEvent::Consumed { part, server } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"consumed","part":{part},"server":"{}"}}"#,
+                s.servers[server].name
+            ),
+            TraceEvent::Assembled {
+                part,
+                server,
+                entity,
+            } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"assembled","part":{part},"server":"{}","entity":"{}"}}"#,
+                s.servers[server].name, s.entities[entity]
+            ),
             TraceEvent::ShiftEnded { server } => writeln!(
                 self.out,
                 r#"{{"t":{t},"type":"shift_ended","server":"{}"}}"#,

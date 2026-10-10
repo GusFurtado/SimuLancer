@@ -25,6 +25,9 @@ var sinks: Dictionary = {}
 var created: int = 0
 var lost: int = 0
 var exited: int = 0
+## Parts made by assembly servers, and components they used up.
+var assembled: int = 0
+var consumed: int = 0
 
 var _cursor: int = 0
 
@@ -69,13 +72,16 @@ func reset() -> void:
 		}
 	servers.clear()
 	for s: Dictionary in header["servers"]:
-		servers[s["name"]] = {"capacity": int(s["capacity"]), "busy": [], "blocked": [], "failed": "", "off": false}
+		# waiting: parts collected into a batch or kit, not yet processing.
+		servers[s["name"]] = {"capacity": int(s["capacity"]), "busy": [], "blocked": [], "waiting": [], "failed": "", "off": false}
 	sinks.clear()
 	for name: String in header["sinks"]:
 		sinks[name] = 0
 	created = 0
 	lost = 0
 	exited = 0
+	assembled = 0
+	consumed = 0
 	time = 0.0
 	_cursor = 0
 
@@ -115,14 +121,14 @@ func server_state(server: String) -> String:
 	return "idle"
 
 
-## Parts inside a server now (processing, then blocked).
+## Parts inside a server now (processing, blocked, then collected).
 func server_parts(server: String) -> Array:
 	var s: Dictionary = servers[server]
-	return s["busy"] + s["blocked"]
+	return s["busy"] + s["blocked"] + s["waiting"]
 
 
 func in_system() -> int:
-	return created - lost - exited
+	return created + assembled - consumed - lost - exited
 
 
 func _apply(e: Dictionary) -> void:
@@ -142,8 +148,22 @@ func _apply(e: Dictionary) -> void:
 			pass  # positions already stop at the end
 		"started_process":
 			var part := int(e["part"])
+			var s: Dictionary = servers[e["server"]]
+			if s["waiting"].has(part):
+				s["waiting"].erase(part)
+			else:
+				_leave_conveyor(part, e["server"], t)
+			s["busy"].append(part)
+		"collected":
+			var part := int(e["part"])
 			_leave_conveyor(part, e["server"], t)
-			servers[e["server"]]["busy"].append(part)
+			servers[e["server"]]["waiting"].append(part)
+		"consumed":
+			servers[e["server"]]["waiting"].erase(int(e["part"]))
+			consumed += 1
+		"assembled":
+			assembled += 1
+			servers[e["server"]]["waiting"].append(int(e["part"]))
 		"finished_process":
 			var part := int(e["part"])
 			var s: Dictionary = servers[e["server"]]

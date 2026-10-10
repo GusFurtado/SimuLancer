@@ -47,6 +47,7 @@ pub struct Measure {
 /// by object in the order sources, servers, conveyors, sinks.
 pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]) -> Vec<Measure> {
     let wants = |item| items.contains(&item);
+    let types_at = spec.types_at();
     let mut out = Vec::new();
     let mut add =
         |object_type, object: &str, name: &str, unit, f: &dyn Fn(&ReplicationResult) -> f64| {
@@ -149,9 +150,13 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
                 r.sinks[i].time_in_system.mean()
             });
         }
-        // With several part types, the same per type.
-        if spec.entities.len() > 1 {
-            for (e, entity) in spec.entities.iter().enumerate() {
+        // With several part types arriving here, the same per type.
+        let arriving: Vec<usize> = (0..spec.entities.len())
+            .filter(|&e| types_at.sinks[i][e])
+            .collect();
+        if arriving.len() > 1 {
+            for &e in &arriving {
+                let entity = &spec.entities[e];
                 if wants(SummaryItem::Throughput) {
                     add(
                         "sink",

@@ -310,6 +310,22 @@ Decisions so far:
 - **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
 - **Next (planned 2026-10-10, in this order):** manager comparisons; then exposing decisions from the builder; then drawing models in the builder (place, connect, delete and rename objects; conveyor length follows the drawing by default; whole-model saves including the layout; distribution pickers; undo).
 
+## Batches and assembly (implemented 2026-10-10)
+
+- **Server kinds:** a server processes one part at a time (as before), a **batch** (`batch: N`), or an **assembly** (`assembles: { type: count }` and `makes: type`). Batch and assemble together is an error. Both kinds take one process time, not one per type.
+- **Collecting is separate from slots.** A batch server takes waiting parts (by its input rule) into the batch until it's full. An assembly server takes a waiting part only if the kit still needs its type, so others stay on their conveyor and can block it. Collection needs the server up, not a free slot. The batch or kit starts when it's complete and there are enough free slots and resource units (it joins the resource queue when only units are missing).
+- **Batches:**
+  - One process time is drawn per batch.
+  - One slot is used per part, all finishing together, and parts then leave one by one as usual.
+  - Resource units are taken once per batch: the first slot holds them. Each slot now records whether it holds the server's units.
+  - Capacity defaults to the batch size and must be a multiple of it.
+  - A partial batch waits forever. A timeout to start a partial batch is not done yet.
+- **Assembly:** a complete kit is consumed and becomes a new part of the `makes` type, with a new id. Its creation time is the earliest component's, so time in system covers the whole kit. Totals gain `assembled` and `consumed`, and conservation becomes created + assembled = exited + lost + consumed + in system (collected parts count as in the system).
+- **Validation follows types through assemblies,** which send out only what they make. An assembly must be reachable by every type in its kit (or no kit would complete). Every type that reaches it must be in its kit (or it would wait forever). This reachability now lives in the engine (`Spec::types_at`), and sinks use it to report per-type measures only for types that can arrive, and only when more than one can.
+- **Event log:** `collected` (off the conveyor into a batch or kit), `consumed` (a component used up) and `assembled` (a new part, with its type, which then `started_process`). Both replays track collected parts at the server and count assembled/consumed parts for "in system". A Godot test fixture covers kits, a batch oven, a resource and a shift.
+- **Example:** `examples/bike-assembly.yaml` uses all four features (part types, a fitter resource, two weekday shifts, kits and a batch oven). It's the third example project, with decisions on fitters, a night shift and the oven batch size.
+- **Build page:** "Works on" on servers (one part at a time, in batches, assembles kits), with the batch size or the kit and what it makes.
+
 ## Schedules (implemented 2026-10-10)
 
 - **Format:** `schedules: { name: { shifts: ["06:00-14:00", ...], days: [mon, ...] } }`, weekly. Time 0 is Monday 00:00. Shifts are clock times; one ending at or before its start ends the next day (a night shift). Overlapping and touching periods merge. A Sunday night shift wraps into Monday, and that counts as one shift (no change at the week's boundary). Schedules have their own namespace.
