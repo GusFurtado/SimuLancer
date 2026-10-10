@@ -161,7 +161,7 @@ pub fn write_summary(
             .map(|(m, s)| MeasureSummary {
                 object_type: m.object_type,
                 object: &m.object,
-                measure: m.name,
+                measure: &m.name,
                 unit: m.unit.file_name(),
                 n: s.n,
                 mean: s.mean,
@@ -263,6 +263,7 @@ impl<'a, W: Write> EventLog<'a, W> {
             "seed": e.seed,
             "warmup": e.warmup.as_secs_f64(),
             "end": (e.warmup + e.run_length).as_secs_f64(),
+            "entities": spec.entities,
             "sources": spec.sources.iter().map(|s| &s.name).collect::<Vec<_>>(),
             "servers": spec.servers.iter().map(|s| json!({
                 "name": s.name,
@@ -302,10 +303,14 @@ impl<'a, W: Write> EventLog<'a, W> {
         let t = format!("{}.{:06}", micros / 1_000_000, micros % 1_000_000);
         // Names are validated identifiers, so they need no JSON escaping.
         match event {
-            TraceEvent::Created { part, source } => writeln!(
+            TraceEvent::Created {
+                part,
+                source,
+                entity,
+            } => writeln!(
                 self.out,
-                r#"{{"t":{t},"type":"created","part":{part},"source":"{}"}}"#,
-                s.sources[source].name
+                r#"{{"t":{t},"type":"created","part":{part},"source":"{}","entity":"{}"}}"#,
+                s.sources[source].name, s.entities[entity]
             ),
             TraceEvent::Lost { part, source } => writeln!(
                 self.out,

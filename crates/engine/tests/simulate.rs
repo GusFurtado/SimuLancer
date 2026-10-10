@@ -100,7 +100,14 @@ fn deterministic_trace_of_first_part() {
     assert_eq!(
         first,
         [
-            (0.0, Created { part: 0, source: 0 }),
+            (
+                0.0,
+                Created {
+                    part: 0,
+                    source: 0,
+                    entity: 0
+                }
+            ),
             (
                 0.0,
                 EnteredConveyor {

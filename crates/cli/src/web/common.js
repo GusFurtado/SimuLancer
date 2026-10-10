@@ -5,9 +5,11 @@
 const API = "api/v1";
 const SPEEDS = [1, 10, 60, 300, 1800, 3600];
 const STATES = [["busy", "Busy"], ["blocked", "Blocked (output full)"], ["failed", "Failed"], ["idle", "Idle (starved)"]];
-const OUTPUT_RULES = ["probability", "round_robin", "first_available", "shortest_queue"];
+const OUTPUT_RULES = ["probability", "round_robin", "first_available", "shortest_queue", "by_type"];
 const INPUT_RULES = ["first_come", "priority", "round_robin"];
 const OBJECT_SIZE = 1.2;
+/** Part type colors: --type-0 ... --type-5 in common.css. */
+const TYPE_COLORS = 6;
 
 // --- helpers -----------------------------------------------------------------
 
@@ -232,6 +234,7 @@ class Replay {
     this.servers = {};
     for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], failed: "" };
     this.created = this.lost = this.exited = 0;
+    this.types = new Map();   // part -> index into header.entities, while it's in the system
     this.time = 0;
     this.cursor = 0;
   }
@@ -245,8 +248,11 @@ class Replay {
 
   apply(e) {
     switch (e.type) {
-      case "created": this.created++; break;
-      case "lost": this.lost++; break;
+      case "created":
+        this.created++;
+        this.types.set(e.part, Math.max(0, (this.header.entities || []).indexOf(e.entity)));
+        break;
+      case "lost": this.lost++; this.types.delete(e.part); break;
       case "entered_conveyor": {
         const c = this.conveyors[e.conveyor];
         const from = this.servers[c.from];
@@ -266,7 +272,7 @@ class Replay {
       }
       case "failed": this.servers[e.server].failed = e.failure; break;
       case "repaired": this.servers[e.server].failed = ""; break;
-      case "exited": this.leave(e.part, e.sink, e.t); this.exited++; break;
+      case "exited": this.leave(e.part, e.sink, e.t); this.exited++; this.types.delete(e.part); break;
     }
   }
 
@@ -293,6 +299,11 @@ class Replay {
   belt(name) {
     const c = this.conveyors[name];
     return this.positions(c, this.time);
+  }
+
+  /** The part type (index into the header's entities) of a part in the system. */
+  typeOf(part) {
+    return this.types.get(part) ?? 0;
   }
 
   state(server) {
@@ -345,7 +356,10 @@ async function startAnimation(container, run) {
   container.replaceChildren(
     el("div", { class: "animation" }, canvas,
       el("div", { class: "overlay" }, clockText, phase, counts),
-      el("div", { class: "legend" }, STATES.map(([s, label]) => el("span", {}, el("i", { style: `background: var(--${s})` }), label)))),
+      el("div", { class: "legend" }, STATES.map(([s, label]) => el("span", {}, el("i", { style: `background: var(--${s})` }), label)),
+        (header.entities || []).length > 1
+          ? header.entities.map((t, i) => el("span", {}, el("i", { style: `background: var(--type-${i % TYPE_COLORS})` }), t))
+          : null)),
     el("div", { class: "player" }, play, speed, slider, fit));
 
   const a = { frame: 0, playing: true, speedIndex: SPEEDS.indexOf(60), view: null, last: performance.now() };
@@ -429,6 +443,9 @@ async function startAnimation(container, run) {
     const { scale, x: ox, y: oy } = a.view;
     const X = x => ox + x * scale, Y = z => oy + z * scale;
     const colors = Object.fromEntries(["belt", "object", "part", "ink-2", "busy", "blocked", "failed", "idle", "surface"].map(n => [n, cssVar(`--${n}`)]));
+    const typed = (header.entities || []).length > 1;
+    const typeColors = [...Array(TYPE_COLORS).keys()].map(i => cssVar(`--type-${i}`));
+    const partColor = part => typed ? typeColors[replay.typeOf(part) % TYPE_COLORS] : colors.part;
 
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -456,15 +473,18 @@ async function startAnimation(container, run) {
     ctx.strokeStyle = colors.surface;
     ctx.lineWidth = 1;
     for (const [name, path] of Object.entries(paths)) {
-      for (const meters of replay.belt(name)) {
+      const items = replay.conveyors[name].belt;
+      replay.belt(name).forEach((meters, i) => {
         const [x, z] = pointOn(path, meters);
+        ctx.fillStyle = partColor(items[i].part);
         ctx.fillRect(X(x) - p / 2, Y(z) - p / 2, p, p);
         ctx.strokeRect(X(x) - p / 2, Y(z) - p / 2, p, p);
-      }
+      });
     }
     for (const [name, sv] of Object.entries(replay.servers)) {
       const [x, z] = layout.positions[name];
-      [...sv.busy, ...sv.blocked].forEach((_, i) => {
+      [...sv.busy, ...sv.blocked].forEach((part, i) => {
+        ctx.fillStyle = partColor(part);
         ctx.fillRect(X(x) - p / 2 + i * (p + 2), Y(z) - p / 2, p, p);
         ctx.strokeRect(X(x) - p / 2 + i * (p + 2), Y(z) - p / 2, p, p);
       });

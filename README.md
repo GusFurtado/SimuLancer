@@ -2,7 +2,7 @@
 
 Open-source discrete event simulation. Models are plain YAML files: you can diff them, review them, test them and run them headless.
 
-> Early development. Sources, accumulating conveyors, servers with failures and sinks; validated against queueing theory.
+> Early development. Sources, accumulating conveyors, servers with failures, sinks and part types; validated against queueing theory. The model format is described in [docs/models.md](docs/models.md).
 
 ## Usage
 
@@ -66,7 +66,7 @@ servers:
   inspect:
     process_time: "uniform(30 s, 50 s)"
     input: { rule: first_come }                                        # or priority, round_robin
-    output: { rule: probability, weights: { c_ship: 0.9, c_rework: 0.1 } }  # or round_robin, first_available, shortest_queue
+    output: { rule: probability, weights: { c_ship: 0.9, c_rework: 0.1 } }  # or round_robin, first_available, shortest_queue, by_type
 ```
 
 `examples/two-cells.yaml` uses all of them: parallel cells, a merge at inspection, and a rework loop.

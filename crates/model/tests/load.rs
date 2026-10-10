@@ -1,5 +1,7 @@
 use outliers_sim_engine::SimTime;
-use outliers_sim_engine::spec::{Distribution, FailureClock, Node, OnFailure, WhenBlocked};
+use outliers_sim_engine::spec::{
+    Distribution, FailureClock, Node, OnFailure, PerType, WhenBlocked,
+};
 use outliers_sim_model::{LoadError, load_str};
 
 const CONVEYOR_LINE: &str = include_str!("../../../examples/conveyor-line.yaml");
@@ -105,7 +107,7 @@ fn minimal_model_uses_defaults() {
     assert_eq!(model.spec.servers[0].capacity, 1);
     assert_eq!(
         model.spec.servers[0].process_time,
-        Distribution::Constant(50.0)
+        PerType::Same(Distribution::Constant(50.0))
     );
     assert_eq!(model.spec.experiment.warmup, SimTime::ZERO);
 }
@@ -126,7 +128,7 @@ fn default_units_allow_plain_numbers() {
     let model = load_str(&source).unwrap();
     assert_eq!(
         model.spec.servers[0].process_time,
-        Distribution::Constant(120.0)
+        PerType::Same(Distribution::Constant(120.0))
     );
     assert_eq!(model.spec.conveyors[0].length, 3.0);
     assert_eq!(model.spec.conveyors[0].speed, 0.5);
@@ -419,4 +421,80 @@ fn parts_must_be_able_to_reach_a_sink() {
             .any(|m| m.contains("parts from source `arrivals` can never reach a sink")),
         "{messages:#?}"
     );
+}
+
+const TYPED: &str = r#"
+format: outliers-sim/0.1
+name: typed
+entities:
+  frame: {}
+  wheel: {}
+sources:
+  arrivals: { creates: { frame: 0.5, wheel: 0.5 }, interarrival: "1 min" }
+servers:
+  mill:
+    process_time: { frame: "10 s", wheel: "20 s" }
+    output: { rule: by_type, routes: { frame: c_a, wheel: c_b } }
+conveyors:
+  c_in: { from: arrivals, to: mill, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+  c_a: { from: mill, to: out, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+  c_b: { from: mill, to: out, length: "2 m", speed: "1 m/s", spacing: "0.5 m" }
+sinks:
+  out: {}
+experiment: { replications: 1, run_length: "1 h", seed: 1 }
+"#;
+
+#[test]
+fn part_types_load() {
+    let spec = load_str(TYPED).unwrap().spec;
+    assert_eq!(spec.sources[0].creates, vec![(0, 0.5), (1, 0.5)]);
+    assert!(matches!(spec.servers[0].process_time, PerType::ByType(_)));
+}
+
+#[test]
+fn part_type_problems_are_reported() {
+    for (from, to, expected) in [
+        (
+            "creates: { frame: 0.5, wheel: 0.5 }",
+            "creates: { frame: 0.5, wheel: 0.4 }",
+            "add up to 0.9",
+        ),
+        (
+            "creates: { frame: 0.5, wheel: 0.5 }",
+            "creates: bike",
+            "`bike`, which isn't listed under `entities` (part types: `frame`, `wheel`)",
+        ),
+        (
+            "process_time: { frame: \"10 s\", wheel: \"20 s\" }",
+            "process_time: { frame: \"10 s\" }",
+            "gets parts of type `wheel`, but `process_time` has no time for them",
+        ),
+        (
+            "routes: { frame: c_a, wheel: c_b }",
+            "routes: { frame: c_a }",
+            "its `by_type` rule has no route for them",
+        ),
+        (
+            "routes: { frame: c_a, wheel: c_b }",
+            "routes: { frame: c_a, wheel: c_in }",
+            "`c_in` isn't an outgoing conveyor of `mill`",
+        ),
+        (
+            "output: { rule: by_type, routes: { frame: c_a, wheel: c_b } }",
+            "output: { rule: by_type }",
+            "needs `routes`",
+        ),
+        (
+            "process_time: { frame: \"10 s\", wheel: \"20 s\" }",
+            "process_time: { frame: \"10 s\", wheel: \"soon\" }",
+            "`wheel`: ",
+        ),
+    ] {
+        assert!(TYPED.contains(from), "test bug: {from}");
+        let errors = errors(&TYPED.replacen(from, to, 1));
+        assert!(
+            errors.iter().any(|(_, e)| e.contains(expected)),
+            "{to}: expected `{expected}` in {errors:?}"
+        );
+    }
 }

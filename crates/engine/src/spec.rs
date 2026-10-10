@@ -28,8 +28,9 @@ pub enum Node {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Source {
     pub name: String,
-    /// Index into [`Spec::entities`].
-    pub entity: usize,
+    /// The part types it creates, as (index into [`Spec::entities`], share),
+    /// shares summing to 1. One type has a share of 1.
+    pub creates: Vec<(usize, f64)>,
     pub interarrival: Distribution,
     pub when_blocked: WhenBlocked,
     /// Indices into [`Spec::conveyors`], in file order.
@@ -50,7 +51,7 @@ pub enum WhenBlocked {
 pub struct Server {
     pub name: String,
     pub capacity: u32,
-    pub process_time: Distribution,
+    pub process_time: PerType<Distribution>,
     pub failures: Vec<Failure>,
     /// Indices into [`Spec::conveyors`]. In priority order for
     /// [`InputRule::Priority`], otherwise in file order.
@@ -59,6 +60,29 @@ pub struct Server {
     /// Indices into [`Spec::conveyors`], in file order.
     pub outputs: Vec<usize>,
     pub routing: Routing,
+}
+
+/// A value that may differ by part type.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PerType<T> {
+    /// The same for every part type.
+    Same(T),
+    /// Indexed by part type ([`Spec::entities`]). `None` for types that
+    /// never get here (checked when the model is loaded).
+    ByType(Vec<Option<T>>),
+}
+
+impl<T> PerType<T> {
+    /// The value for a part type. Panics for a type the model doesn't
+    /// define here, which validation rules out.
+    pub fn get(&self, entity: usize) -> &T {
+        match self {
+            PerType::Same(v) => v,
+            PerType::ByType(values) => values[entity]
+                .as_ref()
+                .expect("validated: every part type that gets here has a value"),
+        }
+    }
 }
 
 /// How a source or server picks among its outgoing conveyors.
@@ -78,6 +102,10 @@ pub enum Routing {
     /// the output listed first. If none has room, the part takes whichever
     /// gets room first.
     ShortestQueue,
+    /// By part type: indexed by [`Spec::entities`], the conveyor (an index
+    /// into [`Spec::conveyors`]) each type takes. `None` for types that never
+    /// get here. The part waits for its conveyor.
+    ByType(Vec<Option<usize>>),
 }
 
 /// How a server picks among parts waiting at the ends of its incoming

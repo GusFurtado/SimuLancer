@@ -17,7 +17,7 @@ use std::thread;
 use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
-use outliers_sim_engine::spec::{Distribution, InputRule, Node, Routing, Spec};
+use outliers_sim_engine::spec::{Distribution, InputRule, Node, PerType, Routing, Spec};
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
 
@@ -283,10 +283,17 @@ fn describe(path: &Path, model: &Model) -> String {
 
     out += "\nsources\n";
     for s in &spec.sources {
+        let creates = match s.creates.as_slice() {
+            [(e, _)] => spec.entities[*e].clone(),
+            mix => mix
+                .iter()
+                .map(|(e, share)| format!("{} {:.1}%", spec.entities[*e], share * 100.0))
+                .collect::<Vec<_>>()
+                .join(", "),
+        };
         out += &format!(
-            "  {:<12} creates {}, every {}\n",
+            "  {:<12} creates {creates}, every {}\n",
             s.name,
-            spec.entities[s.entity],
             dist(&s.interarrival)
         );
         if let Some(text) = routing(spec, &s.outputs, &s.routing) {
@@ -299,7 +306,7 @@ fn describe(path: &Path, model: &Model) -> String {
             "  {:<12} capacity {}, process {}\n",
             s.name,
             s.capacity,
-            dist(&s.process_time)
+            per_type(spec, &s.process_time)
         );
         for f in &s.failures {
             out += &format!(
@@ -375,6 +382,32 @@ fn routing(spec: &Spec, outputs: &[usize], routing: &Routing) -> Option<String> 
             Some(format!("sends to {names} (first available, in this order)"))
         }
         Routing::ShortestQueue => Some(format!("sends to {names} (shortest queue)")),
+        Routing::ByType(routes) => Some(format!(
+            "sends by part type: {}",
+            routes
+                .iter()
+                .enumerate()
+                .filter_map(|(e, c)| Some(format!(
+                    "{} -> {}",
+                    spec.entities[e],
+                    spec.conveyors[(*c)?].name
+                )))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// A process time, or one per part type.
+fn per_type(spec: &Spec, value: &PerType<Distribution>) -> String {
+    match value {
+        PerType::Same(d) => dist(d),
+        PerType::ByType(times) => times
+            .iter()
+            .enumerate()
+            .filter_map(|(e, d)| Some(format!("{} {}", spec.entities[e], dist(d.as_ref()?))))
+            .collect::<Vec<_>>()
+            .join(", "),
     }
 }
 

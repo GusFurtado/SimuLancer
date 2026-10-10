@@ -25,6 +25,8 @@
     --belt: #b9b8b0;
     --part: #c98500;
     --object: #e4e3dc;
+    /* Part types in the animation: distinct from the server-state colors. */
+    --type-0: #c98500; --type-1: #7c4dcc; --type-2: #c2408a; --type-3: #0f8f99; --type-4: #8a5a2b; --type-5: #4b5563;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
@@ -36,6 +38,7 @@
       --good: #3dbb84; --good-wash: rgba(61, 187, 132, 0.14);
       --busy: #3987e5; --blocked: #d95926; --failed: #199e70; --idle: #4a4a46;
       --belt: #4a4a46; --part: #eda100; --object: #2c2c2a;
+      --type-0: #eda100; --type-1: #a98af0; --type-2: #e872b0; --type-3: #3fc1cb; --type-4: #c08a55; --type-5: #9ca3af;
     }
   }
   :root[data-theme="dark"] {
@@ -47,6 +50,7 @@
     --good: #3dbb84; --good-wash: rgba(61, 187, 132, 0.14);
     --busy: #3987e5; --blocked: #d95926; --failed: #199e70; --idle: #4a4a46;
     --belt: #4a4a46; --part: #eda100; --object: #2c2c2a;
+    --type-0: #eda100; --type-1: #a98af0; --type-2: #e872b0; --type-3: #3fc1cb; --type-4: #c08a55; --type-5: #9ca3af;
   }
 
   * { box-sizing: border-box; }
