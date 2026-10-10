@@ -29,7 +29,7 @@ sources:
 
 servers:
   assembly:
-    capacity: 2
+    capacity: 4                            # four stations; fitters are the limit
     assembles: { frame: 1, wheel: 2 }      # a kit: one frame, two wheels
     makes: bike
     process_time: "triangular(4 min, 5 min, 7 min)"
