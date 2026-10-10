@@ -1,6 +1,6 @@
 "use strict";
-// The engineer's builder (/build): edit a project's model, save versions,
-// publish them for managers, run and inspect results. Shared code: common.js.
+// The Build page (/build): edit a project's model, save versions, publish
+// them to the Decide page, run and inspect results. Shared code: common.js.
 
 const state = {
   projects: [],
@@ -155,7 +155,7 @@ function renderEditor() {
   const general = state.errors.filter(e => !e.change);
   const history = state.detail.history || [];
   const lastSaved = history[0];
-  const canPublish = changed === 0 && lastSaved && !lastSaved.published && state.detail.valid;
+  const canPublish = changed === 0 && lastSaved && !lastSaved.published && state.detail.valid && !state.detail.decision_problems.length;
   content.replaceChildren(
     el("div", { class: "actions" },
       el("input", {
@@ -164,7 +164,7 @@ function renderEditor() {
       }),
       el("button", { id: "save", onclick: saveVersion, disabled: changed === 0 }, "Save version"),
       el("button", { id: "publish", onclick: publishVersion, disabled: !canPublish,
-        title: canPublish ? "Make the last saved version available to managers" : "Save your changes first; already-published versions can't be published again" }, "Publish"),
+        title: canPublish ? "Make the last saved version available on the Decide page" : "Save your changes first; already-published versions can't be published again" }, "Publish"),
       el("button", { class: "primary", id: "run", onclick: startRun }, "▶ Run"),
       el("span", { class: "hint", style: "margin: 0" },
         changed ? `${changed} unsaved change${changed === 1 ? "" : "s"}` : "all changes saved")),
@@ -173,6 +173,7 @@ function renderEditor() {
       el("div", { class: "stack" },
         el("div", { class: "card diagram" }, diagram(tree),
           el("p", { class: "hint" }, "Click an object or conveyor to edit it; click empty space for the experiment settings.")),
+        managersCard(),
         versionsCard()),
       el("div", { class: "card panel" }, panel(tree))));
 }
@@ -182,10 +183,28 @@ function versionsCard() {
   return el("div", { class: "card versions" },
     el("h3", { style: "margin: 0 0 8px; font-size: 15px" }, "Versions"),
     el("p", { class: "hint", style: "margin: 0 0 8px" },
-      "Saving keeps a version of the model; publishing makes the last saved version available to managers."),
+      "Saving keeps a version of the model; publishing makes the last saved version available on the Decide page."),
     history.slice(0, 12).map(c => el("div", { class: "item" },
       c.message, " ", c.published ? el("span", { class: "pill" }, `published ${c.published}`) : null,
       el("span", { class: "sub" }, `${new Date(c.date).toLocaleString()} · ${c.short}`))));
+}
+
+/** The decisions and results the Decide page offers (project.yaml). */
+function managersCard() {
+  const d = state.detail;
+  const problems = d.decision_problems || [];
+  const number = n => String(Math.round(n * 1e6) / 1e6);
+  const describe = dec => dec.kind === "choice"
+    ? dec.choices.map((c, i) => i === 0 ? `${c.label} (now)` : c.label).join(" · ")
+    : `${number(dec.min)} to ${number(dec.max)}${dec.unit ? " " + dec.unit : ""}${dec.step ? `, steps of ${number(dec.step)}` : ""} (now ${dec.current === null ? "?" : number(dec.current)})`;
+  return el("div", { class: "card", id: "managers" },
+    el("h3", { style: "margin: 0 0 8px; font-size: 15px" }, "Decisions"),
+    problems.length ? el("div", { class: "status" }, "Fix these before publishing:", el("ul", {}, problems.map(p => el("li", {}, p)))) : null,
+    d.decisions.length
+      ? el("dl", { class: "decisions" }, ...d.decisions.flatMap(dec => [el("dt", {}, dec.label), el("dd", {}, describe(dec))]))
+      : el("p", { class: "hint", style: "margin: 0" }, "None yet: the Decide page can only run the model as published."),
+    d.results.length ? el("p", { class: "hint" }, "Results shown: ", d.results.map(r => r.label + (r.better === "higher" ? " (higher is better)" : r.better === "lower" ? " (lower is better)" : "")).join(" · ")) : null,
+    el("p", { class: "hint" }, "Defined in the project's project.yaml (decisions and results)."));
 }
 
 function statusBox(general = []) {
@@ -404,7 +423,7 @@ async function saveVersion() {
     state.message = { kind: "error", text: data.error || "Couldn't save." };
     return renderEditor();
   }
-  state.message = { kind: "ok", text: `Saved: ${data.saved.message}. Publish it when managers should see it.` };
+  state.message = { kind: "ok", text: `Saved: ${data.saved.message}. Publish it to make it available on the Decide page.` };
   await openProject(state.project, true);
 }
 
@@ -412,7 +431,7 @@ async function publishVersion() {
   const id = encodeURIComponent(state.project);
   const { ok, data } = await api("POST", `projects/${id}/publish`, { message: state.saveMessage });
   state.message = ok
-    ? { kind: "ok", text: `Published ${data.published.name}: managers now see this version.` }
+    ? { kind: "ok", text: `Published ${data.published.name}: it's now on the Decide page.` }
     : { kind: "error", text: data.error || "Couldn't publish.", list: (data.errors || []).map(e => e.message) };
   await openProject(state.project, true);
 }

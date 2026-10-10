@@ -133,7 +133,7 @@ Use these to evaluate any tool, open-source or commercial:
 
 ## 16. How outliers-sim answers these issues
 
-Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-09.
+Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-10.
 
 | Issue | What outliers-sim does about it | Status |
 |---|---|---|
@@ -180,27 +180,27 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. | done |
 | Warm-up and run length are guessed | The warm-up is explicit and applied automatically, but nothing yet helps choose it. | partial |
 | Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
-| Comparing scenarios is unsound (implied by the above) | Paired comparison with common random numbers: an interval on the difference and a verdict. | done |
+| Comparing scenarios is unsound (implied by the above) | Paired comparison with common random numbers: an interval on the difference and a verdict. Managers get the same statistics in plain language: "Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better". | done |
 | Optimization is a black box | No optimizer yet; parameter sweeps through the API. | open |
 | Validation is skipped | The engine itself is validated against queueing theory. Nothing yet helps validate a user's model against real data. | partial |
 | Verification is hard | Readable models, a per-part event log, and a replay that reproduces the engine exactly. | done |
 | **8. Animation as a substitute for rigor** | | |
-| The animation is the product | Animation is a results tab next to the report, and the manager view leads with numbers and their uncertainty. | partial |
+| The animation is the product | The manager's page leads with plain-language results and their ranges; each scenario's report and animation are one click below. | done |
 | Effort goes into 3D | Layouts are a small separate file; the 2D replay is the default and 3D is optional. | done |
 | Animation is slow | Simulation never runs with animation: runs at full speed, then the event log is replayed. | done |
 | **9. The "pseudo-science" pipeline** | | |
 | Models can't be audited | Anyone can read and re-run a model for free, and get identical numbers. | done |
-| Assumptions aren't documented | Every assumption is a line in the model file, and each saved version carries the engineer's message about what changed. | partial |
-| The tool lends false authority | Results always come with uncertainty, and "no clear difference" is a valid verdict. | partial |
+| Assumptions aren't documented | Every assumption is a line in the model file, each saved version carries the engineer's message about what changed, and what managers may change is spelled out as named decisions with their options and limits. | partial |
+| The tool lends false authority | Results always come with uncertainty. "No clear change" and "too small to matter" are valid answers, and the manager's page says so in words, with the range, instead of showing a single number. | done |
 | **10. Learning curve** | | |
-| Tool training replaces method training | The docs explain the methods (CRN, confidence intervals, warm-up) next to the tool. | partial |
+| Tool training replaces method training | The docs explain the methods (CRN, confidence intervals, warm-up) next to the tool, and the manager's page explains in one paragraph why its comparisons are fair. | partial |
 | Weak documentation | Docs live in the repository and are tested by examples. Still thin for engineers. | partial |
 | Hard to debug | Errors point to the exact line or form field, in plain language. | done |
 | **11. Academia–industry pipeline** | | |
 | Research is hard to reproduce | Free tool, text models, fixed seeds: papers can ship reproducible models. | done |
 | **12. Collaboration and deployment** | | |
 | Not built for teams | Separate pages for engineers (build, save, publish) and managers (published versions only), plus the API for developers. Concurrent editing and roles come later. | partial |
-| Hard to share with stakeholders | Hosted web app with a manager page that shows only published versions. Next: only the decisions the engineer exposes, and plain-language comparisons. | partial |
+| Hard to share with stakeholders | Managers open a hosted page, build scenarios from the decisions the engineer exposed (options and bounded numbers, so they can't break the model), and read comparisons in plain language. Exporting a comparison for a meeting is planned. | partial |
 | Hard to put into production | The server and API are the product: a static binary or Docker image, health checks, deployment docs. Webhooks are planned. | partial |
 | **13. Scale and performance** | | |
 | Large models / big experiments | Fast native engine, all cores, no allocation per event. Not yet tested on very large models. | partial |

@@ -94,14 +94,14 @@ impl Verdict {
 }
 
 /// How to show the numbers of one measure: same unit for mean, CI and range.
-struct Format {
+pub struct Format {
     scale: f64,
     decimals: usize,
     suffix: &'static str,
 }
 
 impl Format {
-    fn for_measure(unit: Unit, mean: f64) -> Format {
+    pub fn for_measure(unit: Unit, mean: f64) -> Format {
         let (scale, decimals, suffix) = match unit {
             Unit::Fraction => (100.0, 1, "%"),
             Unit::Parts => (1.0, 2, ""),
@@ -121,7 +121,7 @@ impl Format {
     }
 
     /// Differences of percentages are percentage points.
-    fn difference(&self) -> Format {
+    pub fn difference(&self) -> Format {
         Format {
             suffix: if self.suffix == "%" {
                 " pp"
@@ -132,14 +132,14 @@ impl Format {
         }
     }
 
-    fn value(&self, v: f64) -> String {
+    pub fn value(&self, v: f64) -> String {
         if v.is_nan() {
             return "n/a".into();
         }
         format!("{:.*}{}", self.decimals, v * self.scale, self.suffix)
     }
 
-    fn signed(&self, v: f64) -> String {
+    pub fn signed(&self, v: f64) -> String {
         if v.is_nan() {
             return "n/a".into();
         }

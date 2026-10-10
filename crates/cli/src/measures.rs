@@ -27,6 +27,13 @@ impl Unit {
     }
 }
 
+impl serde::Serialize for Unit {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.file_name())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Measure {
     pub object_type: &'static str,
     pub object: String,
