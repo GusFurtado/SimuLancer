@@ -163,6 +163,16 @@ check("waiting for resources" in measures and "operator" in measures, "resource 
 check("off shift" in measures, "schedule measures in the report")
 
 # --- Engineer: edit, save a version, publish, run. ----------------------------
+# The bike example: an assembly with its kit, a batch oven.
+click_text("#projects button", "Bike assembly")
+b.wait("return document.querySelector('.head h2')?.textContent === 'Bike assembly' && document.querySelector('.diagram svg') !== null")
+click_obj("assembly")
+b.wait("return document.querySelector('[data-kit=wheel]') !== null")
+check(b.js("return document.querySelector('[data-kit=wheel]').value") == "2", "two wheels per kit")
+check(b.js("return document.getElementById('f-kind').value") == "assembly", "assembly kind")
+click_obj("oven")
+b.wait("return document.getElementById('f-servers-oven-batch')?.value === '8'")
+b.screenshot(f"{out}/2c-bikes.png")
 click_text("#projects button", "Two cells")
 b.wait("return document.querySelector('.head h2')?.textContent === 'Two cells' && document.querySelector('.diagram svg') !== null")
 check("published v1" in b.js("return document.querySelector('.versions').textContent"), "v1 in versions")

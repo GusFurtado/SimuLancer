@@ -32,6 +32,23 @@ pub enum TraceEvent {
         part: PartId,
         server: usize,
     },
+    /// Taken off its conveyor into a batch or kit the server is collecting.
+    Collected {
+        part: PartId,
+        server: usize,
+    },
+    /// A component used up by an assembly.
+    Consumed {
+        part: PartId,
+        server: usize,
+    },
+    /// A new part made from a complete kit; it starts processing next.
+    Assembled {
+        part: PartId,
+        server: usize,
+        /// Its part type, an index into [`crate::Spec::entities`].
+        entity: usize,
+    },
     FinishedProcess {
         part: PartId,
         server: usize,

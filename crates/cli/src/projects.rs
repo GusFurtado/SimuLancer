@@ -385,6 +385,12 @@ pub fn template(id: &str, name: &str) -> Vec<(String, String)> {
 pub fn seed_examples(projects: &Projects) -> Result<Vec<String>, String> {
     let examples = [
         (
+            "bike-assembly",
+            include_str!("../../../examples/projects/bike-assembly.yaml"),
+            include_str!("../../../examples/bike-assembly.yaml"),
+            include_str!("../../../examples/bike-assembly.layout.yaml"),
+        ),
+        (
             "conveyor-line",
             include_str!("../../../examples/projects/conveyor-line.yaml"),
             include_str!("../../../examples/conveyor-line.yaml"),
@@ -401,7 +407,8 @@ pub fn seed_examples(projects: &Projects) -> Result<Vec<String>, String> {
     for (id, project, model, layout) in examples {
         let layout = layout
             .replace("model: conveyor-line.yaml", "model: model.yaml")
-            .replace("model: two-cells.yaml", "model: model.yaml");
+            .replace("model: two-cells.yaml", "model: model.yaml")
+            .replace("model: bike-assembly.yaml", "model: model.yaml");
         projects.create(
             id,
             &[
@@ -434,8 +441,11 @@ mod tests {
     #[test]
     fn save_publish_and_read_versions() {
         let p = temp("versions");
-        assert_eq!(seed_examples(&p).unwrap(), ["conveyor-line", "two-cells"]);
-        assert_eq!(p.ids(), ["conveyor-line", "two-cells"]);
+        assert_eq!(
+            seed_examples(&p).unwrap(),
+            ["bike-assembly", "conveyor-line", "two-cells"]
+        );
+        assert_eq!(p.ids(), ["bike-assembly", "conveyor-line", "two-cells"]);
         let v1 = p.latest_version("two-cells").unwrap().unwrap();
         assert_eq!(
             (v1.name.as_str(), v1.message.as_str()),
@@ -506,6 +516,7 @@ mod tests {
         for text in [
             include_str!("../../../examples/projects/two-cells.yaml"),
             include_str!("../../../examples/projects/conveyor-line.yaml"),
+            include_str!("../../../examples/projects/bike-assembly.yaml"),
         ] {
             let file: ProjectFile = serde_saphyr::from_str(text).unwrap();
             let again: ProjectFile = serde_saphyr::from_str(&file.to_text()).unwrap();

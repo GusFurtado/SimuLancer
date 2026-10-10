@@ -794,7 +794,8 @@ function panel(tree) {
         outputRule(tree, p, outputs));
     case "servers":
       return el("div", {}, header,
-        field("Capacity (parts at once)", `${p}.capacity`, "int", [], "1 (default)"),
+        kindField(tree, p),
+        field("Capacity (parts at once)", `${p}.capacity`, "int", [], node.batch ? `${node.batch} (one batch)` : "1 (default)"),
         processTime(tree, p),
         needsField(tree, p),
         scheduleField(tree, `${p}.schedule`, "Works"),
@@ -1059,6 +1060,53 @@ function createsField(tree, p) {
     error ? el("div", { class: "message" }, error.message) : null);
 }
 
+// --- batches and assembly -------------------------------------------------------------------
+
+/** What a server does with its parts: one at a time, in batches, or assembling kits. */
+function kindField(tree, p) {
+  const node = getAt(tree, p);
+  const types = typesOf(tree);
+  const kind = node.assembles ? "assembly" : node.batch ? "batch" : "single";
+  const choose = e => {
+    const k = e.target.value;
+    const time = typeof node.process_time === "object" ? Object.values(node.process_time)[0] : node.process_time;
+    batch(() => {
+      setChange(`${p}.batch`, k === "batch" ? 4 : null);
+      setChange(`${p}.assembles`, k === "assembly" ? Object.fromEntries(types.slice(0, 2).map(t => [t, 1])) : null);
+      setChange(`${p}.makes`, k === "assembly" ? (types[types.length - 1] || null) : null);
+      if (k !== "single") setChange(`${p}.process_time`, time);
+      if (k === "batch" && node.capacity) setChange(`${p}.capacity`, null);
+    });
+  };
+  const select = el("select", { id: "f-kind", onchange: choose },
+    [["single", "One part at a time"], ["batch", "In batches (an oven, a washer)"], ["assembly", "Assembles kits into a new part"]]
+      .map(([v, l]) => el("option", { value: v, selected: v === kind ? true : null }, l)));
+  const parts = [el("div", { class: "field" }, el("label", { for: "f-kind" }, "Works on"), select)];
+  if (kind === "batch") {
+    parts.push(field("Batch size (parts processed together)", `${p}.batch`, "int"));
+  }
+  if (kind === "assembly") {
+    const path = `${p}.assembles`;
+    const error = errorFor(path);
+    parts.push(el("div", { class: `group field${error ? " error" : ""}` },
+      el("div", { class: "group-title" }, "Kit: parts it takes"),
+      ...types.map(t => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
+        el("span", {}, t),
+        el("input", {
+          value: node.assembles[t] ?? "", inputmode: "numeric", placeholder: "0", "aria-label": `${t} per kit`, "data-kit": t,
+          onchange: e => {
+            const n = Number(e.target.value);
+            const next = { ...node.assembles };
+            if (!e.target.value.trim() || !n) delete next[t]; else next[t] = n;
+            setChange(path, next);
+          },
+        }))),
+      error ? el("div", { class: "message" }, error.message) : null),
+      field("Makes", `${p}.makes`, "select", types));
+  }
+  return el("div", {}, ...parts);
+}
+
 /** A process time, the same for every part type or one per type. */
 function processTime(tree, p) {
   const types = typesOf(tree);
@@ -1073,7 +1121,7 @@ function processTime(tree, p) {
   }
   return el("div", {},
     distField("Process time", path),
-    types.length > 1 ? el("button", { class: "link", id: "per-type", style: "padding: 0 0 10px", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, value]))) }, "Different times per part type…") : null);
+    types.length > 1 && !getAt(tree, p).batch && !getAt(tree, p).assembles ? el("button", { class: "link", id: "per-type", style: "padding: 0 0 10px", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, value]))) }, "Different times per part type…") : null);
 }
 
 function outputRule(tree, p, outputs) {

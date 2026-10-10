@@ -170,7 +170,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Implicit default behavior | Tie-breaking, blocking and failure rules are documented; routing and merging rules are required whenever there's a choice. | done |
 | Too many overlapping features | One way to express each thing. | done |
 | Abstraction leaks / weak programming | A deliberately small model language, plus the API for anything beyond it; a scripting escape hatch is an open question. | partial |
-| Hard to model non-standard systems | Sources, conveyors, servers, sinks, routing, merging, failures, part types (mixes, times and routes per type) shared resources (operators, tools) and weekly schedules (shifts for sources, servers and resources). Assembly and batching are next. | partial |
+| Hard to model non-standard systems | Sources, conveyors, servers, sinks, routing, merging, failures, part types (mixes, times and routes per type), shared resources (operators, tools), weekly schedules (shifts for sources, servers and resources), batches and assembly. Still missing: transporters and vehicles, non-accumulating conveyors, storage areas, and a scripting escape hatch. | partial |
 | **6. Data integration** | | |
 | Clumsy data input | Models are YAML (easy to generate) and scenarios are change sets via the API. No database connectors yet. | partial |
 | Rigid output formats | JSON summary, long-format CSV, JSON Lines event log, self-contained HTML report. | done |

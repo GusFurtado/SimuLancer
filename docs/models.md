@@ -102,6 +102,36 @@ servers:
 - **Blocking:** a finished part stays in its slot until its outgoing conveyor has room. The server shows as *blocked* during that time.
 - **Process time per part type:** every type that can reach the server must have a time.
 - **`needs`:** resource units the server holds while it processes a part (see below).
+- **Batches and kits:** see [Batches and assembly](#batches-and-assembly).
+
+## Batches and assembly
+
+```yaml
+servers:
+  oven:
+    batch: 8                          # processes 8 parts together
+    process_time: "20 min"
+  assembly:
+    assembles: { frame: 1, wheel: 2 }   # a kit
+    makes: bike                         # the part type a kit becomes
+    process_time: "5 min"
+```
+
+- **Batches:**
+  - A batch server collects parts from its inputs until the batch is full, then processes them all at once, with one process time and one set of resource units.
+  - The parts then leave one by one.
+  - Capacity defaults to one batch. A capacity of 16 with `batch: 8` processes two batches at once.
+  - A partial batch waits until it's full.
+- **Kits:**
+  - An assembly server collects one kit at a time.
+  - It takes a waiting part only if the kit still needs its type. Other parts wait on their conveyor.
+  - A complete kit becomes one new part of the `makes` type and is processed like any part. Its time in system counts from its earliest component.
+- **Collecting** happens while the server is up, even if all its slots are busy. A batch or kit starts when there are enough free slots and resource units.
+- **One process time:** batch and assembly servers take a single time, not one per part type.
+- **Checks for assemblies:**
+  - Every part type that can reach the server must be in the kit.
+  - Every type in the kit must be able to reach it.
+  - Routing after the server sees only the `makes` type.
 
 ## Routing and merging
 

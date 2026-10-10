@@ -82,7 +82,12 @@ pub struct TypeResult {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Totals {
+    /// By sources.
     pub created: u64,
+    /// Parts made by assembly servers.
+    pub assembled: u64,
+    /// Components used up by assembly servers.
+    pub consumed: u64,
     pub lost: u64,
     pub exited: u64,
     /// Parts still on conveyors, in servers or held by sources when the run ended.

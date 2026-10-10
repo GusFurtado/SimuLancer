@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node, OnFailure, PerType,
-    Resource, Routing, Schedule, Server, Sink, Source, Spec, WhenBlocked,
+    Resource, Routing, Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -227,6 +227,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
 
     let mut servers = Vec::new();
     for (i, (name, s)) in raw.servers.0.iter().enumerate() {
+        let kind = b.server_kind(name, s, &types);
         let capacity = match &s.capacity {
             Some(c) if c.value == 0 => {
                 b.error(
@@ -235,9 +236,37 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 );
                 None
             }
-            Some(c) => Some(c.value),
-            None => Some(1),
+            Some(c) => {
+                if let Some(ServerKind::Batch(n)) = kind
+                    && c.value % n != 0
+                {
+                    b.error(
+                        c,
+                        format!(
+                            "server `{}` processes batches of {n}, so its capacity must be a multiple of {n}",
+                            name.value
+                        ),
+                    );
+                }
+                Some(c.value)
+            }
+            // A batch server holds one batch by default.
+            None => Some(match kind {
+                Some(ServerKind::Batch(n)) => n,
+                _ => 1,
+            }),
         };
+        if kind.as_ref().is_some_and(|k| *k != ServerKind::Single)
+            && matches!(s.process_time.value, raw::RawPerType::ByType(_))
+        {
+            b.error(
+                &s.process_time,
+                format!(
+                    "server `{}` processes batches or kits, so it has one process time, not one per part type",
+                    name.value
+                ),
+            );
+        }
         let process_time = b.per_type_distribution(name, &s.process_time, &types);
         let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
         let mut needs = Vec::new();
@@ -345,6 +374,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some((inputs, input_rule)),
             Some((outputs, routing)),
             Some(schedule),
+            Some(kind),
         ) = (
             capacity,
             process_time,
@@ -353,6 +383,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             input,
             output,
             schedule,
+            kind,
         ) {
             servers.push(Server {
                 name: name.value.clone(),
@@ -360,6 +391,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 process_time,
                 needs,
                 schedule,
+                kind,
                 failures,
                 inputs,
                 input_rule,
@@ -500,34 +532,8 @@ fn check_reachability(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>
 /// route, for each of them.
 fn check_part_types(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> {
     let n = spec.entities.len();
-    let mut at_server = vec![vec![false; n]; spec.servers.len()];
-    let mut at_source = vec![vec![false; n]; spec.sources.len()];
-    let mut stack: Vec<(Node, usize)> = Vec::new();
-    for (i, s) in spec.sources.iter().enumerate() {
-        for &(e, _) in &s.creates {
-            at_source[i][e] = true;
-            stack.push((Node::Source(i), e));
-        }
-    }
-    while let Some((node, e)) = stack.pop() {
-        let (outputs, routing) = match node {
-            Node::Source(i) => (&spec.sources[i].outputs, &spec.sources[i].routing),
-            Node::Server(i) => (&spec.servers[i].outputs, &spec.servers[i].routing),
-            Node::Sink(_) => continue,
-        };
-        let next: Vec<usize> = match routing {
-            Routing::ByType(routes) => routes[e].into_iter().collect(),
-            _ => outputs.clone(),
-        };
-        for c in next {
-            if let Node::Server(s) = spec.conveyors[c].to
-                && !at_server[s][e]
-            {
-                at_server[s][e] = true;
-                stack.push((Node::Server(s), e));
-            }
-        }
-    }
+    let reach = spec.types_at();
+    let (at_server, at_source) = (&reach.servers, &reach.sources);
     let mut diagnostics = Vec::new();
     let mut report = |name: &Spanned<String>, message: String| {
         diagnostics.push(Diagnostic {
@@ -543,6 +549,47 @@ fn check_part_types(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> 
     };
     for (i, (name, _)) in raw.servers.0.iter().enumerate() {
         let server = &spec.servers[i];
+        if let ServerKind::Assembly { recipe, makes } = &server.kind {
+            let foreign = missing(&at_server[i], &|e| recipe.iter().any(|&(r, _)| r == e));
+            if !foreign.is_empty() {
+                report(
+                    name,
+                    format!(
+                        "server `{}` gets parts of type {}, which aren't in what it assembles: they'd wait forever",
+                        name.value,
+                        foreign.join(", ")
+                    ),
+                );
+            }
+            let never: Vec<String> = recipe
+                .iter()
+                .filter(|&&(e, _)| !at_server[i][e])
+                .map(|&(e, _)| format!("`{}`", spec.entities[e]))
+                .collect();
+            if !never.is_empty() {
+                report(
+                    name,
+                    format!(
+                        "server `{}` assembles {}, but none can reach it: no kit would ever be complete",
+                        name.value,
+                        never.join(", ")
+                    ),
+                );
+            }
+            // Routing after an assembly only ever sees what it makes.
+            if let Routing::ByType(routes) = &server.routing
+                && routes[*makes].is_none()
+            {
+                report(
+                    name,
+                    format!(
+                        "server `{}` makes `{}`, but its `by_type` rule has no route for it",
+                        name.value, spec.entities[*makes]
+                    ),
+                );
+            }
+            continue;
+        }
         if let PerType::ByType(times) = &server.process_time {
             let gaps = missing(&at_server[i], &|e| times[e].is_some());
             if !gaps.is_empty() {
@@ -733,6 +780,80 @@ impl Builder {
         result
             .map_err(|message| self.error(at, format!("{what}{message}")))
             .ok()
+    }
+
+    /// What a server does with its parts: one at a time, batches or kits.
+    fn server_kind(
+        &mut self,
+        name: &Spanned<String>,
+        s: &raw::RawServer,
+        types: &Types,
+    ) -> Option<ServerKind> {
+        match (&s.batch, &s.assembles, &s.makes) {
+            (Some(batch), Some(_), _) => {
+                self.error(
+                    batch,
+                    format!("server `{}` can batch or assemble, not both", name.value),
+                );
+                None
+            }
+            (Some(batch), None, makes) => {
+                if let Some(makes) = makes {
+                    self.error(makes, "`makes` goes with `assembles`".to_string());
+                    return None;
+                }
+                if batch.value == 0 {
+                    self.error(
+                        batch,
+                        format!("server `{}` needs a batch of at least 1", name.value),
+                    );
+                    return None;
+                }
+                Some(ServerKind::Batch(batch.value))
+            }
+            (None, Some(recipe), makes) => {
+                let Some(makes) = makes else {
+                    self.error(
+                        name,
+                        format!(
+                            "server `{}` assembles parts; add `makes:` with the part type it makes",
+                            name.value
+                        ),
+                    );
+                    return None;
+                };
+                let what = format!("server `{}` makes", name.value);
+                let made = self.part_type(makes, &makes.value, types, &what);
+                let mut out = Vec::new();
+                let mut ok = true;
+                for (part_type, count) in &recipe.0 {
+                    let what = format!("server `{}` assembles", name.value);
+                    let e = self.part_type(part_type, &part_type.value, types, &what);
+                    if count.value == 0 {
+                        self.error(
+                            count,
+                            "a kit needs at least 1 of each component".to_string(),
+                        );
+                        ok = false;
+                    }
+                    match e {
+                        Some(e) => out.push((e, count.value)),
+                        None => ok = false,
+                    }
+                }
+                if recipe.0.is_empty() {
+                    self.error(name, format!("server `{}` assembles nothing", name.value));
+                    ok = false;
+                }
+                let makes = made?;
+                ok.then_some(ServerKind::Assembly { recipe: out, makes })
+            }
+            (None, None, Some(makes)) => {
+                self.error(makes, "`makes` goes with `assembles`".to_string());
+                None
+            }
+            (None, None, None) => Some(ServerKind::Single),
+        }
     }
 
     /// An optional `schedule:` reference: `Some(None)` when absent,

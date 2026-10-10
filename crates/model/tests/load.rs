@@ -581,3 +581,76 @@ fn schedule_problems_are_reported() {
         );
     }
 }
+
+#[test]
+fn assembly_and_batch_problems_are_reported() {
+    const KITS: &str = r#"
+format: outliers-sim/0.1
+name: kits
+entities: { frame: {}, wheel: {}, bike: {} }
+sources:
+  frames: { creates: frame, interarrival: "60 s" }
+  wheels: { creates: wheel, interarrival: "30 s" }
+servers:
+  assembly: { assembles: { frame: 1, wheel: 2 }, makes: bike, process_time: "20 s", input: { rule: first_come } }
+conveyors:
+  c_frames: { from: frames, to: assembly, length: "10 m", speed: "1 m/s", spacing: "1 m" }
+  c_wheels: { from: wheels, to: assembly, length: "10 m", speed: "1 m/s", spacing: "1 m" }
+  c_bikes:  { from: assembly, to: shipping, length: "2 m", speed: "1 m/s", spacing: "1 m" }
+sinks:
+  shipping: {}
+experiment: { replications: 1, run_length: "1 h", seed: 1 }
+"#;
+    load_str(KITS).unwrap();
+    for (from, to, expected) in [
+        ("makes: bike, ", "", "add `makes:`"),
+        (
+            "assembles: { frame: 1, wheel: 2 }, ",
+            "batch: 2, ",
+            "`makes` goes with `assembles`",
+        ),
+        (
+            "process_time: \"20 s\"",
+            "batch: 3, process_time: \"20 s\"",
+            "can batch or assemble, not both",
+        ),
+        (
+            "wheels: { creates: wheel",
+            "wheels: { creates: frame",
+            "assembles `wheel`, but none can reach it",
+        ),
+        (
+            "{ frame: 1, wheel: 2 }",
+            "{ frame: 1 }",
+            "gets parts of type `wheel`, which aren't in what it assembles",
+        ),
+        (
+            "process_time: \"20 s\"",
+            "process_time: { bike: \"20 s\" }",
+            "one process time, not one per part type",
+        ),
+        (
+            "makes: bike",
+            "makes: car",
+            "makes `car`, which isn't listed",
+        ),
+    ] {
+        assert!(KITS.contains(from), "test bug: {from}");
+        let errors = errors(&KITS.replacen(from, to, 1));
+        assert!(
+            errors.iter().any(|(_, e)| e.contains(expected)),
+            "{to}: expected `{expected}` in {errors:?}"
+        );
+    }
+    let batch = TYPED.replace(
+        "process_time: { frame: \"10 s\", wheel: \"20 s\" }",
+        "batch: 4\n    capacity: 6\n    process_time: \"10 s\"",
+    );
+    let found = errors(&batch);
+    assert!(
+        found
+            .iter()
+            .any(|(_, e)| e.contains("must be a multiple of 4")),
+        "{found:?}"
+    );
+}

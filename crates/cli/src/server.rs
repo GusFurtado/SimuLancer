@@ -1585,10 +1585,10 @@ mod tests {
         let (status, body) = call(&app, "GET", "/api/v1/projects", None).await;
         assert_eq!(status, StatusCode::OK);
         let projects = body["projects"].as_array().unwrap();
-        assert_eq!(projects.len(), 2);
-        assert_eq!(projects[1]["id"], "two-cells");
-        assert_eq!(projects[1]["name"], "Two cells");
-        assert_eq!(projects[1]["published"]["name"], "v1");
+        assert_eq!(projects.len(), 3);
+        assert_eq!(projects[2]["id"], "two-cells");
+        assert_eq!(projects[2]["name"], "Two cells");
+        assert_eq!(projects[2]["published"]["name"], "v1");
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1858,7 +1858,7 @@ mod tests {
     #[tokio::test]
     async fn examples_expose_decisions_and_results() {
         let (app, root) = app("exposed");
-        for id in ["two-cells", "conveyor-line"] {
+        for id in ["two-cells", "conveyor-line", "bike-assembly"] {
             let (_, project) = call(
                 &app,
                 "GET",

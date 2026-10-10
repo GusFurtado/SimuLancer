@@ -1,0 +1,58 @@
+# Bike assembly: frames and wheels arrive during two weekday shifts; fitters
+# (a shared resource on the same shifts) assemble a frame and two wheels into
+# a bike; bikes cure in an oven, eight at a time, before shipping.
+#
+#   frames ──c_frames──┐
+#                      ├──> assembly ──c_bikes──> oven ──c_ship──> shipping
+#   wheels ──c_wheels──┘   (kits; fitters)       (batches)
+
+format: outliers-sim/0.1
+name: bike-assembly
+description: Frames and wheels assembled into bikes by fitters on two shifts, then cured in a batch oven.
+
+entities:
+  frame: {}
+  wheel: {}
+  bike: {}
+
+schedules:
+  two_shifts:
+    shifts: ["06:00-14:00", "14:00-22:00"]
+    days: [mon, tue, wed, thu, fri]
+
+resources:
+  fitter: { capacity: 2, schedule: two_shifts }
+
+sources:
+  frames: { creates: frame, interarrival: "exponential(3 min)", schedule: two_shifts }
+  wheels: { creates: wheel, interarrival: "exponential(1.5 min)", schedule: two_shifts }
+
+servers:
+  assembly:
+    capacity: 4                            # four stations; fitters are the limit
+    assembles: { frame: 1, wheel: 2 }      # a kit: one frame, two wheels
+    makes: bike
+    process_time: "triangular(4 min, 5 min, 7 min)"
+    needs: { fitter: 1 }                   # one fitter per bike being assembled
+    input: { rule: first_come }
+  oven:
+    batch: 8                               # cures 8 bikes together
+    process_time: "20 min"
+
+conveyors:
+  c_frames: { from: frames, to: assembly, length: "11.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
+  c_wheels: { from: wheels, to: assembly, length: "11.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
+  c_bikes:  { from: assembly, to: oven, length: "8.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
+  c_ship:   { from: oven, to: shipping, length: "6.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
+
+sinks:
+  shipping: {}
+
+experiment:
+  replications: 20
+  warmup: "1 d"
+  run_length: "28 d"
+  seed: 20261010
+
+outputs:
+  event_log: jsonl

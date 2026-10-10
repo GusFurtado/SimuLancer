@@ -184,6 +184,12 @@ pub struct RawServer {
     #[serde(default)]
     pub needs: OrderedMap<Spanned<u32>>,
     pub schedule: Option<Spanned<String>>,
+    /// Process this many parts together.
+    pub batch: Option<Spanned<u32>>,
+    /// Part type -> count: the kit an assembly server collects.
+    pub assembles: Option<OrderedMap<Spanned<u32>>>,
+    /// The part type an assembly makes.
+    pub makes: Option<Spanned<String>>,
     #[serde(default)]
     pub failures: Vec<RawFailure>,
     /// Required with two or more incoming conveyors.

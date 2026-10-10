@@ -38,6 +38,15 @@
 //!   server stops like a failed one (processing pauses and resumes at the
 //!   next shift, nothing is taken or released, failure clocks pause); a
 //!   resource hands out no units, but units in use finish their part.
+//! - Batch servers collect parts (any of their inputs, by the input rule)
+//!   until the batch is full, then process them together: one process time,
+//!   one set of resource units, one slot per part. Parts leave one by one.
+//! - Assembly servers collect one kit at a time, taking a waiting part only
+//!   if the kit still needs its type (others wait on their conveyor). A
+//!   complete kit becomes one new part of the server's `makes` type, created
+//!   when its earliest component was, and is processed like any part.
+//! - Batches and kits are collected while the server is up, even if all its
+//!   slots are busy; they start when there are enough free slots and units.
 //! - Failure clocks run only while the server is up. `busy_time` clocks run
 //!   only while at least one slot is processing. While the server is down it
 //!   does nothing: no processing, no taking parts, no releasing blocked parts.
@@ -53,7 +62,9 @@ use crate::results::{
     Tally, TimeAverage, Totals, TypeResult,
 };
 use crate::rng::Rng;
-use crate::spec::{Conveyor, FailureClock, InputRule, Node, OnFailure, Routing, Spec, WhenBlocked};
+use crate::spec::{
+    Conveyor, FailureClock, InputRule, Node, OnFailure, Routing, ServerKind, Spec, WhenBlocked,
+};
 use crate::trace::{Observer, PartId, TraceEvent};
 
 /// Position tolerance in meters, for float error in positions.
@@ -94,12 +105,16 @@ enum Slot {
         part: Part,
         finish: SimTime,
         total: SimTime,
+        /// Gives the server's resource units back when done (one slot per
+        /// batch holds them).
+        holds: bool,
     },
     /// Processing interrupted by a failure.
     Suspended {
         part: Part,
         remaining: SimTime,
         total: SimTime,
+        holds: bool,
     },
     Blocked {
         part: Part,
@@ -131,6 +146,8 @@ struct ServerState {
     blocked_order: VecDeque<usize>,
     /// Waiting in the resource queue: a part is ready, units aren't.
     waiting_for_resources: bool,
+    /// The batch or kit being collected.
+    staging: Vec<Part>,
     waiting: TimeAverage,
     failures: Vec<FailureState>,
     /// The failure the server is currently down for.
@@ -346,6 +363,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     slot_generation: vec![0; s.capacity as usize],
                     blocked_order: VecDeque::new(),
                     waiting_for_resources: false,
+                    staging: Vec::new(),
                     waiting: TimeAverage::default(),
                     failures,
                     down_for: None,
@@ -658,6 +676,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 part,
                 finish,
                 total,
+                holds,
             } = *slot
             {
                 let remaining = match how {
@@ -668,6 +687,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     part,
                     remaining,
                     total,
+                    holds,
                 };
                 *generation += 1; // cancel the scheduled ProcessDone
             }
@@ -681,6 +701,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 part,
                 remaining,
                 total,
+                holds,
             } = self.servers[server].slots[slot]
             {
                 let finish = self.now + remaining;
@@ -688,6 +709,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     part,
                     finish,
                     total,
+                    holds,
                 };
                 self.schedule_process_done(server, slot, finish);
             }
@@ -891,6 +913,9 @@ impl<'a, O: Observer> Sim<'a, O> {
     /// Takes waiting parts into free slots, choosing inputs by the server's rule.
     fn pull(&mut self, server: usize) {
         self.servers[server].pull_pending = false;
+        if self.spec.servers[server].kind != ServerKind::Single {
+            return self.pull_collecting(server);
+        }
         loop {
             let s = &self.servers[server];
             if !s.is_up() || s.idle_slot().is_none() {
@@ -903,13 +928,145 @@ impl<'a, O: Observer> Sim<'a, O> {
                 }
                 return;
             }
-            let Some(conveyor) = self.choose_input(server) else {
+            let Some(conveyor) = self.choose_input(server, |_| true) else {
                 return;
             };
             let part = self.take_head(conveyor);
-            self.start_process(server, part);
+            self.start_process(server, part, true);
             self.after_departure(conveyor);
         }
+    }
+
+    /// Batch and assembly servers: collect parts into the batch or kit, and
+    /// start it when it's complete.
+    fn pull_collecting(&mut self, server: usize) {
+        let spec = &self.spec.servers[server];
+        loop {
+            if !self.servers[server].is_up() {
+                return;
+            }
+            // Collect what the batch or kit still needs.
+            loop {
+                // How many more of each part type it takes (batches take any).
+                let staging = &self.servers[server].staging;
+                let still: Vec<usize> = match &spec.kind {
+                    ServerKind::Batch(n) => vec![*n as usize - staging.len()],
+                    ServerKind::Assembly { recipe, .. } => {
+                        let mut still = vec![0; self.spec.entities.len()];
+                        for &(e, count) in recipe {
+                            still[e] =
+                                count as usize - staging.iter().filter(|p| p.entity == e).count();
+                        }
+                        still
+                    }
+                    ServerKind::Single => unreachable!("single servers don't collect"),
+                };
+                let batch = matches!(spec.kind, ServerKind::Batch(_));
+                let accepts = |part: &Part| {
+                    if batch {
+                        still[0] > 0
+                    } else {
+                        still[part.entity] > 0
+                    }
+                };
+                let Some(conveyor) = self.choose_input(server, accepts) else {
+                    break;
+                };
+                let part = self.take_head(conveyor);
+                self.servers[server].staging.push(part);
+                self.observer.record(
+                    self.now,
+                    TraceEvent::Collected {
+                        part: part.id,
+                        server,
+                    },
+                );
+                self.after_departure(conveyor);
+            }
+            let s = &self.servers[server];
+            let (complete, slots) = match &spec.kind {
+                ServerKind::Batch(n) => (s.staging.len() == *n as usize, *n as usize),
+                ServerKind::Assembly { recipe, .. } => {
+                    let total: u32 = recipe.iter().map(|&(_, count)| count).sum();
+                    (s.staging.len() == total as usize, 1)
+                }
+                ServerKind::Single => unreachable!(),
+            };
+            let free = s.slots.iter().filter(|x| matches!(x, Slot::Idle)).count();
+            if !complete || free < slots {
+                return;
+            }
+            if !self.resources_available(server) {
+                if !self.servers[server].waiting_for_resources {
+                    self.servers[server].waiting_for_resources = true;
+                    self.resource_queue.push_back(server);
+                }
+                return;
+            }
+            let staged = std::mem::take(&mut self.servers[server].staging);
+            match &spec.kind {
+                ServerKind::Batch(_) => self.start_batch(server, staged),
+                ServerKind::Assembly { makes, .. } => {
+                    for p in &staged {
+                        self.observer
+                            .record(self.now, TraceEvent::Consumed { part: p.id, server });
+                    }
+                    self.totals.consumed += staged.len() as u64;
+                    let part = Part {
+                        id: self.next_part,
+                        created: staged
+                            .iter()
+                            .map(|p| p.created)
+                            .min()
+                            .expect("a kit has parts"),
+                        entity: *makes,
+                    };
+                    self.next_part += 1;
+                    self.totals.assembled += 1;
+                    self.observer.record(
+                        self.now,
+                        TraceEvent::Assembled {
+                            part: part.id,
+                            server,
+                            entity: part.entity,
+                        },
+                    );
+                    self.start_process(server, part, true);
+                }
+                ServerKind::Single => unreachable!(),
+            }
+        }
+    }
+
+    /// Starts a full batch: one process time and one set of units for all.
+    fn start_batch(&mut self, server: usize, parts: Vec<Part>) {
+        for &(r, units) in &self.spec.servers[server].needs {
+            self.resources[r].in_use += units;
+        }
+        let s = &mut self.servers[server];
+        let total = duration(
+            s.rng
+                .sample(self.spec.servers[server].process_time.get(parts[0].entity)),
+        );
+        for (i, part) in parts.into_iter().enumerate() {
+            let s = &mut self.servers[server];
+            let slot = s.idle_slot().expect("caller checked for free slots");
+            s.slots[slot] = Slot::Busy {
+                part,
+                finish: self.now + total,
+                total,
+                holds: i == 0,
+            };
+            self.schedule_process_done(server, slot, self.now + total);
+            self.observer.record(
+                self.now,
+                TraceEvent::StartedProcess {
+                    part: part.id,
+                    server,
+                },
+            );
+        }
+        self.update_failure_clocks(server);
     }
 
     fn resources_available(&self, server: usize) -> bool {
@@ -938,12 +1095,16 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
     }
 
-    /// The input conveyor whose head the server takes next, if any is waiting.
-    fn choose_input(&mut self, server: usize) -> Option<usize> {
+    /// The input conveyor whose head the server takes next, if any is
+    /// waiting and `accepts` it.
+    fn choose_input(&mut self, server: usize, accepts: impl Fn(&Part) -> bool) -> Option<usize> {
         let spec = self.spec;
         let now = self.now;
         let inputs = &spec.servers[server].inputs;
-        let waiting = |c: usize| self.conveyors[c].head_at_end(&spec.conveyors[c], now);
+        let waiting = |c: usize| {
+            self.conveyors[c].head_at_end(&spec.conveyors[c], now)
+                && accepts(&self.conveyors[c].belt[0].part)
+        };
         match spec.servers[server].input_rule {
             InputRule::Single | InputRule::Priority => inputs.iter().copied().find(|&c| waiting(c)),
             // `min_by_key` keeps the first of equal keys: ties go to the input listed first.
@@ -964,9 +1125,11 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
     }
 
-    fn start_process(&mut self, server: usize, part: Part) {
-        for &(r, units) in &self.spec.servers[server].needs {
-            self.resources[r].in_use += units;
+    fn start_process(&mut self, server: usize, part: Part, holds: bool) {
+        if holds {
+            for &(r, units) in &self.spec.servers[server].needs {
+                self.resources[r].in_use += units;
+            }
         }
         let s = &mut self.servers[server];
         let slot = s.idle_slot().expect("caller checked for a free slot");
@@ -978,6 +1141,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             part,
             finish: self.now + total,
             total,
+            holds,
         };
         self.schedule_process_done(server, slot, self.now + total);
         self.observer.record(
@@ -1007,7 +1171,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     fn process_done(&mut self, server: usize, slot: usize) {
         let spec = &self.spec.servers[server];
         let s = &mut self.servers[server];
-        let Slot::Busy { part, .. } = s.slots[slot] else {
+        let Slot::Busy { part, holds, .. } = s.slots[slot] else {
             unreachable!("a current ProcessDone event belongs to a busy slot");
         };
         let target = pick_output(
@@ -1019,8 +1183,10 @@ impl<'a, O: Observer> Sim<'a, O> {
         );
         s.slots[slot] = Slot::Blocked { part, target };
         s.blocked_order.push_back(slot);
-        for &(r, units) in &spec.needs {
-            self.resources[r].in_use -= units;
+        if holds {
+            for &(r, units) in &spec.needs {
+                self.resources[r].in_use -= units;
+            }
         }
         self.observer.record(
             self.now,
@@ -1264,6 +1430,7 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     fn result(&self) -> ReplicationResult {
         let in_system = self.sources.iter().filter(|s| s.held.is_some()).count()
+            + self.servers.iter().map(|s| s.staging.len()).sum::<usize>()
             + self
                 .servers
                 .iter()

@@ -17,7 +17,9 @@ use std::thread;
 use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
-use outliers_sim_engine::spec::{Distribution, InputRule, Node, PerType, Routing, Spec};
+use outliers_sim_engine::spec::{
+    Distribution, InputRule, Node, PerType, Routing, ServerKind, Spec,
+};
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
 
@@ -331,6 +333,24 @@ fn describe(path: &Path, model: &Model) -> String {
                 "  {:<12}   works on schedule {}\n",
                 "", spec.schedules[i].name
             );
+        }
+        match &s.kind {
+            ServerKind::Single => {}
+            ServerKind::Batch(n) => {
+                out += &format!("  {:<12}   processes batches of {n}\n", "");
+            }
+            ServerKind::Assembly { recipe, makes } => {
+                let kit: Vec<String> = recipe
+                    .iter()
+                    .map(|&(e, n)| format!("{n} {}", spec.entities[e]))
+                    .collect();
+                out += &format!(
+                    "  {:<12}   assembles {} into 1 {}\n",
+                    "",
+                    kit.join(" + "),
+                    spec.entities[*makes]
+                );
+            }
         }
         for f in &s.failures {
             out += &format!(

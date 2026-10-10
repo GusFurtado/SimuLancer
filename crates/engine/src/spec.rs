@@ -123,6 +123,8 @@ pub struct Server {
     pub needs: Vec<(usize, u32)>,
     /// Index into [`Spec::schedules`]; `None` works all the time.
     pub schedule: Option<usize>,
+    /// One part at a time, batches, or assembly.
+    pub kind: ServerKind,
     pub failures: Vec<Failure>,
     /// Indices into [`Spec::conveyors`]. In priority order for
     /// [`InputRule::Priority`], otherwise in file order.
@@ -131,6 +133,81 @@ pub struct Server {
     /// Indices into [`Spec::conveyors`], in file order.
     pub outputs: Vec<usize>,
     pub routing: Routing,
+}
+
+/// Which part types can get to each object (indexed by object, then by
+/// [`Spec::entities`]): what sources create, followed through `by_type`
+/// routes and assemblies (which send out what they make).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypesAt {
+    pub sources: Vec<Vec<bool>>,
+    pub servers: Vec<Vec<bool>>,
+    pub sinks: Vec<Vec<bool>>,
+}
+
+impl Spec {
+    pub fn types_at(&self) -> TypesAt {
+        let n = self.entities.len();
+        let mut at = TypesAt {
+            sources: vec![vec![false; n]; self.sources.len()],
+            servers: vec![vec![false; n]; self.servers.len()],
+            sinks: vec![vec![false; n]; self.sinks.len()],
+        };
+        let mut stack: Vec<(Node, usize)> = Vec::new();
+        for (i, s) in self.sources.iter().enumerate() {
+            for &(e, _) in &s.creates {
+                at.sources[i][e] = true;
+                stack.push((Node::Source(i), e));
+            }
+        }
+        while let Some((node, e)) = stack.pop() {
+            let (outputs, routing, e) = match node {
+                Node::Source(i) => (&self.sources[i].outputs, &self.sources[i].routing, e),
+                Node::Server(i) => {
+                    let s = &self.servers[i];
+                    // An assembly sends out what it makes, whatever came in.
+                    let out = match s.kind {
+                        ServerKind::Assembly { makes, .. } => makes,
+                        _ => e,
+                    };
+                    (&s.outputs, &s.routing, out)
+                }
+                Node::Sink(_) => continue,
+            };
+            let next: Vec<usize> = match routing {
+                Routing::ByType(routes) => routes.get(e).copied().flatten().into_iter().collect(),
+                _ => outputs.clone(),
+            };
+            for c in next {
+                let seen = match self.conveyors[c].to {
+                    Node::Server(s) => &mut at.servers[s][e],
+                    Node::Sink(s) => &mut at.sinks[s][e],
+                    Node::Source(_) => continue,
+                };
+                if !*seen {
+                    *seen = true;
+                    stack.push((self.conveyors[c].to, e));
+                }
+            }
+        }
+        at
+    }
+}
+
+/// What a server does with the parts it takes in.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ServerKind {
+    /// Each part is processed on its own in a slot.
+    Single,
+    /// Collects this many parts, then processes them together: one process
+    /// time, one set of resource units, one slot per part.
+    Batch(u32),
+    /// Collects a kit, (part type, count) per component, then processes it
+    /// as one new part of type `makes`.
+    Assembly {
+        recipe: Vec<(usize, u32)>,
+        makes: usize,
+    },
 }
 
 /// A value that may differ by part type.
