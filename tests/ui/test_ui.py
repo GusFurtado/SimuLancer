@@ -31,11 +31,78 @@ b.go(url + "/")
 b.wait("return document.querySelectorAll('a.door').length === 3")
 b.screenshot(f"{out}/1-landing.png")
 
-# --- Engineer: edit, save a version, publish, run. ----------------------------
+# --- Build: a new project, drawn in the browser. ---------------------------------
+def obj(name):
+    return f"document.querySelector('rect[data-object=\"{name}\"]')"
+
+def click_obj(name):
+    b.js(f"{obj(name)}.dispatchEvent(new MouseEvent('click', {{bubbles: true}}))")
+
+def set_value(element_id, value, event="change"):
+    b.js(f"const i = document.getElementById({element_id!r}); i.value = {value!r}; i.dispatchEvent(new Event({event!r}))")
+
+def conveyor_length(name):
+    click_in_diagram(f"conveyor {name}:")
+    b.wait(f"return document.querySelector('.panel h3')?.textContent === {name!r}")
+    return b.js(f"return document.getElementById('f-conveyors-{name}-length').value")
+
 b.go(url + "/build")
 b.wait("return document.querySelectorAll('#projects button').length >= 2")
+b.js("document.getElementById('new-project').click()")
+b.wait("return document.getElementById('new-name') !== null")
+set_value("new-name", "Packing line", "input")
+b.js("document.getElementById('create-project').click()")
+b.wait("return document.querySelector('.head h2')?.textContent === 'Packing line' && document.querySelector('.diagram svg') !== null", 10)
+
+b.js("document.getElementById('add-server').click()")
+b.wait(f"return {obj('machine_2')} !== null")
+set_value("f-name", "packer")
+b.wait(f"return {obj('packer')} !== null && document.querySelector('.panel h3')?.textContent === 'packer'")
+
+click_in_diagram("conveyor c2:")
+b.wait("return document.querySelector('.panel h3')?.textContent === 'c2'")
+b.js("document.getElementById('delete').click()")
+b.wait("return ![...document.querySelectorAll('.diagram title')].some(t => t.textContent.startsWith('conveyor c2:'))")
+
+for a, z in [("machine", "packer"), ("packer", "shipping")]:
+    b.js("document.getElementById('connect').click()")
+    click_obj(a)
+    click_obj(z)
+    b.wait(f"return [...document.querySelectorAll('.diagram title')].some(t => t.textContent === 'conveyor c_{a}_{z}: {a} → {z}')", 10)
+
+before = conveyor_length("c_machine_packer")
+# Drag the packer 4 m to the right: the conveyor's length follows the drawing.
+b.js(f"""
+  const r = {obj('packer')}, box = r.getBoundingClientRect(), px = box.width / 1.2;
+  const at = (dx) => ({{ clientX: box.x + box.width / 2 + dx, clientY: box.y + box.height / 2, bubbles: true, button: 0 }});
+  r.dispatchEvent(new PointerEvent('pointerdown', at(0)));
+  window.dispatchEvent(new PointerEvent('pointermove', at(2 * px)));
+  window.dispatchEvent(new PointerEvent('pointermove', at(4 * px)));
+  window.dispatchEvent(new PointerEvent('pointerup', at(4 * px)));
+""")
+time.sleep(0.3)
+after = conveyor_length("c_machine_packer")
+check(float(after.split()[0]) > float(before.split()[0]) + 3, f"length follows the drawing: {before} -> {after}")
+b.js("document.getElementById('undo').click()")
+check(conveyor_length("c_machine_packer") == before, "undo restores the length")
+b.js("document.getElementById('redo').click()")
+check(conveyor_length("c_machine_packer") == after, "redo applies it again")
+
+click_obj("packer")
+b.wait("return document.querySelector('.panel h3')?.textContent === 'packer'")
+set_value("f-servers-packer-process_time-kind", "exponential")
+b.wait("return document.getElementById('f-servers-packer-process_time')?.textContent === 'exponential(40 s)'")
+b.wait("return document.querySelector('.field.error') === null && !document.querySelector('.status:not(.ok)')", 10)
+b.screenshot(f"{out}/2a-drawn.png")
+set_value("save-message", "Packer after the machine", "input")
+b.js("document.getElementById('save').click()")
+b.wait("return document.getElementById('pending')?.textContent === 'all changes saved'", 10)
+check(b.js(f"return {obj('packer')} !== null"), "the drawing is saved with the layout")
+check("Packer after the machine" in b.js("return document.querySelector('.versions').textContent"), "saved as a version")
+
+# --- Engineer: edit, save a version, publish, run. ----------------------------
 click_text("#projects button", "Two cells")
-b.wait("return document.querySelector('.diagram svg') !== null")
+b.wait("return document.querySelector('.head h2')?.textContent === 'Two cells' && document.querySelector('.diagram svg') !== null")
 check("published v1" in b.js("return document.querySelector('.versions').textContent"), "v1 in versions")
 b.screenshot(f"{out}/2-build.png")
 

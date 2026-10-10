@@ -1,0 +1,30 @@
+# A new project starts as this simple line: parts arrive, one machine works
+# on them, and they leave. Build on it in the builder.
+format: outliers-sim/0.1
+name: new-line
+
+entities:
+  part: {}
+
+sources:
+  arrivals:
+    creates: part
+    interarrival: "exponential(1 min)"
+
+servers:
+  machine:
+    capacity: 1
+    process_time: "triangular(40 s, 50 s, 70 s)"
+
+conveyors:
+  c1: { from: arrivals, to: machine, length: "4.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
+  c2: { from: machine, to: shipping, length: "4.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
+
+sinks:
+  shipping: {}
+
+experiment:
+  replications: 10
+  warmup: "1 h"
+  run_length: "24 h"
+  seed: 1

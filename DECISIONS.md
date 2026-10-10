@@ -310,6 +310,22 @@ Decisions so far:
 - **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
 - **Next (planned 2026-10-10, in this order):** manager comparisons; then exposing decisions from the builder; then drawing models in the builder (place, connect, delete and rename objects; conveyor length follows the drawing by default; whole-model saves including the layout; distribution pickers; undo).
 
+## Drawing models in the builder (implemented 2026-10-10)
+
+- **Toolbar on the diagram:** + Source, + Server, + Sink, Connect (click one object, then the next), Delete, Undo/Redo (also Ctrl+Z / Ctrl+Shift+Z). Objects are dragged on a 0.5 m grid. The panel renames and deletes the selected object or conveyor.
+- **Topology edits are ordinary changes:** adding is a change that sets a whole object, and **`null` removes** a map entry (`"servers.mill": null`), in scenario files and the API alike. Pending edits stay one list of changes, checked live like any other.
+- **Deleting tidies up:** deleting an object deletes its conveyors. Deleting a conveyor removes it from its ends' routing weights and priority orders, and drops a routing or merging rule its end no longer needs (fewer than two conveyors).
+- **Renaming carries references along:** conveyor ends, routing weights, priority orders, the layout, and the project's decisions and results all follow the new name.
+- **Layout:** the builder keeps a full layout (every object and conveyor) and sends it whole (`layout` in `check`, `save` and runs) once anything moved or was added. Positions round to 1 cm. Layouts given as JSON may be in `layout.json`'s shape, with `format` and null fields dropped.
+- **Conveyor length follows the drawing by default:**
+  - A new conveyor's length is its drawn length.
+  - When an object moves, each attached conveyor whose length matched its drawing (within 6 cm) keeps matching.
+  - One with a typed length keeps it, and the layout check warns that the drawing differs, as before. No extra flag is stored.
+- **Routing:** conveyors are drawn straight, with a Z-bend, or around the top when they go backwards. Hand-drawn paths of untouched conveyors are kept.
+- **Distribution picker:** time fields (arrivals, process times, uptime, downtime) choose a distribution by name and fill in its parameters with units. The expression the model stores is shown underneath. Text the picker can't read stays a plain field.
+- **New projects** start as a simple line (arrivals, one machine, exit, with a layout) or as a copy of an existing project (`POST /projects` without `from`).
+- **Not yet:** editing conveyor bends by hand, snapping objects to each other, copy and paste.
+
 ## Decisions, scenarios and plain-language comparisons (implemented 2026-10-10)
 
 - **Wording:** "engineer", "manager" and "developer" describe the roles in these notes only. The product never calls its users that, because the people on each page may have any job. UI and user docs name the pages and what they do: the Build page, the Decide page, decisions, scenarios, the API.

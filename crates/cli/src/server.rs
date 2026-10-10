@@ -416,6 +416,17 @@ fn load(
     version: Option<&str>,
     changes: &Map<String, Value>,
 ) -> Result<Loaded, LoadProblem> {
+    load_with(state, id, version, changes, None)
+}
+
+/// Like [`load`], with a whole new layout (as JSON) instead of the saved one.
+fn load_with(
+    state: &AppState,
+    id: &str,
+    version: Option<&str>,
+    changes: &Map<String, Value>,
+    layout: Option<&Value>,
+) -> Result<Loaded, LoadProblem> {
     let fail = |e: String| Err(LoadProblem::Request(e));
     let project = match state.projects.project_file(id, version) {
         Ok(p) => p,
@@ -441,10 +452,13 @@ fn load(
     } else {
         apply_changes(&base, &model_file, changes).map_err(LoadProblem::Invalid)?
     };
-    let layout = match state
-        .projects
-        .read_optional(id, version, &project.layout_file())
-    {
+    let layout_source = match layout {
+        Some(tree) => Ok(Some(layout_text(tree, &project.model))),
+        None => state
+            .projects
+            .read_optional(id, version, &project.layout_file()),
+    };
+    let layout = match layout_source {
         Ok(None) => None,
         Ok(Some(source)) => match outliers_sim_model::load_layout(&source, &model) {
             Ok((layout, _warnings)) => Some(layout),
@@ -466,6 +480,26 @@ fn load(
         text,
         layout,
     })
+}
+
+/// A layout given as JSON (as `layout.json` or the file's own shape) as
+/// layout file text.
+fn layout_text(tree: &Value, model_file: &str) -> String {
+    let mut tree = tree.clone();
+    if let Some(map) = tree.as_object_mut() {
+        map.remove("format");
+        map.insert("model".into(), json!(model_file));
+        map.entry("units").or_insert(json!("m"));
+        // Drop empty fields (`"model": null` on objects).
+        for section in ["objects", "conveyors"] {
+            if let Some(items) = map.get_mut(section).and_then(Value::as_object_mut) {
+                for item in items.values_mut().filter_map(Value::as_object_mut) {
+                    item.retain(|_, v| !v.is_null());
+                }
+            }
+        }
+    }
+    outliers_sim_model::to_yaml(&tree)
 }
 
 /// Applies changes (dotted path -> value) to a model's source. Errors name
@@ -642,30 +676,38 @@ async fn list_projects(State(state): State<Arc<AppState>>) -> Response {
 struct CreateProject {
     id: String,
     name: Option<String>,
-    /// An existing project to start from (its working copy).
-    from: String,
+    /// An existing project to start from (its working copy). Without it,
+    /// the project starts as a simple line to build on.
+    from: Option<String>,
 }
 
 async fn create_project(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateProject>,
 ) -> Response {
-    let source = match state.projects.project_file(&body.from, None) {
-        Ok(p) => p,
-        Err(e) => return not_found_or_bad(e),
-    };
-    let mut project = source.clone();
-    project.name = body.name.clone().unwrap_or_else(|| body.id.clone());
-    let mut files = vec![(PROJECT_FILE.to_string(), project.to_text())];
-    for file in [source.model.clone(), source.layout_file()] {
-        if let Ok(Some(text)) = state.projects.read_optional(&body.from, None, &file) {
-            files.push((file, text));
+    let name = body.name.clone().unwrap_or_else(|| body.id.clone());
+    let (files, message) = match &body.from {
+        None => (
+            projects::template(&body.id, &name),
+            "Started from a simple line".to_string(),
+        ),
+        Some(from) => {
+            let source = match state.projects.project_file(from, None) {
+                Ok(p) => p,
+                Err(e) => return not_found_or_bad(e),
+            };
+            let mut project = source.clone();
+            project.name = name;
+            let mut files = vec![(PROJECT_FILE.to_string(), project.to_text())];
+            for file in [source.model.clone(), source.layout_file()] {
+                if let Ok(Some(text)) = state.projects.read_optional(from, None, &file) {
+                    files.push((file, text));
+                }
+            }
+            (files, format!("Created from {from}"))
         }
-    }
-    match state
-        .projects
-        .create(&body.id, &files, &format!("Created from {}", body.from))
-    {
+    };
+    match state.projects.create(&body.id, &files, &message) {
         Ok(()) => (StatusCode::CREATED, Json(json!({ "id": body.id }))).into_response(),
         Err(e) if e.contains("already exists") => error(StatusCode::CONFLICT, e),
         Err(e) => error(StatusCode::BAD_REQUEST, e),
@@ -743,6 +785,8 @@ struct Changes {
     decisions: Option<Map<String, Value>>,
     /// New `results` for project.yaml.
     results: Option<Vec<Value>>,
+    /// A whole new layout (the `*.layout.yaml` file as JSON).
+    layout: Option<Value>,
     /// For saving: what changed, in a few words.
     #[serde(default)]
     message: String,
@@ -771,18 +815,19 @@ async fn check(
     UrlPath(id): UrlPath<String>,
     Json(body): Json<Changes>,
 ) -> Response {
-    let (ok, errors, mut project, source) = match load(&state, &id, None, &body.changes) {
-        Ok(loaded) => (true, Vec::new(), loaded.project, loaded.text),
-        Err(LoadProblem::Request(e)) => return not_found_or_bad(e),
-        Err(LoadProblem::Invalid(problems)) => {
-            let project = match state.projects.project_file(&id, None) {
-                Ok(p) => p,
-                Err(e) => return not_found_or_bad(e),
-            };
-            // The model has errors: only the structure of decisions is checked.
-            (false, problems, project, String::new())
-        }
-    };
+    let (ok, errors, mut project, source) =
+        match load_with(&state, &id, None, &body.changes, body.layout.as_ref()) {
+            Ok(loaded) => (true, Vec::new(), loaded.project, loaded.text),
+            Err(LoadProblem::Request(e)) => return not_found_or_bad(e),
+            Err(LoadProblem::Invalid(problems)) => {
+                let project = match state.projects.project_file(&id, None) {
+                    Ok(p) => p,
+                    Err(e) => return not_found_or_bad(e),
+                };
+                // The model has errors: only the structure of decisions is checked.
+                (false, problems, project, String::new())
+            }
+        };
     body.apply_to(&mut project);
     let (exposed, problems, _) = read_exposed(&project, &source);
     Json(json!({
@@ -801,13 +846,13 @@ async fn save(
     UrlPath(id): UrlPath<String>,
     Json(body): Json<Changes>,
 ) -> Response {
-    if body.changes.is_empty() && !body.touches_project_file() {
+    if body.changes.is_empty() && !body.touches_project_file() && body.layout.is_none() {
         return error(
             StatusCode::BAD_REQUEST,
             "nothing to save: there are no changes",
         );
     }
-    let loaded = match load(&state, &id, None, &body.changes) {
+    let loaded = match load_with(&state, &id, None, &body.changes, body.layout.as_ref()) {
         Ok(l) => l,
         Err(problem) => return problem.into_response(),
     };
@@ -817,6 +862,14 @@ async fn save(
     let mut files = vec![(loaded.project.model.as_str(), loaded.text.as_str())];
     if body.touches_project_file() {
         files.push((PROJECT_FILE, project_text.as_str()));
+    }
+    let layout_file = loaded.project.layout_file();
+    let layout_text = body
+        .layout
+        .as_ref()
+        .map(|tree| layout_text(tree, &loaded.project.model));
+    if let Some(text) = &layout_text {
+        files.push((layout_file.as_str(), text.as_str()));
     }
     match state.projects.save(&id, &files, &body.message) {
         Ok(commit) => {
@@ -868,6 +921,8 @@ struct RunRequest {
     /// Changes to apply first (unsaved edits, or a scenario).
     #[serde(default)]
     changes: Map<String, Value>,
+    /// A whole new layout, for unsaved edits that add or move objects.
+    layout: Option<Value>,
     /// Overrides the model's number of replications.
     replications: Option<u32>,
     /// A name for the run; defaults to the project and version.
@@ -888,11 +943,12 @@ async fn start_run(
             Err(e) => return not_found_or_bad(e),
         },
     };
-    let loaded = match load(
+    let loaded = match load_with(
         &state,
         &request.project,
         version.as_deref(),
         &request.changes,
+        request.layout.as_ref(),
     ) {
         Ok(l) => l,
         Err(problem) => return problem.into_response(),
@@ -1698,6 +1754,83 @@ mod tests {
         );
         let (status, _) = call(&app, "POST", "/api/v1/projects", Some(body)).await;
         assert_eq!(status, StatusCode::CONFLICT);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn new_projects_start_as_a_simple_line() {
+        let (app, root) = app("template");
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/projects",
+            Some(json!({ "id": "line-3", "name": "Line 3" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let (_, project) = call(&app, "GET", "/api/v1/projects/line-3", None).await;
+        assert_eq!(project["valid"], true, "{project}");
+        assert_eq!(project["tree"]["name"], "line-3");
+        assert!(project["layout"]["objects"]["machine"].is_object());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn topology_edits_with_a_new_layout() {
+        let (app, root) = app("topology");
+        let (_, project) = call(&app, "GET", "/api/v1/projects/conveyor-line", None).await;
+        let mut layout = project["layout"].clone();
+        // Remove the mill: its conveyors go, and the lathe ships directly.
+        let changes = json!({
+            "servers.mill": null,
+            "conveyors.c3": null,
+            "conveyors.c2.to": "shipping",
+        });
+        layout["objects"].as_object_mut().unwrap().remove("mill");
+        layout["conveyors"].as_object_mut().unwrap().remove("c3");
+        layout["conveyors"]["c2"]["path"] = json!([[14.5, 0, 0], [22.5, 0, 0], [22.5, 0, 0.5]]);
+        let check = json!({ "changes": changes, "layout": layout });
+        let (_, checked) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/conveyor-line/check",
+            Some(check.clone()),
+        )
+        .await;
+        // The mill decision now points at nothing.
+        assert_eq!(checked["ok"], true, "{checked}");
+        assert!(
+            checked["decision_problems"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p.as_str().unwrap().contains("decision `mill`")),
+            "{checked}"
+        );
+        // Without the new layout, the saved one no longer fits.
+        let (_, checked) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/conveyor-line/check",
+            Some(json!({ "changes": changes })),
+        )
+        .await;
+        assert_eq!(checked["ok"], false);
+        assert_eq!(checked["errors"][0]["file"], "model.layout.yaml");
+
+        let mut save = check;
+        save["message"] = json!("No mill");
+        let (status, saved) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/conveyor-line/save",
+            Some(save),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        let (_, project) = call(&app, "GET", "/api/v1/projects/conveyor-line", None).await;
+        assert!(project["tree"]["servers"].get("mill").is_none());
+        assert!(project["layout"]["objects"].get("mill").is_none());
         fs::remove_dir_all(root).unwrap();
     }
 
