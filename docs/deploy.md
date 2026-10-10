@@ -1,9 +1,9 @@
 # Deploying outliers-sim
 
-outliers-sim is one program. `outliers-sim serve` runs the web interface and its HTTP API, and runs simulations on the same machine. Users only need a browser.
+outliers-sim is one program. `outliers-sim serve` runs the web pages (`/build` for engineers, `/decide` for managers) and their HTTP API, and runs simulations on the same machine. Users only need a browser.
 
-- There's no database: models and scenarios are YAML files in a folder, and each run's results are files in another.
-- There are no runtime dependencies: the Linux binary is statically linked.
+- **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results). The first start in an empty folder creates the example projects.
+- **The only runtime dependency is git**, used to version projects. The Linux binary itself is statically linked. The Docker image includes git.
 
 ## Option 1: binary + systemd
 
@@ -11,12 +11,11 @@ Download `outliers-sim-<version>-x86_64-linux.tar.gz` from the releases page, th
 
 ```sh
 tar xzf outliers-sim-*-x86_64-linux.tar.gz && cd outliers-sim-*-x86_64-linux
+sudo apt install git                     # or your distribution's package
 sudo useradd --system --home /var/lib/outliers-sim --shell /usr/sbin/nologin outliers-sim
 sudo cp outliers-sim /usr/local/bin/
 sudo cp deploy/outliers-sim.service /etc/systemd/system/
 sudo systemctl enable --now outliers-sim
-sudo cp examples/*.yaml /var/lib/outliers-sim/models/      # optional: the examples
-sudo chown -R outliers-sim: /var/lib/outliers-sim/models
 curl http://127.0.0.1:8080/api/v1/health
 ```
 
@@ -34,8 +33,8 @@ docker run -d --name outliers-sim --restart unless-stopped \
   ghcr.io/gusfurtado/outliers-sim:latest
 ```
 
-- **Image:** about 8 MB, nothing but the binary. It runs as an unprivileged user (uid 65532).
-- **Data:** `/data/models` (starts with the examples) and `/data/runs` live in the volume.
+- **Image:** about 41 MB: the binary plus git on Alpine. It runs as an unprivileged user (uid 65532).
+- **Data:** `/data/projects` (an empty volume gets the example projects) and `/data/runs` live in the volume.
 - **Host folder instead of a volume:** make it writable by uid 65532 (`sudo chown -R 65532:65532 /srv/outliers-sim`).
 - **Stopping:** `docker stop` shuts down cleanly in well under a second.
 - **Building it yourself:** `docker build -t outliers-sim .`
@@ -60,9 +59,9 @@ For scale: 30 replications of the examples take about 0.2 s on 12 cores.
 
 ## Operating it
 
-- **Backups:** back up the models folder; it's the only thing people create. Run folders can be regenerated, since the same model and seed give identical results.
+- **Backups:** back up the `projects` folder; it's the only thing people create. Each project is a git repository, so its whole history comes along, and `git clone` works for copies. Run folders can be regenerated, since the same model and seed give identical results.
 - **Cleanup:** delete old folders in the runs folder whenever you like. The list of runs in the web interface is kept in memory and starts empty after a restart; result folders stay on disk until you remove them.
-- **Upgrading:** replace the binary (or pull the new image) and restart. Models and scenarios carry a `format:` version, and the server says clearly if a file needs updating.
+- **Upgrading:** replace the binary (or pull the new image) and restart. Projects, models and scenarios carry a `format:` version, and the server says clearly if a file needs updating.
 - **Logs:** the server logs to stdout/stderr, so `journalctl -u outliers-sim` or `docker logs outliers-sim`.
 
 ## Programs and scripts

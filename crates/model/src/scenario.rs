@@ -120,8 +120,7 @@ pub fn merge(scenario: &Scenario, base_source: &str) -> Result<Merged, LoadError
     if let Some(description) = &scenario.description {
         object.insert("description".into(), Value::String(description.clone()));
     }
-    let mut lines = Vec::new();
-    emit(&tree, 0, "", &mut lines);
+    let lines = crate::yaml_out::lines_with_paths(&tree);
     let text = lines
         .iter()
         .map(|(l, _)| l.as_str())
@@ -191,38 +190,6 @@ fn set(tree: &mut Value, path: &str, value: Value) -> Result<(), String> {
         };
     }
     unreachable!("the loop returns at the last segment")
-}
-
-/// Writes `value` as block-style YAML, one map entry per line; lists and
-/// maps inside lists are written in flow style (JSON, which is valid YAML).
-/// Records the dotted path of every line.
-fn emit(value: &Value, indent: usize, path: &str, out: &mut Vec<(String, String)>) {
-    let Value::Object(map) = value else {
-        unreachable!("emit is called on maps");
-    };
-    let pad = " ".repeat(indent);
-    for (key, child) in map {
-        let child_path = if path.is_empty() {
-            key.clone()
-        } else {
-            format!("{path}.{key}")
-        };
-        let key_text = if key
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-        {
-            key.clone()
-        } else {
-            Value::String(key.clone()).to_string()
-        };
-        match child {
-            Value::Object(m) if !m.is_empty() => {
-                out.push((format!("{pad}{key_text}:"), child_path.clone()));
-                emit(child, indent + 2, &child_path, out);
-            }
-            _ => out.push((format!("{pad}{key_text}: {child}"), child_path)),
-        }
-    }
 }
 
 /// Maps an error in the merged model back to the change that caused it.

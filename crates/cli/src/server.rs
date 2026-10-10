@@ -1,10 +1,13 @@
 //! `outliers-sim serve`: the web application and its HTTP API.
 //!
-//! The web UI uses only this public API, so anything a user can do in the
-//! browser, a program can do too. Simulations run on the server, one run at
-//! a time on all cores; later runs wait in a queue. Models and scenarios are
-//! YAML files in the models folder; each run's results go to its own folder.
-//! See docs/api.md.
+//! Three audiences, three interfaces over the same API:
+//! - engineers build and version models (`/build`),
+//! - managers compare scenarios on published versions (`/decide`),
+//! - developers use the HTTP API directly (docs/api.md).
+//!
+//! The web pages use only the public API. Simulations run on the server, one
+//! run at a time on all cores; later runs wait in a queue. Projects are git
+//! repositories in `<data>/projects`; each run's results go to `<data>/runs/<id>`.
 
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
@@ -14,30 +17,28 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{StatusCode, header};
-use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Args;
-use outliers_sim_model::{Model, ScenarioError};
+use outliers_sim_model::{Diagnostic, Layout, Model, ScenarioError};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tower_http::compression::CompressionLayer;
 
-use crate::files::{self, LoadFailure};
 use crate::output::layout_json;
+use crate::projects::{self, PROJECT_FILE, ProjectFile, Projects};
 use crate::runner::{self, RunOptions};
 use crate::thread_count;
 
 #[derive(Args)]
 pub struct ServeArgs {
-    /// Folder with the model and scenario files (*.yaml).
-    #[arg(long, default_value = "models")]
-    models: PathBuf,
-    /// Folder where each run's results are stored.
-    #[arg(long, default_value = "runs")]
-    runs: PathBuf,
+    /// Data folder: `projects/` (one git repository per project) and `runs/`.
+    /// Created if missing; an empty one gets the example projects.
+    #[arg(long, default_value = "data")]
+    data: PathBuf,
     /// Address to listen on. The default only accepts connections from this
     /// machine; use 0.0.0.0 to serve other machines (behind IT's proxy).
     #[arg(long, default_value = "127.0.0.1")]
@@ -50,30 +51,26 @@ pub struct ServeArgs {
 }
 
 pub fn serve(args: &ServeArgs) -> Result<(), String> {
-    if !args.models.is_dir() {
-        return Err(format!(
-            "the models folder {} doesn't exist",
-            args.models.display()
-        ));
+    projects::git(std::path::Path::new("."), &["--version"])
+        .map_err(|e| format!("outliers-sim serve needs git to version projects: {e}"))?;
+    let projects_dir = args.data.join("projects");
+    let runs_dir = args.data.join("runs");
+    for dir in [&projects_dir, &runs_dir] {
+        fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     }
-    fs::create_dir_all(&args.runs)
-        .map_err(|e| format!("can't create {}: {e}", args.runs.display()))?;
-    let state = AppState::start(
-        args.models.clone(),
-        args.runs.clone(),
-        thread_count(args.threads),
-    );
+    let projects = Projects::new(projects_dir);
+    if projects.ids().is_empty() {
+        let created = projects::seed_examples(&projects)?;
+        println!("created example projects: {}", created.join(", "));
+    }
+    let state = AppState::start(projects, runs_dir, thread_count(args.threads));
     let address = SocketAddr::new(args.host, args.port);
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     runtime.block_on(async {
         let listener = tokio::net::TcpListener::bind(address)
             .await
             .map_err(|e| format!("can't listen on {address}: {e}"))?;
-        println!(
-            "serving {} on http://{address} (runs in {})",
-            args.models.display(),
-            args.runs.display()
-        );
+        println!("serving {} on http://{address}", args.data.display());
         axum::serve(listener, router(state))
             .with_graceful_shutdown(shutdown_signal())
             .await
@@ -106,12 +103,19 @@ async fn shutdown_signal() {
 
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/", get(index))
-        .route("/app.js", get(app_js))
+        .route("/", get(page("index.html")))
+        .route("/build", get(page("build.html")))
+        .route("/decide", get(page("decide.html")))
+        .route("/common.css", get(asset("common.css")))
+        .route("/common.js", get(asset("common.js")))
+        .route("/build.js", get(asset("build.js")))
+        .route("/decide.js", get(asset("decide.js")))
         .route("/api/v1/health", get(health))
-        .route("/api/v1/models", get(list_models))
-        .route("/api/v1/models/{file}", get(get_model).put(save_scenario))
-        .route("/api/v1/check", axum::routing::post(check))
+        .route("/api/v1/projects", get(list_projects).post(create_project))
+        .route("/api/v1/projects/{id}", get(get_project))
+        .route("/api/v1/projects/{id}/check", post(check))
+        .route("/api/v1/projects/{id}/save", post(save))
+        .route("/api/v1/projects/{id}/publish", post(publish))
         .route("/api/v1/runs", get(list_runs).post(start_run))
         .route("/api/v1/runs/{id}", get(get_run))
         .route("/api/v1/runs/{id}/files/{name}", get(get_run_file))
@@ -119,10 +123,70 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-// --- state and the run queue ---------------------------------------------
+// --- web pages: plain HTML/CSS/JS compiled into the binary -------------------
+
+const WEB: &[(&str, &str, &str)] = &[
+    (
+        "index.html",
+        "text/html; charset=utf-8",
+        include_str!("web/index.html"),
+    ),
+    (
+        "build.html",
+        "text/html; charset=utf-8",
+        include_str!("web/build.html"),
+    ),
+    (
+        "decide.html",
+        "text/html; charset=utf-8",
+        include_str!("web/decide.html"),
+    ),
+    (
+        "common.css",
+        "text/css; charset=utf-8",
+        include_str!("web/common.css"),
+    ),
+    (
+        "common.js",
+        "text/javascript; charset=utf-8",
+        include_str!("web/common.js"),
+    ),
+    (
+        "build.js",
+        "text/javascript; charset=utf-8",
+        include_str!("web/build.js"),
+    ),
+    (
+        "decide.js",
+        "text/javascript; charset=utf-8",
+        include_str!("web/decide.js"),
+    ),
+];
+
+fn serve_web(name: &str) -> Response {
+    let (_, media_type, body) = WEB.iter().find(|(n, _, _)| *n == name).expect("known file");
+    (
+        [
+            (header::CONTENT_TYPE, *media_type),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        *body,
+    )
+        .into_response()
+}
+
+fn page(name: &'static str) -> impl Fn() -> std::future::Ready<Response> + Clone {
+    move || std::future::ready(serve_web(name))
+}
+
+fn asset(name: &'static str) -> impl Fn() -> std::future::Ready<Response> + Clone {
+    page(name)
+}
+
+// --- state and the run queue -------------------------------------------------
 
 pub struct AppState {
-    models: PathBuf,
+    projects: Projects,
     runs: PathBuf,
     threads: usize,
     jobs: Mutex<Vec<Job>>,
@@ -142,10 +206,14 @@ enum Status {
 #[derive(Clone)]
 struct Job {
     id: String,
-    /// Model file name, or the scenario's name for unsaved scenarios.
     label: String,
-    /// The model or scenario file to run (scenarios are written to the run folder).
-    model_path: PathBuf,
+    project: String,
+    /// `working` (the engineer's current model) or a published version.
+    version: String,
+    model: Model,
+    layout: Option<Layout>,
+    /// The exact model text that ran, kept with the results.
+    model_text: String,
     replications: Option<u32>,
     total: u32,
     progress: Arc<AtomicU32>,
@@ -159,6 +227,8 @@ impl Job {
         json!({
             "id": self.id,
             "label": self.label,
+            "project": self.project,
+            "version": self.version,
             "status": self.status,
             "progress": { "done": self.progress.load(Ordering::Relaxed), "total": self.total },
             "error": self.error,
@@ -169,10 +239,10 @@ impl Job {
 
 impl AppState {
     /// Creates the state and starts the worker thread that runs queued jobs.
-    pub fn start(models: PathBuf, runs: PathBuf, threads: usize) -> Arc<AppState> {
+    pub fn start(projects: Projects, runs: PathBuf, threads: usize) -> Arc<AppState> {
         let (queue, jobs_ready) = mpsc::channel::<String>();
         let state = Arc::new(AppState {
-            models,
+            projects,
             runs,
             threads,
             jobs: Mutex::new(Vec::new()),
@@ -208,22 +278,22 @@ impl AppState {
         };
         self.update(id, |j| j.status = Status::Running);
         let out_dir = self.runs.join(id);
-        let result = (|| {
-            let model = files::load_model(&job.model_path).map_err(|f| f.render())?;
-            let layout =
-                files::load_layout(&job.model_path, None, &model).map_err(|f| f.render())?;
-            runner::execute(
-                &model,
-                &RunOptions {
-                    replications: job.replications,
-                    threads: self.threads,
-                    log_replication: 1,
-                    layout: layout.as_ref().map(|l| &l.layout),
-                    progress: Some(&job.progress),
-                },
-                &out_dir,
-            )
-        })();
+        let result = runner::execute(
+            &job.model,
+            &RunOptions {
+                replications: job.replications,
+                threads: self.threads,
+                log_replication: 1,
+                layout: job.layout.as_ref(),
+                progress: Some(&job.progress),
+            },
+            &out_dir,
+        )
+        .and_then(|outcome| {
+            fs::write(out_dir.join("model.yaml"), &job.model_text)
+                .map_err(|e| format!("can't write model.yaml: {e}"))?;
+            Ok(outcome)
+        });
         self.update(id, |j| match result {
             Ok(outcome) => {
                 j.status = Status::Done;
@@ -231,10 +301,8 @@ impl AppState {
                     .files
                     .iter()
                     .filter_map(|f| f.file_name()?.to_str().map(String::from))
+                    .chain(["model.yaml".to_string()])
                     .collect();
-                if out_dir.join("scenario.yaml").exists() {
-                    j.files.push("scenario.yaml".into());
-                }
             }
             Err(error) => {
                 j.status = Status::Failed;
@@ -250,69 +318,193 @@ fn error(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(json!({ "error": message.into() }))).into_response()
 }
 
-/// Validation errors as JSON: the file each is in, and where.
-fn problems(file_name: &str, diagnostics: &[outliers_sim_model::Diagnostic]) -> Vec<Value> {
-    diagnostics
-        .iter()
-        .map(|d| {
-            json!({
-                "file": file_name,
-                "line": d.position.map(|p| p.line),
-                "column": d.position.map(|p| p.column),
-                "message": d.message,
-            })
-        })
-        .collect()
-}
-
-fn failure_problems(failure: &LoadFailure) -> Vec<Value> {
-    let (file, diagnostics) = failure.diagnostics();
-    let name = file
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or_default()
-        .to_string();
-    problems(&name, &diagnostics)
-}
-
-/// Model and scenario files are plain names in the models folder: no
-/// paths, so requests can't reach outside it.
-fn model_file(state: &AppState, name: &str) -> Result<PathBuf, String> {
-    let ok = name.ends_with(".yaml")
-        && !name.ends_with(".layout.yaml")
-        && !name.starts_with('.')
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    if ok {
-        Ok(state.models.join(name))
+fn not_found_or_bad(message: String) -> Response {
+    let status = if message.starts_with("no project") || message.contains("has no version") {
+        StatusCode::NOT_FOUND
     } else {
-        Err(format!(
-            "`{name}` is not a model file name (letters, digits, `.`, `_`, `-`, ending in .yaml)"
-        ))
-    }
+        StatusCode::BAD_REQUEST
+    };
+    error(status, message)
 }
 
-// --- pages -----------------------------------------------------------------
-
-/// The web interface: plain HTML and JS compiled into the binary.
-const INDEX_HTML: &str = include_str!("web/index.html");
-const APP_JS: &str = include_str!("web/app.js");
-
-async fn index() -> Response {
-    ([(header::CACHE_CONTROL, "no-cache")], Html(INDEX_HTML)).into_response()
+/// A problem with a model: the change it comes from (if any), or the file and line.
+fn problem(change: Option<&str>, file: Option<&str>, d: &Diagnostic) -> Value {
+    json!({
+        "change": change,
+        "file": file,
+        "line": d.position.map(|p| p.line),
+        "column": d.position.map(|p| p.column),
+        "message": d.message.strip_prefix("with this change: ").unwrap_or(&d.message),
+    })
 }
 
-async fn app_js() -> Response {
+fn invalid(errors: Vec<Value>) -> Response {
     (
-        [
-            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        APP_JS,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        Json(json!({ "ok": false, "error": "the model has errors", "errors": errors })),
     )
         .into_response()
 }
+
+// --- loading a project's model -------------------------------------------------
+
+/// A project's model at a version, with changes applied and checked.
+struct Loaded {
+    project: ProjectFile,
+    model: Model,
+    /// The model as YAML: the file itself, or the file with the changes applied.
+    text: String,
+    layout: Option<Layout>,
+}
+
+/// Why a project's model couldn't be loaded.
+enum LoadProblem {
+    /// The request can't be served (no such project or version): a message.
+    Request(String),
+    /// The model has errors.
+    Invalid(Vec<Value>),
+}
+
+impl LoadProblem {
+    fn into_response(self) -> Response {
+        match self {
+            LoadProblem::Request(message) => not_found_or_bad(message),
+            LoadProblem::Invalid(problems) => invalid(problems),
+        }
+    }
+}
+
+/// Loads `id` at `version` (`None`: the working copy) with `changes` applied.
+fn load(
+    state: &AppState,
+    id: &str,
+    version: Option<&str>,
+    changes: &Map<String, Value>,
+) -> Result<Loaded, LoadProblem> {
+    let fail = |e: String| Err(LoadProblem::Request(e));
+    let project = match state.projects.project_file(id, version) {
+        Ok(p) => p,
+        Err(e) => return fail(e),
+    };
+    let base = match state.projects.read(id, version, &project.model) {
+        Ok(text) => text,
+        Err(e) => return fail(e),
+    };
+    let model_file = project.model.clone();
+    let (model, text) = if changes.is_empty() {
+        match outliers_sim_model::load_str(&base) {
+            Ok(model) => (model, base),
+            Err(e) => {
+                return Err(LoadProblem::Invalid(
+                    e.diagnostics()
+                        .iter()
+                        .map(|d| problem(None, Some(&model_file), d))
+                        .collect(),
+                ));
+            }
+        }
+    } else {
+        apply_changes(&base, &model_file, changes).map_err(LoadProblem::Invalid)?
+    };
+    let layout = match state
+        .projects
+        .read_optional(id, version, &project.layout_file())
+    {
+        Ok(None) => None,
+        Ok(Some(source)) => match outliers_sim_model::load_layout(&source, &model) {
+            Ok((layout, _warnings)) => Some(layout),
+            Err(e) => {
+                let file = project.layout_file();
+                return Err(LoadProblem::Invalid(
+                    e.diagnostics()
+                        .iter()
+                        .map(|d| problem(None, Some(&file), d))
+                        .collect(),
+                ));
+            }
+        },
+        Err(e) => return fail(e),
+    };
+    Ok(Loaded {
+        project,
+        model,
+        text,
+        layout,
+    })
+}
+
+/// Applies changes (dotted path -> value) to a model's source. Errors name
+/// the change they come from, so a UI can mark the right field.
+fn apply_changes(
+    base: &str,
+    model_file: &str,
+    changes: &Map<String, Value>,
+) -> Result<(Model, String), Vec<Value>> {
+    let one = |message: String| vec![json!({ "change": null, "file": null, "message": message })];
+    if let Some(key) = changes.keys().find(|k| {
+        k.is_empty()
+            || !k
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    }) {
+        return Err(one(format!(
+            "`{key}` is not a change path (names separated by dots)"
+        )));
+    }
+    // The model keeps its own name: a scenario named after it.
+    let name = outliers_sim_model::to_tree(base)
+        .ok()
+        .and_then(|t| t.get("name").and_then(Value::as_str).map(String::from))
+        .unwrap_or_else(|| "model".into());
+    let mut text = format!(
+        "format: {}\nname: {}\nbase: {}\nchanges:\n",
+        outliers_sim_model::SCENARIO_FORMAT,
+        json!(name),
+        json!(model_file)
+    );
+    let first_change_line = text.lines().count() as u64 + 1;
+    for (path, value) in changes {
+        text += &format!("  {path}: {value}\n");
+    }
+    let keys: Vec<&String> = changes.keys().collect();
+    let located = |diagnostics: &[Diagnostic]| -> Vec<Value> {
+        diagnostics
+            .iter()
+            .map(|d| {
+                let change = d
+                    .position
+                    .and_then(|p| p.line.checked_sub(first_change_line))
+                    .and_then(|i| keys.get(i as usize))
+                    .map(|k| k.as_str());
+                problem(
+                    change,
+                    None,
+                    &Diagnostic {
+                        position: None,
+                        message: d.message.clone(),
+                    },
+                )
+            })
+            .collect()
+    };
+    let scenario =
+        outliers_sim_model::parse_scenario(&text).map_err(|e| located(e.diagnostics()))?;
+    match outliers_sim_model::load_scenario(&scenario, base) {
+        Ok(model) => {
+            let merged =
+                outliers_sim_model::merge(&scenario, base).map_err(|e| located(e.diagnostics()))?;
+            Ok((model, merged.text))
+        }
+        Err(ScenarioError::Scenario(e)) => Err(located(e.diagnostics())),
+        Err(ScenarioError::Base(e)) => Err(e
+            .diagnostics()
+            .iter()
+            .map(|d| problem(None, Some(model_file), d))
+            .collect()),
+    }
+}
+
+// --- health ----------------------------------------------------------------------
 
 /// For load balancers and monitoring: 200 while the server and its run
 /// queue are up.
@@ -327,244 +519,208 @@ async fn health(State(state): State<Arc<AppState>>) -> Response {
     .into_response()
 }
 
-// --- models ------------------------------------------------------------------
+// --- projects --------------------------------------------------------------------
 
-async fn list_models(State(state): State<Arc<AppState>>) -> Response {
-    let Ok(entries) = fs::read_dir(&state.models) else {
-        return error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "can't read the models folder",
-        );
-    };
-    let mut names: Vec<String> = entries
-        .filter_map(|e| e.ok()?.file_name().into_string().ok())
-        .filter(|n| n.ends_with(".yaml") && !n.ends_with(".layout.yaml") && !n.starts_with('.'))
-        .collect();
-    names.sort();
-    let models: Vec<Value> = names
+async fn list_projects(State(state): State<Arc<AppState>>) -> Response {
+    let projects: Vec<Value> = state
+        .projects
+        .ids()
         .iter()
-        .map(|name| {
-            let path = state.models.join(name);
-            let source = fs::read_to_string(&path).unwrap_or_default();
-            let scenario = outliers_sim_model::is_scenario(&source);
-            let loaded = files::load_model(&path);
-            let base = scenario
-                .then(|| outliers_sim_model::parse_scenario(&source).ok())
-                .flatten()
-                .map(|s| s.base.value);
-            json!({
-                "file": name,
-                "kind": if scenario { "scenario" } else { "model" },
-                "base": base,
-                "name": loaded.as_ref().ok().map(|m| m.name.clone()),
-                "description": loaded.as_ref().ok().and_then(|m| m.description.clone()),
-                "valid": loaded.is_ok(),
-            })
+        .filter_map(|id| {
+            let file = state.projects.project_file(id, None).ok()?;
+            let latest = state.projects.latest_version(id).ok().flatten();
+            Some(json!({
+                "id": id,
+                "name": file.name,
+                "description": file.description,
+                "published": latest.map(|v| json!({ "name": v.name, "date": v.date, "message": v.message })),
+            }))
         })
         .collect();
-    Json(json!({ "models": models })).into_response()
+    Json(json!({ "projects": projects })).into_response()
 }
 
-async fn get_model(State(state): State<Arc<AppState>>, UrlPath(name): UrlPath<String>) -> Response {
-    let path = match model_file(&state, &name) {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CreateProject {
+    id: String,
+    name: Option<String>,
+    /// An existing project to start from (its working copy).
+    from: String,
+}
+
+async fn create_project(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<CreateProject>,
+) -> Response {
+    let source = match state.projects.project_file(&body.from, None) {
         Ok(p) => p,
-        Err(e) => return error(StatusCode::BAD_REQUEST, e),
+        Err(e) => return not_found_or_bad(e),
     };
-    let Ok(source) = fs::read_to_string(&path) else {
-        return error(StatusCode::NOT_FOUND, format!("no model `{name}`"));
-    };
-    let mut body = json!({ "file": name, "source": source });
-    // The full model as a tree (for a scenario: with its changes applied):
-    // what scenario change paths address, and what forms display.
-    if outliers_sim_model::is_scenario(&source) {
-        body["kind"] = json!("scenario");
-        if let Ok(s) = outliers_sim_model::parse_scenario(&source) {
-            body["base"] = json!(s.base.value);
-            body["changes"] = json!(
-                s.changes()
-                    .map(|(k, v)| (k.to_string(), v.clone()))
-                    .collect::<serde_json::Map<_, _>>()
-            );
-            let base_source =
-                fs::read_to_string(files::scenario_base(&path, &s.base.value)).unwrap_or_default();
-            if let Ok(merged) = outliers_sim_model::merge(&s, &base_source) {
-                body["tree"] = outliers_sim_model::to_tree(&merged.text).unwrap_or(Value::Null);
-            }
+    let mut project = source.clone();
+    project.name = body.name.clone().unwrap_or_else(|| body.id.clone());
+    let mut files = vec![(
+        PROJECT_FILE.to_string(),
+        serde_saphyr::to_string(&project).unwrap_or_default(),
+    )];
+    for file in [source.model.clone(), source.layout_file()] {
+        if let Ok(Some(text)) = state.projects.read_optional(&body.from, None, &file) {
+            files.push((file, text));
         }
-    } else {
-        body["kind"] = json!("model");
-        body["tree"] = outliers_sim_model::to_tree(&source).unwrap_or(Value::Null);
     }
-    match files::load_model(&path) {
-        Ok(model) => {
+    match state
+        .projects
+        .create(&body.id, &files, &format!("Created from {}", body.from))
+    {
+        Ok(()) => (StatusCode::CREATED, Json(json!({ "id": body.id }))).into_response(),
+        Err(e) if e.contains("already exists") => error(StatusCode::CONFLICT, e),
+        Err(e) => error(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+#[derive(Deserialize)]
+struct VersionQuery {
+    /// `latest`, `v3`, or absent for the engineer's working copy.
+    version: Option<String>,
+}
+
+async fn get_project(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+    Query(query): Query<VersionQuery>,
+) -> Response {
+    let version = query.version.as_deref();
+    let resolved = match version {
+        None => None,
+        Some(v) => match state.projects.version_tag(&id, v) {
+            Ok(tag) => Some(tag),
+            Err(e) => return not_found_or_bad(e),
+        },
+    };
+    let project = match state.projects.project_file(&id, resolved.as_deref()) {
+        Ok(p) => p,
+        Err(e) => return not_found_or_bad(e),
+    };
+    let source = state
+        .projects
+        .read(&id, resolved.as_deref(), &project.model)
+        .unwrap_or_default();
+    let mut body = json!({
+        "id": id,
+        "name": project.name,
+        "description": project.description,
+        "version": resolved.clone().unwrap_or_else(|| "working".into()),
+        "model_file": project.model,
+        "source": source,
+        "tree": outliers_sim_model::to_tree(&source).unwrap_or(Value::Null),
+        "versions": state.projects.versions(&id).unwrap_or_default(),
+    });
+    if resolved.is_none() {
+        body["history"] = json!(state.projects.history(&id).unwrap_or_default());
+    }
+    match load(&state, &id, resolved.as_deref(), &Map::new()) {
+        Ok(loaded) => {
             body["valid"] = json!(true);
             body["errors"] = json!([]);
-            body["layout"] = match files::load_layout(&path, None, &model) {
-                Ok(Some(l)) => layout_json(&l.layout),
-                _ => Value::Null,
-            };
+            body["layout"] = loaded.layout.as_ref().map_or(Value::Null, layout_json);
         }
-        Err(failure) => {
+        Err(LoadProblem::Request(e)) => return not_found_or_bad(e),
+        Err(LoadProblem::Invalid(problems)) => {
             body["valid"] = json!(false);
-            body["errors"] = json!(failure_problems(&failure));
+            body["errors"] = json!(problems);
             body["layout"] = Value::Null;
         }
     }
     Json(body).into_response()
 }
 
-/// An unsaved scenario, as the UI and API clients send it.
-#[derive(Clone, Deserialize)]
+#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ScenarioBody {
-    name: Option<String>,
-    description: Option<String>,
-    /// The base model's file name in the models folder.
-    base: String,
+struct Changes {
     #[serde(default)]
-    changes: serde_json::Map<String, Value>,
+    changes: Map<String, Value>,
+    /// For saving: what changed, in a few words.
+    #[serde(default)]
+    message: String,
 }
 
-impl ScenarioBody {
-    /// The scenario as a YAML file, with `base` as given. Returns the text
-    /// and the line number of the first change (one change per line).
-    fn to_yaml(&self, base: &str) -> Result<(String, u64), String> {
-        if let Some(key) = self.changes.keys().find(|k| {
-            k.is_empty()
-                || !k
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-        }) {
-            return Err(format!(
-                "`{key}` is not a change path (names separated by dots)"
-            ));
-        }
-        let name = self.name.as_deref().unwrap_or("unsaved-scenario");
-        let mut text = format!(
-            "format: {}\nname: {}\n",
-            outliers_sim_model::SCENARIO_FORMAT,
-            json!(name)
-        );
-        if let Some(d) = &self.description {
-            text += &format!("description: {}\n", json!(d));
-        }
-        text += &format!("base: {}\n", json!(base));
-        let first_change_line = text.lines().count() as u64 + 2;
-        if self.changes.is_empty() {
-            text += "changes: {}\n";
-        } else {
-            text += "changes:\n";
-            for (path, value) in &self.changes {
-                text += &format!("  {path}: {value}\n");
-            }
-        }
-        Ok((text, first_change_line))
-    }
-
-    /// Validates the scenario against its base. Errors name the change they
-    /// come from (or the base file), so the UI can mark the right field.
-    fn check(&self, state: &AppState) -> Result<Model, Vec<Value>> {
-        let one =
-            |message: String| vec![json!({ "change": null, "file": null, "message": message })];
-        let base_path = model_file(state, &self.base)
-            .map_err(|_| one(format!("`{}` is not a model file name", self.base)))?;
-        let base_source = fs::read_to_string(&base_path)
-            .map_err(|_| one(format!("no base model `{}`", self.base)))?;
-        if outliers_sim_model::is_scenario(&base_source) {
-            return Err(one(format!(
-                "`{}` is a scenario; a scenario's base must be a model",
-                self.base
-            )));
-        }
-        let (text, first_change_line) = self.to_yaml(&self.base).map_err(one)?;
-        let keys: Vec<&String> = self.changes.keys().collect();
-        let in_scenario = |diagnostics: &[outliers_sim_model::Diagnostic]| -> Vec<Value> {
-            diagnostics
-                .iter()
-                .map(|d| {
-                    let change = d
-                        .position
-                        .and_then(|p| p.line.checked_sub(first_change_line))
-                        .and_then(|i| keys.get(i as usize));
-                    // The change is its own field; drop the CLI's "with this change:" prefix.
-                    let message = d
-                        .message
-                        .strip_prefix("with this change: ")
-                        .unwrap_or(&d.message);
-                    json!({ "change": change, "file": null, "message": message })
-                })
-                .collect()
-        };
-        let scenario =
-            outliers_sim_model::parse_scenario(&text).map_err(|e| in_scenario(e.diagnostics()))?;
-        match outliers_sim_model::load_scenario(&scenario, &base_source) {
-            Ok(model) => Ok(model),
-            Err(ScenarioError::Scenario(e)) => Err(in_scenario(e.diagnostics())),
-            Err(ScenarioError::Base(e)) => Err(e
-                .diagnostics()
-                .iter()
-                .map(|d| json!({ "change": null, "file": self.base, "line": d.position.map(|p| p.line), "message": d.message }))
-                .collect()),
-        }
-    }
-}
-
-async fn check(State(state): State<Arc<AppState>>, Json(body): Json<ScenarioBody>) -> Response {
-    match body.check(&state) {
-        Ok(_) => Json(json!({ "ok": true, "errors": [] })).into_response(),
-        Err(errors) => Json(json!({ "ok": false, "errors": errors })).into_response(),
-    }
-}
-
-/// Saves a scenario file. Base models are never overwritten through the API.
-async fn save_scenario(
+/// Checks pending changes against the working copy. Nothing is saved.
+async fn check(
     State(state): State<Arc<AppState>>,
-    UrlPath(name): UrlPath<String>,
-    Json(body): Json<ScenarioBody>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Changes>,
 ) -> Response {
-    let path = match model_file(&state, &name) {
-        Ok(p) => p,
-        Err(e) => return error(StatusCode::BAD_REQUEST, e),
-    };
-    if let Ok(existing) = fs::read_to_string(&path)
-        && !outliers_sim_model::is_scenario(&existing)
-    {
-        return error(
-            StatusCode::CONFLICT,
-            format!("`{name}` is a base model; only scenarios can be saved through the API"),
-        );
-    }
-    if let Err(errors) = body.check(&state) {
-        return (
-            StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({ "ok": false, "errors": errors })),
-        )
-            .into_response();
-    }
-    let text = match body.to_yaml(&body.base) {
-        Ok((text, _)) => text,
-        Err(e) => return error(StatusCode::BAD_REQUEST, e),
-    };
-    match fs::write(&path, text) {
-        Ok(()) => Json(json!({ "ok": true, "file": name })).into_response(),
-        Err(e) => error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("can't write `{name}`: {e}"),
-        ),
+    match load(&state, &id, None, &body.changes) {
+        Ok(_) => Json(json!({ "ok": true, "errors": [] })).into_response(),
+        Err(LoadProblem::Request(e)) => not_found_or_bad(e),
+        Err(LoadProblem::Invalid(problems)) => {
+            Json(json!({ "ok": false, "errors": problems })).into_response()
+        }
     }
 }
 
-// --- runs --------------------------------------------------------------------
+/// Applies pending changes to the working copy and saves a version (a commit).
+async fn save(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Changes>,
+) -> Response {
+    if body.changes.is_empty() {
+        return error(
+            StatusCode::BAD_REQUEST,
+            "nothing to save: there are no changes",
+        );
+    }
+    let loaded = match load(&state, &id, None, &body.changes) {
+        Ok(l) => l,
+        Err(problem) => return problem.into_response(),
+    };
+    match state
+        .projects
+        .save(&id, &[(&loaded.project.model, &loaded.text)], &body.message)
+    {
+        Ok(commit) => Json(json!({ "ok": true, "saved": commit })).into_response(),
+        Err(e) => error(StatusCode::CONFLICT, e),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Publish {
+    #[serde(default)]
+    message: String,
+}
+
+/// Publishes the last saved version for managers. It must be a valid model.
+async fn publish(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<Publish>,
+) -> Response {
+    if let Err(problem) = load(&state, &id, None, &Map::new()) {
+        return problem.into_response();
+    }
+    match state.projects.publish(&id, &body.message) {
+        Ok(version) => Json(json!({ "ok": true, "published": version })).into_response(),
+        Err(e) => error(StatusCode::CONFLICT, e),
+    }
+}
+
+// --- runs ------------------------------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RunRequest {
-    /// A model or scenario file in the models folder...
-    file: Option<String>,
-    /// ...or an unsaved scenario.
-    scenario: Option<ScenarioBody>,
+    project: String,
+    /// `latest`, `v3`, or absent for the working copy.
+    version: Option<String>,
+    /// Changes to apply first (unsaved edits, or a scenario).
+    #[serde(default)]
+    changes: Map<String, Value>,
     /// Overrides the model's number of replications.
     replications: Option<u32>,
+    /// A name for the run; defaults to the project and version.
+    label: Option<String>,
 }
 
 async fn start_run(
@@ -574,64 +730,47 @@ async fn start_run(
     if request.replications == Some(0) {
         return error(StatusCode::BAD_REQUEST, "`replications` must be at least 1");
     }
+    let version = match request.version.as_deref() {
+        None => None,
+        Some(v) => match state.projects.version_tag(&request.project, v) {
+            Ok(tag) => Some(tag),
+            Err(e) => return not_found_or_bad(e),
+        },
+    };
+    let loaded = match load(
+        &state,
+        &request.project,
+        version.as_deref(),
+        &request.changes,
+    ) {
+        Ok(l) => l,
+        Err(problem) => return problem.into_response(),
+    };
+    let version_name = version.unwrap_or_else(|| "working".into());
+    let label = request.label.clone().unwrap_or_else(|| {
+        let changed = if request.changes.is_empty() {
+            ""
+        } else {
+            " (with changes)"
+        };
+        format!("{} {version_name}{changed}", loaded.project.name)
+    });
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let id = format!("{secs}-{}", state.next_id.fetch_add(1, Ordering::Relaxed));
-    let run_dir = state.runs.join(&id);
-
-    let (label, model_path, model) = match (&request.file, &request.scenario) {
-        (Some(file), None) => {
-            let path = match model_file(&state, file) {
-                Ok(p) => p,
-                Err(e) => return error(StatusCode::BAD_REQUEST, e),
-            };
-            match files::load_model(&path) {
-                Ok(model) => (file.clone(), path, model),
-                Err(failure) => {
-                    return (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Json(json!({ "error": "the model has errors", "errors": failure_problems(&failure) })),
-                    )
-                        .into_response();
-                }
-            }
-        }
-        (None, Some(scenario)) => {
-            let model = match scenario.check(&state) {
-                Ok(model) => model,
-                Err(errors) => {
-                    return (
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        Json(json!({ "error": "the scenario has errors", "errors": errors })),
-                    )
-                        .into_response();
-                }
-            };
-            // Keep the scenario with its results, pointing at the base by
-            // absolute path so the run folder can be anywhere.
-            let base = fs::canonicalize(state.models.join(&scenario.base)).unwrap_or_default();
-            let (text, _) = scenario.to_yaml(&base.to_string_lossy()).expect("checked");
-            let path = run_dir.join("scenario.yaml");
-            if let Err(e) = fs::create_dir_all(&run_dir).and_then(|()| fs::write(&path, text)) {
-                return error(
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("can't write the run folder: {e}"),
-                );
-            }
-            (model.name.clone(), path, model)
-        }
-        _ => return error(StatusCode::BAD_REQUEST, "give either `file` or `scenario`"),
-    };
-
     let job = Job {
         id: id.clone(),
         label,
-        model_path,
-        replications: request.replications,
+        project: request.project.clone(),
+        version: version_name,
         total: request
             .replications
-            .unwrap_or(model.spec.experiment.replications),
+            .unwrap_or(loaded.model.spec.experiment.replications),
+        model: loaded.model,
+        layout: loaded.layout,
+        model_text: loaded.text,
+        replications: request.replications,
         progress: Arc::new(AtomicU32::new(0)),
         status: Status::Queued,
         error: None,
@@ -669,7 +808,7 @@ const RUN_FILES: &[(&str, &str)] = &[
     ("replications.csv", "text/csv; charset=utf-8"),
     ("events.jsonl", "application/x-ndjson"),
     ("layout.json", "application/json"),
-    ("scenario.yaml", "text/yaml; charset=utf-8"),
+    ("model.yaml", "text/yaml; charset=utf-8"),
 ];
 
 async fn get_run_file(
@@ -699,27 +838,21 @@ async fn get_run_file(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    /// A server over a copy of the examples, with its own runs folder.
+    /// A server over a fresh data folder with the example projects.
     fn app(name: &str) -> (Router, PathBuf) {
         let root =
             std::env::temp_dir().join(format!("outliers-sim-serve-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
-        let models = root.join("models");
-        fs::create_dir_all(&models).unwrap();
-        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
-        for entry in fs::read_dir(examples).unwrap() {
-            let path = entry.unwrap().path();
-            fs::copy(&path, models.join(path.file_name().unwrap())).unwrap();
-        }
-        let state = AppState::start(models, root.join("runs"), 2);
+        fs::create_dir_all(root.join("projects")).unwrap();
+        let projects = Projects::new(root.join("projects"));
+        projects::seed_examples(&projects).unwrap();
+        let state = AppState::start(projects, root.join("runs"), 2);
         (router(state), root)
     }
 
@@ -755,142 +888,109 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn lists_models_and_scenarios() {
+    async fn lists_projects_with_their_published_version() {
         let (app, root) = app("list");
-        let (status, body) = call(&app, "GET", "/api/v1/models", None).await;
+        let (status, body) = call(&app, "GET", "/api/v1/projects", None).await;
         assert_eq!(status, StatusCode::OK);
-        let models = body["models"].as_array().unwrap();
-        let find = |f: &str| models.iter().find(|m| m["file"] == f).unwrap().clone();
-        assert_eq!(find("two-cells.yaml")["kind"], "model");
-        let scenario = find("two-cells-round-robin.yaml");
-        assert_eq!(scenario["kind"], "scenario");
-        assert_eq!(scenario["base"], "two-cells.yaml");
-        assert_eq!(scenario["valid"], true);
-        assert!(
-            models
-                .iter()
-                .all(|m| !m["file"].as_str().unwrap().ends_with(".layout.yaml"))
-        );
+        let projects = body["projects"].as_array().unwrap();
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[1]["id"], "two-cells");
+        assert_eq!(projects[1]["name"], "Two cells");
+        assert_eq!(projects[1]["published"]["name"], "v1");
         fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
-    async fn model_detail_has_tree_and_layout() {
-        let (app, root) = app("detail");
-        let (_, body) = call(
+    async fn engineer_flow_check_save_publish() {
+        let (app, root) = app("flow");
+        let (_, project) = call(&app, "GET", "/api/v1/projects/two-cells", None).await;
+        assert_eq!(project["version"], "working");
+        assert_eq!(project["valid"], true);
+        assert_eq!(
+            project["tree"]["sources"]["arrivals"]["output"]["rule"],
+            "shortest_queue"
+        );
+        assert_eq!(project["layout"]["format"], "outliers-sim-layout/0.1");
+        assert_eq!(project["history"].as_array().unwrap().len(), 1);
+
+        // A bad change is reported against its path; nothing is saved.
+        let bad = json!({ "changes": { "conveyors.c_a.speed": "5 min" } });
+        let (_, checked) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/two-cells/check",
+            Some(bad.clone()),
+        )
+        .await;
+        assert_eq!(checked["ok"], false);
+        assert_eq!(checked["errors"][0]["change"], "conveyors.c_a.speed");
+        assert!(
+            checked["errors"][0]["message"]
+                .as_str()
+                .unwrap()
+                .contains("is a time, but a speed")
+        );
+        let (status, _) = call(&app, "POST", "/api/v1/projects/two-cells/save", Some(bad)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+        // A good change is saved as a version, then published as v2.
+        let good = json!({ "changes": { "servers.mill_b.capacity": 2 }, "message": "Second spindle on mill B" });
+        let (status, saved) =
+            call(&app, "POST", "/api/v1/projects/two-cells/save", Some(good)).await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        assert_eq!(saved["saved"]["message"], "Second spindle on mill B");
+        let (_, project) = call(&app, "GET", "/api/v1/projects/two-cells", None).await;
+        assert_eq!(project["tree"]["servers"]["mill_b"]["capacity"], 2);
+        assert_eq!(
+            project["tree"]["name"], "two-cells",
+            "the model keeps its name"
+        );
+        let (status, published) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/two-cells/publish",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{published}");
+        assert_eq!(published["published"]["name"], "v2");
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/projects/two-cells/publish",
+            Some(json!({})),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+
+        // Managers see published versions; v1 is unchanged.
+        let (_, v1) = call(&app, "GET", "/api/v1/projects/two-cells?version=v1", None).await;
+        assert_eq!(v1["version"], "v1");
+        assert!(v1["tree"]["servers"]["mill_b"].get("capacity").is_none());
+        let (_, latest) = call(
             &app,
             "GET",
-            "/api/v1/models/two-cells-first-available.yaml",
+            "/api/v1/projects/two-cells?version=latest",
             None,
         )
         .await;
-        assert_eq!(body["kind"], "scenario");
-        assert_eq!(body["valid"], true);
-        // The tree has the change applied, at the path the change names.
-        assert_eq!(
-            body["tree"]["sources"]["arrivals"]["output"]["rule"],
-            "first_available"
-        );
-        assert_eq!(
-            body["changes"]["sources.arrivals.output"]["rule"],
-            "first_available"
-        );
-        assert_eq!(body["layout"]["format"], "outliers-sim-layout/0.1");
+        assert_eq!(latest["version"], "v2");
+        assert!(latest.get("history").is_none());
         fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
-    async fn check_names_the_change_at_fault() {
-        let (app, root) = app("check");
-        let scenario = json!({
-            "base": "two-cells.yaml",
-            "changes": {
-                "conveyors.c_a.length": "12 m",
-                "sources.arrivals.output": { "rule": "round_robn" },
-                "servers.mil_b.capacity": 2,
-            }
-        });
-        let (_, body) = call(&app, "POST", "/api/v1/check", Some(scenario)).await;
-        assert_eq!(body["ok"], false);
-        let errors = body["errors"].as_array().unwrap();
-        assert_eq!(errors.len(), 1, "{errors:?}"); // bad paths stop before validation
-        assert_eq!(errors[0]["change"], "servers.mil_b.capacity");
-        assert!(
-            errors[0]["message"]
-                .as_str()
-                .unwrap()
-                .contains("has no `mil_b`")
-        );
-
-        let scenario = json!({
-            "base": "two-cells.yaml",
-            "changes": { "conveyors.c_a.length": "12 m", "sources.arrivals.output": { "rule": "round_robn" } }
-        });
-        let (_, body) = call(&app, "POST", "/api/v1/check", Some(scenario)).await;
-        assert_eq!(body["errors"][0]["change"], "sources.arrivals.output");
-        assert!(
-            body["errors"][0]["message"]
-                .as_str()
-                .unwrap()
-                .contains("round_robn")
-        );
-
-        let ok = json!({ "base": "two-cells.yaml", "changes": { "conveyors.c_a.length": "12 m" } });
-        let (_, body) = call(&app, "POST", "/api/v1/check", Some(ok)).await;
-        assert_eq!(body, json!({ "ok": true, "errors": [] }));
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[tokio::test]
-    async fn saves_scenarios_but_never_base_models() {
-        let (app, root) = app("save");
-        let scenario = json!({
-            "name": "bigger-buffer",
-            "base": "conveyor-line.yaml",
-            "changes": { "conveyors.c2.length": "16 m" }
-        });
-        let (status, _) = call(
-            &app,
-            "PUT",
-            "/api/v1/models/bigger-buffer.yaml",
-            Some(scenario.clone()),
-        )
-        .await;
-        assert_eq!(status, StatusCode::OK);
-        let saved = fs::read_to_string(root.join("models/bigger-buffer.yaml")).unwrap();
-        assert!(saved.contains("  conveyors.c2.length: \"16 m\""), "{saved}");
-        let (_, detail) = call(&app, "GET", "/api/v1/models/bigger-buffer.yaml", None).await;
-        assert_eq!(detail["valid"], true);
-
-        let (status, body) = call(
-            &app,
-            "PUT",
-            "/api/v1/models/conveyor-line.yaml",
-            Some(scenario),
-        )
-        .await;
-        assert_eq!(status, StatusCode::CONFLICT, "{body}");
-
-        let bad =
-            json!({ "base": "conveyor-line.yaml", "changes": { "conveyors.c2.length": "16 min" } });
-        let (status, body) = call(&app, "PUT", "/api/v1/models/bad.yaml", Some(bad)).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(body["errors"][0]["change"], "conveyors.c2.length");
-        assert!(!root.join("models/bad.yaml").exists());
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[tokio::test]
-    async fn runs_a_saved_model_and_an_unsaved_scenario() {
+    async fn runs_published_versions_and_working_copies_with_changes() {
         let (app, root) = app("runs");
         let (status, run) = call(
             &app,
             "POST",
             "/api/v1/runs",
-            Some(json!({ "file": "two-cells.yaml", "replications": 3 })),
+            Some(json!({ "project": "two-cells", "version": "latest", "replications": 3 })),
         )
         .await;
-        assert_eq!(status, StatusCode::ACCEPTED);
+        assert_eq!(status, StatusCode::ACCEPTED, "{run}");
+        assert_eq!(run["version"], "v1");
         let run = wait_for(&app, run["id"].as_str().unwrap()).await;
         assert_eq!(run["status"], "done", "{run}");
         assert_eq!(run["progress"], json!({ "done": 3, "total": 3 }));
@@ -900,44 +1000,89 @@ mod tests {
             "replications.csv",
             "events.jsonl",
             "layout.json",
+            "model.yaml",
         ] {
             assert!(
                 run["files"].as_array().unwrap().contains(&json!(file)),
                 "{run}"
             );
         }
+
+        let changes = json!({ "project": "two-cells", "changes": { "sources.arrivals.output": { "rule": "round_robin" } }, "replications": 2 });
+        let (status, run) = call(&app, "POST", "/api/v1/runs", Some(changes)).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{run}");
+        assert_eq!(run["label"], "Two cells working (with changes)");
+        let run = wait_for(&app, run["id"].as_str().unwrap()).await;
         let id = run["id"].as_str().unwrap();
-        let (status, summary) = call(
+        let (_, model) = call(
             &app,
             "GET",
-            &format!("/api/v1/runs/{id}/files/summary.json"),
+            &format!("/api/v1/runs/{id}/files/model.yaml"),
             None,
         )
         .await;
-        assert_eq!(status, StatusCode::OK);
-        assert_eq!(summary["replications"], 3);
-
-        let scenario = json!({
-            "scenario": { "base": "two-cells.yaml", "changes": { "sources.arrivals.output": { "rule": "round_robin" } } },
-            "replications": 2
-        });
-        let (status, run) = call(&app, "POST", "/api/v1/runs", Some(scenario)).await;
-        assert_eq!(status, StatusCode::ACCEPTED, "{run}");
-        let run = wait_for(&app, run["id"].as_str().unwrap()).await;
-        assert_eq!(run["status"], "done", "{run}");
         assert!(
-            run["files"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("layout.json")),
-            "{run}"
+            model.as_str().unwrap().contains("rule: round_robin"),
+            "the run keeps the exact model it ran"
         );
-        let id = run["id"].as_str().unwrap();
-        assert!(root.join("runs").join(id).join("scenario.yaml").exists());
 
-        let (status, body) = call(&app, "POST", "/api/v1/runs", Some(json!({ "scenario": { "base": "two-cells.yaml", "changes": { "experiment.replications": 0 } } }))).await;
-        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+        let (status, body) = call(
+            &app,
+            "POST",
+            "/api/v1/runs",
+            Some(json!({ "project": "two-cells", "changes": { "experiment.replications": 0 } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(body["errors"][0]["change"], "experiment.replications");
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/runs",
+            Some(json!({ "project": "two-cells", "version": "v7" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn creates_projects_from_existing_ones() {
+        let (app, root) = app("create");
+        let body = json!({ "id": "line-2", "name": "Second line", "from": "conveyor-line" });
+        let (status, _) = call(&app, "POST", "/api/v1/projects", Some(body.clone())).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let (_, project) = call(&app, "GET", "/api/v1/projects/line-2", None).await;
+        assert_eq!(project["name"], "Second line");
+        assert_eq!(project["valid"], true);
+        assert!(project["layout"].is_object());
+        assert!(
+            project["versions"].as_array().unwrap().is_empty(),
+            "not published yet"
+        );
+        let (status, _) = call(&app, "POST", "/api/v1/projects", Some(body)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_bad_ids_and_unknown_files() {
+        let (app, root) = app("ids");
+        for uri in [
+            "/api/v1/projects/..%2Fetc",
+            "/api/v1/projects/Two-Cells",
+            "/api/v1/projects/nope",
+        ] {
+            let (status, _) = call(&app, "GET", uri, None).await;
+            assert!(
+                status == StatusCode::BAD_REQUEST || status == StatusCode::NOT_FOUND,
+                "{uri}: {status}"
+            );
+        }
+        let (status, _) = call(&app, "GET", "/api/v1/runs/nope/files/report.html", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (status, _) = call(&app, "GET", "/api/v1/runs/nope/files/secret.txt", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -947,16 +1092,17 @@ mod tests {
         let (status, body) = call(&app, "GET", "/api/v1/health", None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["status"], "ok");
-        assert_eq!(body["runs"], json!({ "queued": 0, "running": 0 }));
         fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
-    async fn serves_the_web_interface() {
-        let (app, root) = app("web");
-        for (uri, media_type, marker) in [
-            ("/", "text/html", "<script src=\"app.js\">"),
-            ("/app.js", "text/javascript", "const API = \"api/v1\";"),
+    async fn serves_the_three_pages() {
+        let (app, root) = app("pages");
+        for (uri, marker) in [
+            ("/", "href=\"build\""),
+            ("/build", "<script src=\"build.js\">"),
+            ("/decide", "<script src=\"decide.js\">"),
+            ("/common.js", "const API"),
         ] {
             let response = app
                 .clone()
@@ -964,41 +1110,9 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(response.status(), StatusCode::OK, "{uri}");
-            let content_type = response.headers()[header::CONTENT_TYPE]
-                .to_str()
-                .unwrap()
-                .to_string();
-            assert!(
-                content_type.starts_with(media_type),
-                "{uri}: {content_type}"
-            );
             let body = response.into_body().collect().await.unwrap().to_bytes();
             assert!(String::from_utf8_lossy(&body).contains(marker), "{uri}");
         }
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[tokio::test]
-    async fn rejects_paths_outside_the_models_folder() {
-        let (app, root) = app("paths");
-        for uri in [
-            "/api/v1/models/..%2Fsecret.yaml",
-            "/api/v1/models/.hidden.yaml",
-            "/api/v1/models/x.layout.yaml",
-        ] {
-            let (status, _) = call(&app, "GET", uri, None).await;
-            assert_eq!(status, StatusCode::BAD_REQUEST, "{uri}");
-        }
-        let (status, _) = call(
-            &app,
-            "GET",
-            "/api/v1/runs/nope/files/../../etc/passwd",
-            None,
-        )
-        .await;
-        assert_ne!(status, StatusCode::OK);
-        let (status, _) = call(&app, "GET", "/api/v1/runs/nope/files/report.html", None).await;
-        assert_eq!(status, StatusCode::NOT_FOUND);
         fs::remove_dir_all(root).unwrap();
     }
 }

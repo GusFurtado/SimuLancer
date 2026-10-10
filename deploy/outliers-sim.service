@@ -5,8 +5,9 @@
 #   sudo cp outliers-sim.service /etc/systemd/system/
 #   sudo systemctl enable --now outliers-sim
 #
-# Models and scenarios go in /var/lib/outliers-sim/models, results in
-# /var/lib/outliers-sim/runs. The server listens on 127.0.0.1 only: put your
+# Needs git (projects are git repositories): sudo apt install git
+# Projects live in /var/lib/outliers-sim/projects (the first start creates
+# the example projects), results in /var/lib/outliers-sim/runs. The server listens on 127.0.0.1 only: put your
 # reverse proxy (HTTPS, logins) in front of it (deploy/nginx.conf).
 
 [Unit]
@@ -20,8 +21,8 @@ User=outliers-sim
 Group=outliers-sim
 # Creates /var/lib/outliers-sim, owned by the user above.
 StateDirectory=outliers-sim
-ExecStartPre=/usr/bin/mkdir -p /var/lib/outliers-sim/models /var/lib/outliers-sim/runs
-ExecStart=/usr/local/bin/outliers-sim serve --models /var/lib/outliers-sim/models --runs /var/lib/outliers-sim/runs --host 127.0.0.1 --port 8080
+Environment=HOME=/var/lib/outliers-sim
+ExecStart=/usr/local/bin/outliers-sim serve --data /var/lib/outliers-sim --host 127.0.0.1 --port 8080
 Restart=on-failure
 
 # Sandboxing: the server only needs its state folder and the network.

@@ -130,3 +130,82 @@ Use these to evaluate any tool, open-source or commercial:
 8. Will my models still run in 10 years if the vendor disappears?
 9. Can I write automated tests for model logic?
 10. Is the tool helping me do correct analysis, or just a convincing demo?
+
+## 16. How outliers-sim answers these issues
+
+Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-09.
+
+| Issue | What outliers-sim does about it | Status |
+|---|---|---|
+| **1. Cost and licensing** | | |
+| High prices, subscriptions | Open source (MIT/Apache-2.0). No license fees, ever. | done |
+| Add-ons cost extra | Comparison, the report, the animation, the API, the server and parallel runs are all in the one free program. | done |
+| Runtime and distribution fees | Anyone can run a model: one 6 MB binary, an 8 MB Docker image, or a browser on the company's server. | done |
+| Node-locked or dongle licenses | No licenses to lock. Runs headless, in containers and in CI. | done |
+| Pricing is hidden | There's no price. | done |
+| Crippled student versions | Students get the full program. | done |
+| More compute costs more | Replications run on every core at no extra cost. | done |
+| **2. Lock-in** | | |
+| Closed file formats | Models are plain YAML; results are JSON, CSV and JSON Lines; formats are documented and versioned. | done |
+| Skills don't transfer | No proprietary scripting language: the model is data, plus a small, documented formula language for distributions. | done |
+| No migration path | The model is readable text and the engine is open, so it can be converted or reimplemented. | partial |
+| Consulting ecosystem | Models are readable enough that an organization can own them, with separate interfaces for the engineer (who builds) and the manager (who decides), so neither depends on an outside expert to operate the tool. | partial |
+| Vendor survival risk | Open source: anyone can keep it alive. | done |
+| **3. Old architecture** | | |
+| Old foundations, Windows-only | Rust engine; Linux binary, Docker image, web interface in any browser. | done |
+| Single-threaded engines | Replications run in parallel across all cores, with results independent of the thread count. | done |
+| Slow startup and heavy UI | 30 replications of the examples in about 0.2 s; the web UI is plain HTML/JS with no install. | done |
+| GUI is the only full interface | CLI, HTTP API and web UI are equal citizens; the web UI uses only the public API. | done |
+| Weak APIs | A documented JSON HTTP API (`docs/api.md`), scriptable from any language. | done |
+| **4. Reproducibility and engineering practice** | | |
+| No real version control | Projects are git repositories: the builder's "Save version" commits and "Publish" tags, with the engineer's message; managers only see published versions. | done |
+| Logic is scattered | The whole model is one readable file; `validate` shows everything the engine understood. | done |
+| No automated testing | Validated against queueing theory in CI; models and scenarios can be checked in CI with `validate`. | done |
+| Hard to automate | Headless CLI and HTTP API; a Python parameter sweep is in the docs. | done |
+| Results depend on the software version | Our own random number generator and distributions, so the same seed gives the same results forever; integer time. | done |
+| Models die with the license | No license to expire. | done |
+| Documentation by hand | The model file is the specification; `validate` prints an exact summary. | partial |
+| **5. Modeling paradigm** | | |
+| Too much hidden in the GUI | The text file is the source of truth; the UI edits it, so nothing lives only in the GUI. | done |
+| Implicit default behavior | Tie-breaking, blocking and failure rules are documented; routing and merging rules are required whenever there's a choice. | done |
+| Too many overlapping features | One way to express each thing. | done |
+| Abstraction leaks / weak programming | A deliberately small model language, plus the API for anything beyond it; a scripting escape hatch is an open question. | partial |
+| Hard to model non-standard systems | Sources, conveyors, servers, sinks, routing, merging, failures so far. Shifts, part types, assembly and shared resources are planned. | partial |
+| **6. Data integration** | | |
+| Clumsy data input | Models are YAML (easy to generate) and scenarios are change sets via the API. No database connectors yet. | partial |
+| Rigid output formats | JSON summary, long-format CSV, JSON Lines event log, self-contained HTML report. | done |
+| Weak input modeling | Seven distributions including Weibull and gamma. No distribution fitting yet. | partial |
+| Disconnected from modern data tools | CSV/JSON open in pandas or R directly. No Parquet or Python package yet. | partial |
+| **7. Statistics and methodology** | | |
+| The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. | done |
+| Warm-up and run length are guessed | The warm-up is explicit and applied automatically, but nothing yet helps choose it. | partial |
+| Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
+| Comparing scenarios is unsound (implied by the above) | Paired comparison with common random numbers: an interval on the difference and a verdict. | done |
+| Optimization is a black box | No optimizer yet; parameter sweeps through the API. | open |
+| Validation is skipped | The engine itself is validated against queueing theory. Nothing yet helps validate a user's model against real data. | partial |
+| Verification is hard | Readable models, a per-part event log, and a replay that reproduces the engine exactly. | done |
+| **8. Animation as a substitute for rigor** | | |
+| The animation is the product | Animation is a results tab next to the report, and the manager view leads with numbers and their uncertainty. | partial |
+| Effort goes into 3D | Layouts are a small separate file; the 2D replay is the default and 3D is optional. | done |
+| Animation is slow | Simulation never runs with animation: runs at full speed, then the event log is replayed. | done |
+| **9. The "pseudo-science" pipeline** | | |
+| Models can't be audited | Anyone can read and re-run a model for free, and get identical numbers. | done |
+| Assumptions aren't documented | Every assumption is a line in the model file, and each saved version carries the engineer's message about what changed. | partial |
+| The tool lends false authority | Results always come with uncertainty, and "no clear difference" is a valid verdict. | partial |
+| **10. Learning curve** | | |
+| Tool training replaces method training | The docs explain the methods (CRN, confidence intervals, warm-up) next to the tool. | partial |
+| Weak documentation | Docs live in the repository and are tested by examples. Still thin for engineers. | partial |
+| Hard to debug | Errors point to the exact line or form field, in plain language. | done |
+| **11. Academia–industry pipeline** | | |
+| Research is hard to reproduce | Free tool, text models, fixed seeds: papers can ship reproducible models. | done |
+| **12. Collaboration and deployment** | | |
+| Not built for teams | Separate pages for engineers (build, save, publish) and managers (published versions only), plus the API for developers. Concurrent editing and roles come later. | partial |
+| Hard to share with stakeholders | Hosted web app with a manager page that shows only published versions. Next: only the decisions the engineer exposes, and plain-language comparisons. | partial |
+| Hard to put into production | The server and API are the product: a static binary or Docker image, health checks, deployment docs. Webhooks are planned. | partial |
+| **13. Scale and performance** | | |
+| Large models / big experiments | Fast native engine, all cores, no allocation per event. Not yet tested on very large models. | partial |
+| No distributed engine | One machine only, for now. | open |
+| **14. Modern workflows and AI** | | |
+| Models are hard for AI tools | Plain-text models with clear error messages: easy for code assistants to read, write and fix. This project is built that way. | done |
+| No programmatic model building | Models and scenarios can be generated as YAML or sent as JSON through the API. | partial |
+| Weak link to process mining | The event log format is close to process-mining logs; no import yet. | open |

@@ -152,3 +152,22 @@ fn scenario_files_are_recognized() {
     let wrong = s.replace("outliers-sim-scenario/0.1", "outliers-sim-scenario/9");
     assert!(parse_scenario(&wrong).is_err());
 }
+
+#[test]
+fn writing_a_model_back_as_yaml_keeps_it_identical() {
+    // Every example: parse to a tree, write it out, load both, compare.
+    for (name, source) in [("conveyor-line", CONVEYOR_LINE), ("two-cells", TWO_CELLS)] {
+        let tree = outliers_sim_model::to_tree(source).unwrap();
+        let written = outliers_sim_model::to_yaml(&tree);
+        let original = load_str(source).unwrap();
+        let reloaded =
+            load_str(&written).unwrap_or_else(|e| panic!("{name}: {}", e.render(name, &written)));
+        assert_eq!(reloaded.spec, original.spec, "{name}");
+        assert_eq!(reloaded.name, original.name);
+        assert_eq!(
+            outliers_sim_model::to_tree(&written).unwrap(),
+            tree,
+            "{name}"
+        );
+    }
+}

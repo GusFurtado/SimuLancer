@@ -36,22 +36,20 @@ Scenario files work anywhere a model does (`validate`, `run`, `compare`). Errors
 ## Server and HTTP API
 
 ```sh
-outliers-sim serve --models ./models --runs ./runs --port 8080
+outliers-sim serve --data ./data --port 8080
 ```
 
-Then open `http://localhost:8080`. The web interface works like this:
+Then open `http://localhost:8080`. There's a page for each kind of user:
 
-- pick a model;
-- click machines and conveyors in the diagram to change them; errors show next to the field as you type;
-- save the result as a scenario;
-- press Run;
-- read the report, or watch the 2D animation.
+- **Build (engineers).** Open a project and click machines and conveyors in its diagram to change them; errors show next to the field as you type. Run to check, **save a version** with a short message, then **publish** it for managers. Versions are git commits and tags in the project's repository; the engineer never sees git.
+- **Decide (managers).** Published versions only: run them and read the report or watch the 2D animation. Scenarios built from the decisions engineers expose are next.
+- **API (developers).** Everything the pages do goes through the documented HTTP API (`docs/api.md`): projects, versions, runs and results as JSON.
 
-Everything the interface does goes through the documented HTTP API (`docs/api.md`), so scripts can do the same: list models, check and save scenarios, queue runs and fetch results. Runs execute on the server, one at a time on all cores.
+Runs execute on the server, one at a time on all cores.
 
 ## Deploying
 
-One static Linux binary (about 6 MB) or an 8 MB Docker image:
+One static Linux binary (about 6 MB, plus git on the system) or a 41 MB Docker image:
 
 ```sh
 docker run -d -p 127.0.0.1:8080:8080 -v outliers-sim-data:/data ghcr.io/gusfurtado/outliers-sim:latest
