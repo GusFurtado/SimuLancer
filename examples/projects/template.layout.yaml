@@ -1,0 +1,11 @@
+model: model.yaml
+units: m
+
+objects:
+  arrivals: { position: [0, 0, 0] }
+  machine:  { position: [6, 0, 0] }
+  shipping: { position: [12, 0, 0] }
+
+conveyors:
+  c1: { path: [[0.7, 0, 0], [5.3, 0, 0]] }
+  c2: { path: [[6.7, 0, 0], [11.3, 0, 0]] }

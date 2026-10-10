@@ -166,7 +166,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Models die with the license | No license to expire. | done |
 | Documentation by hand | The model file is the specification; `validate` prints an exact summary. | partial |
 | **5. Modeling paradigm** | | |
-| Too much hidden in the GUI | The text file is the source of truth; the UI edits it, so nothing lives only in the GUI. | done |
+| Too much hidden in the GUI | The text file is the source of truth. The UI, including drawing the model, edits it, so nothing lives only in the GUI. | done |
 | Implicit default behavior | Tie-breaking, blocking and failure rules are documented; routing and merging rules are required whenever there's a choice. | done |
 | Too many overlapping features | One way to express each thing. | done |
 | Abstraction leaks / weak programming | A deliberately small model language, plus the API for anything beyond it; a scripting escape hatch is an open question. | partial |

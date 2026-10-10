@@ -134,6 +134,7 @@ pub fn merge(scenario: &Scenario, base_source: &str) -> Result<Merged, LoadError
 }
 
 /// Replaces (or adds, for the last segment of a map) the value at `path`.
+/// `null` removes a map entry: how an object or conveyor is deleted.
 fn set(tree: &mut Value, path: &str, value: Value) -> Result<(), String> {
     let segments: Vec<&str> = path.split('.').collect();
     if segments.iter().any(|s| s.is_empty()) {
@@ -159,7 +160,11 @@ fn set(tree: &mut Value, path: &str, value: Value) -> Result<(), String> {
         node = match node {
             Value::Object(map) => {
                 if last {
-                    map.insert(segment.to_string(), value);
+                    if value.is_null() {
+                        map.shift_remove(*segment);
+                    } else {
+                        map.insert(segment.to_string(), value);
+                    }
                     return Ok(());
                 }
                 if !map.contains_key(*segment) {

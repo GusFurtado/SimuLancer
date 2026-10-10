@@ -356,6 +356,30 @@ pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
+/// A new project's files: a simple line (source, server, sink) to build on.
+pub fn template(id: &str, name: &str) -> Vec<(String, String)> {
+    let project = ProjectFile {
+        format: PROJECT_FORMAT.into(),
+        name: name.into(),
+        description: None,
+        model: "model.yaml".into(),
+        decisions: Map::new(),
+        results: Vec::new(),
+    };
+    vec![
+        (PROJECT_FILE.into(), project.to_text()),
+        (
+            "model.yaml".into(),
+            include_str!("../../../examples/projects/template.yaml")
+                .replace("name: new-line", &format!("name: {id}")),
+        ),
+        (
+            "model.layout.yaml".into(),
+            include_str!("../../../examples/projects/template.layout.yaml").into(),
+        ),
+    ]
+}
+
 /// Example projects for an empty data folder: the examples shipped with the
 /// program, each saved and published as v1.
 pub fn seed_examples(projects: &Projects) -> Result<Vec<String>, String> {

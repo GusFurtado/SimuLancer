@@ -18,6 +18,12 @@ const state = {
   exposed: null,     // the draft as checked: { decisions, results, decision_problems }
   offer: null,       // the "offer as an option" form: { decision, newLabel, optionLabel, currentLabel }
   written: new Set(), // paths whose defaults were written into the model for a decision
+  layout: null,      // { positions: name -> [x, z], paths: conveyor -> [[x, z], ...] } being edited
+  layoutChanged: false,
+  connect: null,     // null, or { from: null | name } while connecting objects
+  undo: [], redo: [],
+  batching: false,
+  creating: null,    // the new-project form: { name, from }
   run: null,
   view: "report",
   message: null,     // { kind: "ok" | "error", text, list?, progress? }
@@ -29,30 +35,97 @@ const state = {
 /** The model with the current changes applied. */
 function currentTree() {
   const tree = clone(state.baseTree);
-  for (const [path, value] of Object.entries(state.changes)) setAt(tree, path, clone(value));
+  for (const [path, value] of Object.entries(state.changes)) {
+    if (value === null) deleteAt(tree, path);
+    else setAt(tree, path, clone(value));
+  }
   return tree;
+}
+
+function deleteAt(tree, path) {
+  const segments = path.split(".");
+  const parent = getAt(tree, segments.slice(0, -1).join(".")) ?? (segments.length === 1 ? tree : undefined);
+  if (parent && typeof parent === "object") delete parent[segments[segments.length - 1]];
 }
 
 
 /** Records a change, or removes it when the value is back to the base's. */
 function setChange(path, value) {
+  remember();
   // A change to a parent path (e.g. a whole failures list) already covers this one.
-  const parent = Object.keys(state.changes).find(k => path.startsWith(k + "."));
+  const parent = Object.keys(state.changes).find(k => path.startsWith(k + ".") && state.changes[k] !== null);
   if (parent) {
     const holder = { root: clone(state.changes[parent]) };
-    setAt(holder, "root" + path.slice(parent.length), value);
+    if (value === null) deleteAt(holder, "root" + path.slice(parent.length));
+    else setAt(holder, "root" + path.slice(parent.length), value);
     state.changes[parent] = holder.root;
     if (equal(holder.root, getAt(state.baseTree, parent))) delete state.changes[parent];
   } else {
     for (const k of Object.keys(state.changes)) if (k.startsWith(path + ".")) delete state.changes[k];
-    if (equal(value, getAt(state.baseTree, path))) delete state.changes[path];
+    const base = getAt(state.baseTree, path);
+    if (equal(value, base) || (value === null && base === undefined)) delete state.changes[path];
     else state.changes[path] = clone(value);
   }
+  if (state.batching) return;
   scheduleCheck();
   renderEditor();
 }
 
+// --- undo and redo -------------------------------------------------------------------------
+
+function snapshot() {
+  return clone({ changes: state.changes, layout: state.layout, layoutChanged: state.layoutChanged, draft: state.draft, written: [...state.written], selected: state.selected });
+}
+
+function restore(snap) {
+  Object.assign(state, clone(snap));
+  state.written = new Set(snap.written);
+  scheduleCheck();
+  renderEditor();
+}
+
+/** Keeps the state before an edit, for undo. One entry per user action. */
+function remember() {
+  if (state.batching) return;
+  state.undo.push(snapshot());
+  if (state.undo.length > 200) state.undo.shift();
+  state.redo = [];
+}
+
+/** Runs several edits as one undo step, then checks and redraws once. */
+function batch(f) {
+  remember();
+  state.batching = true;
+  try { f(); } finally { state.batching = false; }
+  scheduleCheck();
+  renderEditor();
+}
+
+function undo() {
+  if (!state.undo.length) return;
+  state.redo.push(snapshot());
+  restore(state.undo.pop());
+}
+
+function redo() {
+  if (!state.redo.length) return;
+  state.undo.push(snapshot());
+  restore(state.redo.pop());
+}
+
+document.addEventListener("keydown", e => {
+  if (!(e.ctrlKey || e.metaKey) || !state.project || state.tab === "results") return;
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+  const key = e.key.toLowerCase();
+  if (key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
+  else if (key === "y" || (key === "z" && e.shiftKey)) { e.preventDefault(); redo(); }
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && state.connect) { state.connect = null; renderEditor(); }
+});
+
 function resetChange(path) {
+  remember();
   for (const k of Object.keys(state.changes)) if (related(k, path)) delete state.changes[k];
   scheduleCheck();
   renderEditor();
@@ -108,6 +181,11 @@ async function openProject(id, keepMessage = false) {
     saveMessage: "",
     draft: savedDraft(data),
     written: new Set(),
+    layout: data.tree ? layoutOf(graphOf(data.tree), data.layout) : null,
+    layoutChanged: false,
+    connect: null,
+    undo: [], redo: [],
+    creating: null,
     exposed: { decisions: data.decisions, results: data.results, decision_problems: data.decision_problems },
     offer: null,
   });
@@ -130,7 +208,25 @@ const draftChanged = () => state.draft && !equal(state.draft, savedDraft(state.d
 function pending() {
   const body = { changes: state.changes };
   if (draftChanged()) Object.assign(body, state.draft);
+  if (state.layoutChanged) body.layout = layoutTree();
   return body;
+}
+
+/** The layout being edited, as a layout file (in meters, Y up). */
+function layoutTree() {
+  const tree = currentTree();
+  const graph = graphOf(tree);
+  fillLayout(graph);
+  const r = v => Math.round(v * 100) / 100;
+  const objects = {};
+  for (const name of [...graph.sources, ...graph.servers, ...graph.sinks]) {
+    const [x, z] = state.layout.positions[name];
+    const model = state.baseLayout?.objects?.[name]?.model;
+    objects[name] = model ? { position: [r(x), 0, r(z)], model } : { position: [r(x), 0, r(z)] };
+  }
+  const conveyors = {};
+  for (const c of graph.conveyors) conveyors[c.name] = { path: state.layout.paths[c.name].map(([x, z]) => [r(x), 0, r(z)]) };
+  return { units: "m", objects, conveyors };
 }
 
 const scheduleCheck = debounce(async () => {
@@ -145,6 +241,7 @@ const scheduleCheck = debounce(async () => {
 
 function render() {
   const main = document.getElementById("main");
+  if (state.creating) return renderNewProject(main);
   if (!state.project && !state.run) {
     main.replaceChildren(el("p", { class: "empty" }, "Pick a project on the left."));
     return;
@@ -186,8 +283,10 @@ function renderEditor() {
     statusBox(general),
     el("div", { class: "editor", style: "margin-top: 14px" },
       el("div", { class: "stack" },
-        el("div", { class: "card diagram" }, diagram(tree),
-          el("p", { class: "hint" }, "Click an object or conveyor to edit it; click empty space for the experiment settings.")),
+        el("div", { class: "card diagram" }, diagramToolbar(), diagram(tree),
+          el("p", { class: "hint" }, state.connect
+            ? (state.connect.from ? `Now click where parts go from ${state.connect.from}.` : "Click the object parts come from.")
+            : "Click an object or conveyor to edit it, drag objects to move them; click empty space for the experiment settings.")),
         versionsCard()),
       el("div", { class: "card panel" }, panel(tree))),
   ].filter(Boolean));
@@ -196,7 +295,7 @@ function renderEditor() {
 /** Save, publish, run: the same on the Model and Decisions tabs. */
 function actionsBar() {
   const modelChanges = Object.keys(state.changes).length;
-  const changed = modelChanges + (draftChanged() ? 1 : 0);
+  const changed = modelChanges + (draftChanged() ? 1 : 0) + (state.layoutChanged ? 1 : 0);
   const history = state.detail.history || [];
   const lastSaved = history[0];
   const problems = state.exposed?.decision_problems || [];
@@ -206,6 +305,7 @@ function actionsBar() {
     const parts = [];
     if (modelChanges) parts.push(`${modelChanges} unsaved change${modelChanges === 1 ? "" : "s"}`);
     if (draftChanged()) parts.push("unsaved decision edits");
+    if (state.layoutChanged && !modelChanges) parts.push("unsaved layout");
     return parts.join(", ");
   };
   return el("div", { class: "actions" },
@@ -248,31 +348,257 @@ function statusBox(general = []) {
 
 // --- diagram ------------------------------------------------------------------------
 
+/** Positions for objects and paths for conveyors that the layout doesn't
+ *  have yet (new ones), and none for ones that are gone. */
+function fillLayout(graph) {
+  const L = state.layout;
+  const names = [...graph.sources, ...graph.servers, ...graph.sinks];
+  for (const name of names) {
+    if (L.positions[name]) continue;
+    const xs = Object.values(L.positions).map(p => p[0]);
+    L.positions[name] = [xs.length ? Math.max(...xs) + 6 : 0, 0];
+  }
+  for (const c of graph.conveyors) if (!L.paths[c.name]) L.paths[c.name] = route(c.from, c.to);
+  for (const name of Object.keys(L.positions)) if (!names.includes(name)) delete L.positions[name];
+  for (const name of Object.keys(L.paths)) if (!graph.conveyors.some(c => c.name === name)) delete L.paths[name];
+}
+
+/** A conveyor's path between two objects: straight, a Z-bend, or around the
+ *  top when it goes backwards. */
+function route(from, to) {
+  const [a, b] = [state.layout.positions[from], state.layout.positions[to]];
+  const gap = OBJECT_SIZE / 2 + 0.1;
+  if (Math.abs(a[1] - b[1]) < 0.01 && b[0] > a[0]) return [[a[0] + gap, a[1]], [b[0] - gap, b[1]]];
+  if (b[0] - a[0] > 2 * gap + 1) {
+    const mid = Math.round((a[0] + b[0]) / 2 * 2) / 2;
+    return [[a[0] + gap, a[1]], [mid, a[1]], [mid, b[1]], [b[0] - gap, b[1]]];
+  }
+  const lane = Math.min(a[1], b[1]) - 2.5;
+  return [[a[0], a[1] - gap], [a[0], lane], [b[0], lane], [b[0], b[1] - gap]];
+}
+
+const pathLength = path => path.slice(1).reduce((sum, p, i) => sum + Math.hypot(p[0] - path[i][0], p[1] - path[i][1]), 0);
+const meters = text => { const m = typeof text === "string" && text.trim().match(/^(\d+(?:\.\d+)?)\s*m$/); return m ? Number(m[1]) : null; };
+const lengthText = len => `${Math.max(0.5, Math.round(len * 10) / 10)} m`;
+const sectionOf = (tree, name) => ["sources", "servers", "sinks"].find(s => tree[s] && name in tree[s]);
+const isName = name => /^[A-Za-z][A-Za-z0-9_-]*$/.test(name);
+const allNames = tree => ["sources", "servers", "sinks", "conveyors"].flatMap(s => Object.keys(tree[s] || {}));
+
+function freeName(tree, base) {
+  const taken = allNames(tree);
+  if (!taken.includes(base)) return base;
+  for (let i = 2; ; i++) if (!taken.includes(`${base}_${i}`)) return `${base}_${i}`;
+}
+
+/** Moves an object and redraws its conveyors. A conveyor whose length
+ *  matched its drawing keeps matching it ("the length follows the drawing");
+ *  one with a typed length keeps it. */
+function moveObject(name, x, z) {
+  const tree = currentTree();
+  const attached = graphOf(tree).conveyors.filter(c => c.from === name || c.to === name);
+  const follows = Object.fromEntries(attached.map(c => {
+    const length = meters(tree.conveyors[c.name].length);
+    return [c.name, length !== null && Math.abs(length - pathLength(state.layout.paths[c.name])) < 0.06];
+  }));
+  state.layout.positions[name] = [x, z];
+  for (const c of attached) {
+    state.layout.paths[c.name] = route(c.from, c.to);
+    if (follows[c.name]) setChange(`conveyors.${c.name}.length`, lengthText(pathLength(state.layout.paths[c.name])));
+  }
+  state.layoutChanged = true;
+}
+
+function addObject(section) {
+  const tree = currentTree();
+  const base = { sources: "arrivals", servers: "machine", sinks: "exit" }[section];
+  const name = freeName(tree, base);
+  const entities = Object.keys(tree.entities || {});
+  const defaults = {
+    sources: { creates: entities[0] || "part", interarrival: "exponential(1 min)" },
+    servers: { capacity: 1, process_time: "triangular(40 s, 50 s, 70 s)" },
+    sinks: {},
+  }[section];
+  batch(() => {
+    if (section === "sources" && !entities.length) setChange("entities.part", {});
+    setChange(`${section}.${name}`, defaults);
+    const xs = Object.values(state.layout.positions).map(p => p[0]);
+    const zs = Object.values(state.layout.positions).map(p => p[1]);
+    state.layout.positions[name] = [xs.length ? Math.max(...xs) + 6 : 0, zs.length ? Math.max(...zs) + 4 : 0];
+    state.layoutChanged = true;
+    state.selected = { section, name };
+    state.message = { kind: "ok", text: `Added ${name}. Drag it into place, then use “Connect” to link it with conveyors.` };
+  });
+}
+
+function connectObjects(from, to) {
+  const tree = currentTree();
+  const fromSection = sectionOf(tree, from), toSection = sectionOf(tree, to);
+  if (from === to || fromSection === "sinks" || toSection === "sources") {
+    state.message = { kind: "error", text: "Conveyors go from a source or server to a server or sink." };
+    return renderEditor();
+  }
+  const name = freeName(tree, `c_${from}_${to}`.slice(0, 40));
+  const template = Object.values(tree.conveyors || {})[0] || {};
+  batch(() => {
+    state.layout.paths[name] = route(from, to);
+    setChange(`conveyors.${name}`, {
+      from, to,
+      length: lengthText(pathLength(state.layout.paths[name])),
+      speed: template.speed || "0.5 m/s",
+      spacing: template.spacing || "0.5 m",
+    });
+    state.layoutChanged = true;
+    state.selected = { section: "conveyors", name };
+    state.message = null;
+  });
+}
+
+/** Removes a conveyor, and the routing or merging rule its ends no longer need. */
+function deleteConveyor(tree, name) {
+  const c = tree.conveyors[name];
+  setChange(`conveyors.${name}`, null);
+  delete state.layout.paths[name];
+  const others = Object.entries(tree.conveyors).filter(([n]) => n !== name);
+  const fromPath = `${sectionOf(tree, c.from)}.${c.from}.output`;
+  const output = getAt(tree, fromPath);
+  if (output) {
+    if (others.filter(([, o]) => o.from === c.from).length < 2) setChange(fromPath, null);
+    else if (output.weights && name in output.weights) {
+      const weights = { ...output.weights }; delete weights[name];
+      setChange(fromPath, { ...output, weights });
+    }
+  }
+  const toPath = `${sectionOf(tree, c.to)}.${c.to}.input`;
+  const input = getAt(tree, toPath);
+  if (input) {
+    if (others.filter(([, o]) => o.to === c.to).length < 2) setChange(toPath, null);
+    else if (input.order?.includes(name)) setChange(toPath, { ...input, order: input.order.filter(x => x !== name) });
+  }
+}
+
+function deleteSelected() {
+  const sel = state.selected;
+  if (!sel) return;
+  batch(() => {
+    if (sel.section === "conveyors") {
+      deleteConveyor(currentTree(), sel.name);
+    } else {
+      for (const c of graphOf(currentTree()).conveyors) {
+        if (c.from === sel.name || c.to === sel.name) deleteConveyor(currentTree(), c.name);
+      }
+      setChange(`${sel.section}.${sel.name}`, null);
+      delete state.layout.positions[sel.name];
+    }
+    state.layoutChanged = true;
+    state.message = { kind: "ok", text: `Deleted ${sel.name}.` };
+    state.selected = null;
+  });
+}
+
+/** Renames in decisions and results too, so they keep pointing at it. */
+function renameInDraft(oldPrefix, newPrefix, oldName, newName) {
+  const swap = path => path === oldPrefix || path.startsWith(oldPrefix + ".") ? newPrefix + path.slice(oldPrefix.length) : path;
+  for (const d of Object.values(state.draft.decisions)) {
+    if (d.path) d.path = swap(d.path);
+    for (const c of Object.values(d.choices || {})) {
+      if (c.changes) c.changes = Object.fromEntries(Object.entries(c.changes).map(([k, v]) => [swap(k), v]));
+    }
+  }
+  if (oldName) for (const r of state.draft.results) if (r.object === oldName) r.object = newName;
+}
+
+function rename(section, oldName, newName) {
+  const tree = currentTree();
+  if (newName === oldName) return;
+  if (!isName(newName) || allNames(tree).includes(newName)) {
+    state.message = { kind: "error", text: `“${newName}” can't be used: names start with a letter, use letters, digits, _ and -, and must be unique.` };
+    return renderEditor();
+  }
+  batch(() => {
+    setChange(`${section}.${oldName}`, null);
+    setChange(`${section}.${newName}`, clone(tree[section][oldName]));
+    if (section === "conveyors") {
+      const c = tree.conveyors[oldName];
+      const output = getAt(tree, `${sectionOf(tree, c.from)}.${c.from}.output`);
+      if (output?.weights && oldName in output.weights) {
+        const weights = Object.fromEntries(Object.entries(output.weights).map(([k, v]) => [k === oldName ? newName : k, v]));
+        setChange(`${sectionOf(tree, c.from)}.${c.from}.output`, { ...output, weights });
+      }
+      const input = getAt(tree, `${sectionOf(tree, c.to)}.${c.to}.input`);
+      if (input?.order?.includes(oldName)) {
+        setChange(`${sectionOf(tree, c.to)}.${c.to}.input`, { ...input, order: input.order.map(x => x === oldName ? newName : x) });
+      }
+      state.layout.paths[newName] = state.layout.paths[oldName];
+      delete state.layout.paths[oldName];
+      renameInDraft(`conveyors.${oldName}`, `conveyors.${newName}`, oldName, newName);
+    } else {
+      for (const [name, c] of Object.entries(tree.conveyors || {})) {
+        if (c.from === oldName) setChange(`conveyors.${name}.from`, newName);
+        if (c.to === oldName) setChange(`conveyors.${name}.to`, newName);
+      }
+      state.layout.positions[newName] = state.layout.positions[oldName];
+      delete state.layout.positions[oldName];
+      renameInDraft(`${section}.${oldName}`, `${section}.${newName}`, oldName, newName);
+    }
+    state.layoutChanged = true;
+    state.selected = { section, name: newName };
+  });
+}
+
+function diagramToolbar() {
+  const tool = (label, onclick, attrs = {}) => el("button", { onclick, ...attrs }, label);
+  return el("div", { class: "toolbar" },
+    tool("+ Source", () => addObject("sources"), { id: "add-source", title: "Where parts come from" }),
+    tool("+ Server", () => addObject("servers"), { id: "add-server", title: "A machine or station that works on parts" }),
+    tool("+ Sink", () => addObject("sinks"), { id: "add-sink", title: "Where parts leave" }),
+    tool(state.connect ? "Connecting… (Esc)" : "Connect", () => { state.connect = state.connect ? null : { from: null }; renderEditor(); },
+      { id: "connect", class: state.connect ? "primary" : null, title: "Click an object, then the next one, to link them with a conveyor" }),
+    tool("Delete", deleteSelected, { id: "delete", disabled: state.selected ? null : true, title: "Delete the selected object or conveyor" }),
+    el("span", { style: "flex: 1" }),
+    tool("↶ Undo", undo, { id: "undo", disabled: state.undo.length ? null : true, title: "Undo (Ctrl+Z)" }),
+    tool("↷ Redo", redo, { id: "redo", disabled: state.redo.length ? null : true, title: "Redo (Ctrl+Shift+Z)" }));
+}
+
+let drag = null;
+
 function diagram(tree) {
   const graph = graphOf(tree);
-  const layout = layoutOf(graph, state.baseLayout);
-  const b = boundsOf(layout);
-  const select = (section, name) => e => { e.stopPropagation(); state.selected = { section, name }; renderEditor(); };
+  fillLayout(graph);
+  const layout = state.layout;
+  const b = drag?.bounds || boundsOf(layout);
+  const select = (section, name) => e => {
+    e.stopPropagation();
+    if (drag?.moved) return;
+    if (state.connect && section !== "conveyors") {
+      if (!state.connect.from) { state.connect.from = name; return renderEditor(); }
+      const from = state.connect.from;
+      state.connect = null;
+      return connectObjects(from, name);
+    }
+    state.selected = { section, name };
+    renderEditor();
+  };
   const isSelected = (section, name) => state.selected?.section === section && state.selected?.name === name;
   const invalid = (section, name) => state.errors.some(e => e.change && e.change.startsWith(`${section}.${name}`));
   const changedObj = (section, name) => Object.keys(state.changes).some(k => k.startsWith(`${section}.${name}.`) || k === `${section}.${name}`);
   const root = svg("svg", {
-    viewBox: `${b.minX} ${b.minZ} ${b.maxX - b.minX} ${b.maxZ - b.minZ}`,
-    role: "img", "aria-label": `Diagram of ${tree.name}`,
-    onclick: () => { state.selected = null; renderEditor(); },
+    viewBox: `${b.minX - 2} ${b.minZ - 1} ${b.maxX - b.minX + 4} ${b.maxZ - b.minZ + 2}`,
+    role: "img", "aria-label": `Diagram of ${tree.name}`, class: state.connect ? "connecting" : "",
+    onclick: () => { if (drag?.moved) return; state.selected = null; state.connect = null; renderEditor(); },
   });
   for (const c of graph.conveyors) {
-    const points = layout.paths[c.name].map(p => p.join(",")).join(" ");
+    const path = layout.paths[c.name];
+    const points = path.map(p => p.join(",")).join(" ");
     const cls = invalid("conveyors", c.name) ? "invalid" : isSelected("conveyors", c.name) ? "selected" : "";
     root.append(svg("polyline", { points, fill: "none", stroke: "var(--belt)", "stroke-width": 0.5, "stroke-linecap": "round", "stroke-linejoin": "round" }));
     if (cls) root.append(svg("polyline", { points, fill: "none", class: cls, "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
-    const last = layout.paths[c.name].slice(-2);
+    const last = path.slice(-2);
     const angle = Math.atan2(last[1][1] - last[0][1], last[1][0] - last[0][0]) * 180 / Math.PI;
     root.append(svg("polygon", { points: "0,-0.35 0.5,0 0,0.35", fill: "var(--muted)", transform: `translate(${last[1][0]},${last[1][1]}) rotate(${angle})` }));
     root.append(svg("polyline", { points, fill: "none", stroke: "transparent", "stroke-width": 1.4, class: "hit", onclick: select("conveyors", c.name) },
       svg("title", {}, `conveyor ${c.name}: ${c.from} → ${c.to}`)));
-    const mid = layout.paths[c.name][Math.floor(layout.paths[c.name].length / 2) - (layout.paths[c.name].length === 2 ? 1 : 0)];
-    const next = layout.paths[c.name][layout.paths[c.name].indexOf(mid) + 1];
+    const i = Math.max(0, Math.floor((path.length - 1) / 2));
+    const [mid, next] = [path[i], path[i + 1]];
     root.append(svg("text", { x: (mid[0] + next[0]) / 2, y: (mid[1] + next[1]) / 2 - 0.45, "text-anchor": "middle", "font-size": 0.6 },
       c.name + (changedObj("conveyors", c.name) ? " •" : "")));
   }
@@ -282,16 +608,63 @@ function diagram(tree) {
       const [x, z] = layout.positions[name];
       const s = OBJECT_SIZE;
       const fill = section === "servers" ? "var(--busy)" : "var(--object)";
-      const cls = invalid(section, name) ? "invalid" : isSelected(section, name) ? "selected" : "";
+      const from = state.connect?.from === name;
+      const cls = from ? "selected" : invalid(section, name) ? "invalid" : isSelected(section, name) ? "selected" : "";
       root.append(svg("rect", {
         x: x - s / 2, y: z - s / 2, width: s, height: s, rx: section === "servers" ? 0.15 : 0.6,
-        fill, class: `hit ${cls}`, "vector-effect": "non-scaling-stroke", onclick: select(section, name),
+        fill, class: `hit object ${cls}`, "vector-effect": "non-scaling-stroke", "data-object": name,
+        onclick: select(section, name),
+        onpointerdown: e => startDrag(e, root, name),
       }, svg("title", {}, `${section.slice(0, -1)} ${name}`)));
       root.append(svg("text", { x, y: z - s / 2 - 0.35, "text-anchor": "middle", "font-size": 0.7 },
         name + (changedObj(section, name) ? " •" : "")));
     }
   }
   return root;
+}
+
+/** Dragging an object: moves it on a 0.5 m grid; its conveyors follow. */
+function startDrag(e, root, name) {
+  if (state.connect || e.button !== 0) return;
+  const toModel = ev => {
+    const pt = root.createSVGPoint();
+    pt.x = ev.clientX; pt.y = ev.clientY;
+    return pt.matrixTransform(root.getScreenCTM().inverse());
+  };
+  const start = toModel(e);
+  const [x0, z0] = state.layout.positions[name];
+  drag = { name, moved: false, before: snapshot(), bounds: boundsOf(state.layout) };
+  const move = ev => {
+    const p = toModel(ev);
+    const snap = v => Math.round(v * 2) / 2;
+    const [x, z] = [snap(x0 + p.x - start.x), snap(z0 + p.y - start.y)];
+    const [cx, cz] = state.layout.positions[name];
+    if (x === cx && z === cz) return;
+    if (!drag.moved) { drag.moved = true; state.batching = true; }
+    moveObject(name, x, z);
+    const old = document.querySelector(".diagram svg");
+    if (old) {
+      const fresh = diagram(currentTree());
+      old.replaceWith(fresh);
+      root = fresh;
+    }
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    const moved = drag.moved;
+    if (moved) {
+      state.batching = false;
+      state.undo.push(drag.before);
+      state.redo = [];
+      state.selected = { section: sectionOf(currentTree(), name), name };
+      scheduleCheck();
+    }
+    // Let the click that follows a drag see `moved`, then forget the drag.
+    setTimeout(() => { drag = null; if (moved) renderEditor(); }, 0);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
 }
 
 // --- property panels -------------------------------------------------------------------
@@ -323,6 +696,78 @@ function field(label, path, kind = "text", options = [], placeholder = null) {
     error ? el("div", { class: "message" }, error.message) : null);
 }
 
+// --- distributions -----------------------------------------------------------------------------
+
+/** Distributions and their parameters, as the model language writes them. */
+const DISTRIBUTIONS = {
+  constant: { label: "Always the same", params: [["value", "Value", "1 min"]] },
+  exponential: { label: "Exponential (random arrivals)", params: [["mean", "Mean", "1 min"]] },
+  uniform: { label: "Uniform", params: [["min", "Min", "1 min"], ["max", "Max", "2 min"]] },
+  triangular: { label: "Triangular", params: [["min", "Min", "1 min"], ["mode", "Most likely", "1.5 min"], ["max", "Max", "2 min"]] },
+  lognormal: { label: "Lognormal", params: [["mean", "Mean", "1 min"], ["sd", "Std. deviation", "20 s"]], named: true },
+  weibull: { label: "Weibull", params: [["shape", "Shape (a number)", "1.5"], ["scale", "Scale", "1 h"]], named: true },
+  gamma: { label: "Gamma", params: [["shape", "Shape (a number)", "2"], ["scale", "Scale", "30 s"]], named: true },
+};
+
+/** "triangular(1 min, 1.5 min, 2 min)" -> { kind, values }, or null. */
+function parseDistribution(text) {
+  if (typeof text !== "string") return null;
+  const m = text.trim().match(/^([a-z]+)\((.*)\)$/);
+  if (!m) return text.trim() ? { kind: "constant", values: [text.trim()] } : null;
+  const d = DISTRIBUTIONS[m[1]];
+  if (!d) return null;
+  const args = m[2].split(",").map(a => a.trim());
+  const values = d.params.map(([name], i) => {
+    const named = args.find(a => a.startsWith(name + ":"));
+    if (named) return named.slice(name.length + 1).trim();
+    return args.some(a => a.includes(":")) ? "" : (args[i] ?? "");
+  });
+  return { kind: m[1], values };
+}
+
+function formatDistribution(kind, values) {
+  const d = DISTRIBUTIONS[kind];
+  if (kind === "constant") return values[0];
+  const args = d.params.map(([name], i) => d.named ? `${name}: ${values[i]}` : values[i]);
+  return `${kind}(${args.join(", ")})`;
+}
+
+/** A time distribution: pick the kind, fill in its parameters. Anything the
+ *  picker can't show stays a plain text field. */
+function distField(label, path) {
+  const value = getAt(currentTree(), path);
+  const parsed = parseDistribution(value);
+  if (!parsed) return field(label, path);
+  const error = errorFor(path);
+  const id = `f-${path.replace(/\W/g, "-")}`;
+  const d = DISTRIBUTIONS[parsed.kind];
+  const kind = el("select", {
+    id: `${id}-kind`, "aria-label": `${label}: distribution`,
+    onchange: e => {
+      const next = DISTRIBUTIONS[e.target.value];
+      // Keep what carries over (by position), fill the rest with examples.
+      const values = next.params.map(([, , example], i) => parsed.values[i] && !(next.params[i][0] === "shape") ? parsed.values[i] : example);
+      setChange(path, formatDistribution(e.target.value, values));
+    },
+  }, Object.entries(DISTRIBUTIONS).map(([k, x]) => el("option", { value: k, selected: k === parsed.kind }, x.label)));
+  const inputs = d.params.map(([name, text], i) => el("label", { class: "param" }, text,
+    el("input", {
+      id: `${id}-${name}`, value: parsed.values[i],
+      onchange: e => {
+        const values = [...parsed.values];
+        values[i] = e.target.value.trim();
+        setChange(path, formatDistribution(parsed.kind, values));
+      },
+    })));
+  return el("div", { class: `field dist${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: `${id}-kind` }, label,
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path), title: "Back to the saved value" }, "reset") : null),
+    kind,
+    el("div", { class: "params" }, ...inputs),
+    el("div", { class: "hint", style: "margin: 2px 0 0" }, el("code", { id }, value)),
+    error ? el("div", { class: "message" }, error.message) : null);
+}
+
 function panel(tree) {
   const sel = state.selected;
   if (!sel) return experimentPanel(tree);
@@ -330,20 +775,25 @@ function panel(tree) {
   if (!node) { state.selected = null; return experimentPanel(tree); }
   const p = `${sel.section}.${sel.name}`;
   const kind = { sources: "Source", servers: "Server", conveyors: "Conveyor", sinks: "Sink" }[sel.section];
-  const header = [el("h3", {}, sel.name), el("div", { class: "kind" }, kind)];
+  const header = [el("h3", {}, sel.name), el("div", { class: "kind" }, kind),
+    el("div", { class: "field" },
+      el("label", { for: "f-name" }, "Name"),
+      el("div", { class: "row" },
+        el("input", { id: "f-name", value: sel.name, onchange: e => rename(sel.section, sel.name, e.target.value.trim()) }),
+        el("button", { style: "flex: 0", onclick: deleteSelected, title: `Delete ${sel.name}` }, "Delete")))];
   const graph = graphOf(tree);
   const outputs = graph.conveyors.filter(c => c.from === sel.name).map(c => c.name);
   const inputs = graph.conveyors.filter(c => c.to === sel.name).map(c => c.name);
   switch (sel.section) {
     case "sources":
       return el("div", {}, header,
-        field("Time between arrivals", `${p}.interarrival`),
+        distField("Time between arrivals", `${p}.interarrival`),
         field("When the conveyor is full", `${p}.when_blocked`, "select", ["wait", "drop"]),
         outputRule(tree, p, outputs));
     case "servers":
       return el("div", {}, header,
         field("Capacity (parts at once)", `${p}.capacity`, "int", [], "1 (default)"),
-        field("Process time", `${p}.process_time`),
+        distField("Process time", `${p}.process_time`),
         inputRule(tree, p, inputs),
         outputRule(tree, p, outputs),
         failures(tree, p));
@@ -435,8 +885,8 @@ function failures(tree, p) {
     list.map((f, i) => el("div", { style: "margin-bottom: 10px" },
       el("div", { class: "row", style: "align-items: center; margin-bottom: 6px" },
         el("strong", {}, f.name), el("button", { onclick: () => remove(i), style: "flex: 0" }, "Remove")),
-      field("Uptime between failures", `${path}.${i}.uptime`),
-      field("Downtime (repair)", `${path}.${i}.downtime`),
+      distField("Uptime between failures", `${path}.${i}.uptime`),
+      distField("Downtime (repair)", `${path}.${i}.downtime`),
       el("div", { class: "row" },
         field("Uptime counts", `${path}.${i}.counts`, "select", ["busy_time", "clock_time"]),
         field("Interrupted part", `${path}.${i}.on_failure`, "select", ["resume", "restart"])))),
@@ -669,6 +1119,7 @@ async function publishVersion() {
 
 async function startRun() {
   const body = { project: state.project, changes: state.changes };
+  if (state.layoutChanged) body.layout = layoutTree();
   const { ok, data } = await api("POST", "runs", body);
   if (!ok) {
     state.errors = data.errors || state.errors;
@@ -693,6 +1144,48 @@ function showRun(run) {
   render();
   loadRuns();
 }
+
+// --- new projects --------------------------------------------------------------------------------
+
+const idFor = name => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+
+function renderNewProject(main) {
+  const c = state.creating;
+  main.replaceChildren(
+    el("div", { class: "head" }, el("div", { class: "titles" }, el("h2", {}, "New project"))),
+    el("div", { class: "card new-project" },
+      el("div", { class: "field" }, el("label", { for: "new-name" }, "Name"),
+        el("input", { id: "new-name", value: c.name, placeholder: "e.g. Packing line 2", oninput: e => { c.name = e.target.value; } })),
+      el("div", { class: "field" }, el("label", { for: "new-from" }, "Start from"),
+        el("select", { id: "new-from", onchange: e => { c.from = e.target.value; } },
+          el("option", { value: "", selected: c.from === "" ? true : null }, "A simple line (arrivals, one machine, exit)"),
+          ...state.projects.map(p => el("option", { value: p.id, selected: c.from === p.id ? true : null }, `A copy of ${p.name}`)))),
+      c.error ? el("div", { class: "status" }, c.error) : el("div"),
+      el("div", { class: "actions" },
+        el("button", { class: "primary", id: "create-project", onclick: createProject }, "Create"),
+        el("button", { onclick: () => { state.creating = null; render(); } }, "Cancel"))));
+  document.getElementById("new-name").focus();
+}
+
+async function createProject() {
+  const c = state.creating;
+  const name = c.name.trim();
+  const id = idFor(name);
+  if (!id) { c.error = "Give the project a name."; return render(); }
+  const body = { id, name };
+  if (c.from) body.from = c.from;
+  const { ok, data } = await api("POST", "projects", body);
+  if (!ok) { c.error = data.error || "The project couldn't be created."; return render(); }
+  state.creating = null;
+  await loadProjects();
+  openProject(id);
+}
+
+document.getElementById("new-project").addEventListener("click", () => {
+  stopAnimation();
+  state.creating = { name: "", from: "", error: null };
+  render();
+});
 
 // --- start -----------------------------------------------------------------------------------
 

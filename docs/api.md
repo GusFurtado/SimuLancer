@@ -19,7 +19,7 @@ outliers-sim serve --data ./data --host 0.0.0.0       # other machines (put it b
   - **Publishing** marks the last saved version as `v1`, `v2`, … (a git tag).
   - The Decide page works with published versions, which never change after publishing.
 - **Versions** in requests are `latest` (newest published), a name like `v3`, or absent for the working copy.
-- **Changes** map dotted paths in the model to new values, e.g. `{"servers.mill_b.capacity": 2, "sources.arrivals.output": {"rule": "round_robin"}}`. List items by index: `servers.mill_b.failures.0.downtime`. Paths address the `tree` that `GET /projects/{id}` returns.
+- **Changes** map dotted paths in the model to new values (`null` removes an entry, e.g. `"conveyors.c3": null`), e.g. `{"servers.mill_b.capacity": 2, "sources.arrivals.output": {"rule": "round_robin"}}`. List items by index: `servers.mill_b.failures.0.downtime`. Paths address the `tree` that `GET /projects/{id}` returns.
 - **Decisions and results** are what the Decide page lets people change and read, set in `project.yaml` (below). A **scenario** picks a value for some decisions; it's stored with the published version it was made on, outside the project's git history.
 - **Comparisons** run the current setup and some scenarios with the same random numbers and describe each result's change in plain language.
 - **Runs** are queued and executed one at a time, each using all CPU cores (or `--threads`). Each run's results, including the exact model text that ran, go to `<data>/runs/<id>/`. The list of runs lives in memory; result folders stay on disk.
@@ -103,7 +103,7 @@ For load balancers and monitoring.
 { "id": "line-2", "name": "Second line", "from": "conveyor-line" }
 ```
 
-Creates a project from another one's working copy, with a fresh history.
+Creates a project from another one's working copy, with a fresh history. Without `from`, the project starts as a simple line (arrivals, one machine, exit) with a layout.
 
 | Status | When |
 |---|---|
@@ -139,6 +139,7 @@ Checks changes against the working copy. Nothing is saved.
 
 - **Pending decisions and results:** the body may also carry `decisions` and/or `results`, which replace `project.yaml`'s.
 - **Response:** `{ "ok": true, "errors": [], "decisions": [...], "results": [...], "decision_problems": [...] }`, where `decisions`, `results` and `decision_problems` are as in `GET /projects/{id}`.
+- **A new layout:** `layout` replaces the saved one, as the layout file or `layout.json` would hold it. This is for edits that add, remove or move objects.
 - **When the model itself has errors,** `ok` is false, `errors` lists them as above, and only the structure of the decisions is checked.
 
 ### `POST /api/v1/projects/{id}/save`
@@ -149,7 +150,7 @@ Checks changes against the working copy. Nothing is saved.
 
 Applies the changes to the working copy and saves a version.
 
-- **With `decisions` and/or `results`,** `project.yaml` is updated in the same version.
+- **With `decisions` and/or `results`,** `project.yaml` is updated in the same version. With `layout`, so is the layout file.
 - **Formatting:** the files are rewritten in standard formatting, and comments in them aren't kept.
 
 Responses:
@@ -258,6 +259,7 @@ Oldest first. `summary` is what the scenario changes, in words. `?version=` keep
 
 - `version`: absent runs the working copy; `latest` or `vN` runs a published version.
 - `changes`: optional, applied on top of that version. That's how unsaved edits, and scenarios, run.
+- `layout`: optional, a whole new layout for unsaved edits that add or move objects.
 - The model is checked before it's queued: `202` with the run (below), or `422` with errors.
 
 ### `GET /api/v1/runs` and `GET /api/v1/runs/{id}`

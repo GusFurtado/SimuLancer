@@ -228,3 +228,13 @@
   .result-row { align-items: center; margin-bottom: 6px; }
   .result-row > select { flex: 0 0 150px; }
   .offer { margin-top: 12px; max-width: 560px; }
+
+  /* /build: drawing the model. */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .toolbar button { padding: 5px 10px; font-size: 13px; }
+  .diagram svg .object { cursor: grab; }
+  .diagram svg.connecting .object { cursor: crosshair; }
+  .field.dist .params { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-top: 6px; }
+  .field.dist .param { display: block; font-size: 11px; color: var(--muted); margin: 0; }
+  .field.dist .param input { margin-top: 2px; font-size: 14px; color: var(--ink); }
+  .new-project { max-width: 520px; }
