@@ -310,6 +310,16 @@ Decisions so far:
 - **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
 - **Next (planned 2026-10-10, in this order):** manager comparisons; then exposing decisions from the builder; then drawing models in the builder (place, connect, delete and rename objects; conveyor length follows the drawing by default; whole-model saves including the layout; distribution pickers; undo).
 
+## Schedules (implemented 2026-10-10)
+
+- **Format:** `schedules: { name: { shifts: ["06:00-14:00", ...], days: [mon, ...] } }`, weekly. Time 0 is Monday 00:00. Shifts are clock times; one ending at or before its start ends the next day (a night shift). Overlapping and touching periods merge. A Sunday night shift wraps into Monday, and that counts as one shift (no change at the week's boundary). Schedules have their own namespace.
+- **Servers off shift behave like failed ones:** processing pauses (always resume, never restart) and continues at the next shift. Nothing is taken in or released, and failure clocks pause, `clock_time` ones too: the machine isn't running. A repair in progress continues. When it ends off shift, paused parts wait for the shift. This reuses the failure machinery, which is already validated.
+- **Resources off shift:** no new units are handed out. Units in use stay until their part is done ("the operator finishes the part in hand"). At the shift's start, waiting servers are served first come, first served.
+- **Sources off shift:** no arrivals. The first arrival of each shift comes at its start. A shift end cancels the pending arrival through a generation counter, like other stale events. Ties at the same instant follow the event list's FIFO rule: the shift end at 14:00 was scheduled before the 14:00 arrival, so that arrival doesn't happen.
+- **Results:** server and resource *off shift* fractions. A server's states add up to 1 with off shift first (it beats failed). A resource's *busy* stays the share of all its units over all time.
+- **Event log:** `shift_ended` / `shift_started` for servers. Both the 2D animation and the Godot viewer show an *off shift* state.
+- **Not yet:** breaks inside shifts (write them as two shifts), holidays, a schedule for conveyors, and "finish the part, then stop" at shift end.
+
 ## Shared resources (implemented 2026-10-10)
 
 - **`resources: { name: { capacity: N } }`**, with servers saying `needs: { name: units }`. Resources share the object namespace, so a measure's object name is never ambiguous.

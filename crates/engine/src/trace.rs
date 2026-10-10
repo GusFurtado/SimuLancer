@@ -44,6 +44,13 @@ pub enum TraceEvent {
         server: usize,
         failure: usize,
     },
+    /// The server's schedule says stop: work pauses until the next shift.
+    ShiftEnded {
+        server: usize,
+    },
+    ShiftStarted {
+        server: usize,
+    },
     Exited {
         part: PartId,
         sink: usize,

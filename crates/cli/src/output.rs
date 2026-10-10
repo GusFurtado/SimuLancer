@@ -269,6 +269,7 @@ impl<'a, W: Write> EventLog<'a, W> {
                 "name": s.name,
                 "capacity": s.capacity,
                 "failures": s.failures.iter().map(|f| &f.name).collect::<Vec<_>>(),
+                "schedule": s.schedule.map(|i| &spec.schedules[i].name),
             })).collect::<Vec<_>>(),
             "conveyors": spec.conveyors.iter().map(|c| json!({
                 "name": c.name,
@@ -347,6 +348,16 @@ impl<'a, W: Write> EventLog<'a, W> {
                 self.out,
                 r#"{{"t":{t},"type":"repaired","server":"{}","failure":"{}"}}"#,
                 s.servers[server].name, s.servers[server].failures[failure].name
+            ),
+            TraceEvent::ShiftEnded { server } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"shift_ended","server":"{}"}}"#,
+                s.servers[server].name
+            ),
+            TraceEvent::ShiftStarted { server } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"shift_started","server":"{}"}}"#,
+                s.servers[server].name
             ),
             TraceEvent::Exited { part, sink } => writeln!(
                 self.out,

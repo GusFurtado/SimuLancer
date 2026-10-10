@@ -10,8 +10,14 @@ use crate::SimTime;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Event {
+    /// Stale if `generation` no longer matches the source's (its shift ended).
     Arrival {
         source: usize,
+        generation: u64,
+    },
+    /// A schedule switches between working and not working.
+    ScheduleChange {
+        schedule: usize,
     },
     /// The head part of a conveyor reaches the end. Stale if `generation`
     /// no longer matches the conveyor's (its head changed).
@@ -103,13 +109,37 @@ mod tests {
     fn earliest_first_then_fifo() {
         let mut list = EventList::default();
         let t = SimTime::from_micros;
-        list.schedule(t(20), Event::Arrival { source: 0 });
-        list.schedule(t(10), Event::Arrival { source: 1 });
-        list.schedule(t(20), Event::Arrival { source: 2 });
-        list.schedule(t(10), Event::Arrival { source: 3 });
+        list.schedule(
+            t(20),
+            Event::Arrival {
+                source: 0,
+                generation: 0,
+            },
+        );
+        list.schedule(
+            t(10),
+            Event::Arrival {
+                source: 1,
+                generation: 0,
+            },
+        );
+        list.schedule(
+            t(20),
+            Event::Arrival {
+                source: 2,
+                generation: 0,
+            },
+        );
+        list.schedule(
+            t(10),
+            Event::Arrival {
+                source: 3,
+                generation: 0,
+            },
+        );
         let order: Vec<_> = std::iter::from_fn(|| list.pop())
             .map(|(_, e)| match e {
-                Event::Arrival { source } => source,
+                Event::Arrival { source, .. } => source,
                 _ => unreachable!(),
             })
             .collect();

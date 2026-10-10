@@ -17,12 +17,14 @@ const STATE_COLORS := {
 	"blocked": Color("#eb6834"),
 	"failed": Color("#1baf7a"),
 	"idle": Color("#d6d5ce"),
+	"off": Color("#898781"),
 }
 const STATE_LABELS := {
 	"busy": "Busy",
 	"blocked": "Blocked (output full)",
 	"failed": "Failed",
 	"idle": "Idle (starved)",
+	"off": "Off shift",
 }
 const PART_COLOR := Color("#f0c674")
 const BELT_COLOR := Color("#5c5b57")
@@ -391,7 +393,7 @@ func _build_hud() -> void:
 	layer.add_child(legend)
 	var rows := VBoxContainer.new()
 	legend.add_child(rows)
-	for state: String in ["busy", "blocked", "failed", "idle"]:
+	for state: String in ["busy", "blocked", "failed", "idle", "off"]:
 		var row := HBoxContainer.new()
 		var swatch := ColorRect.new()
 		swatch.color = STATE_COLORS[state]

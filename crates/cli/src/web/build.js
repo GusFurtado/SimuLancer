@@ -790,12 +790,14 @@ function panel(tree) {
         createsField(tree, p),
         distField("Time between arrivals", `${p}.interarrival`),
         field("When the conveyor is full", `${p}.when_blocked`, "select", ["wait", "drop"]),
+        scheduleField(tree, `${p}.schedule`, "Parts arrive"),
         outputRule(tree, p, outputs));
     case "servers":
       return el("div", {}, header,
         field("Capacity (parts at once)", `${p}.capacity`, "int", [], "1 (default)"),
         processTime(tree, p),
         needsField(tree, p),
+        scheduleField(tree, `${p}.schedule`, "Works"),
         inputRule(tree, p, inputs),
         outputRule(tree, p, outputs),
         failures(tree, p));
@@ -816,7 +818,92 @@ function experimentPanel(tree) {
     field("Run length (after warm-up)", "experiment.run_length"),
     field("Seed", "experiment.seed", "int"),
     partTypesPanel(tree),
-    resourcesPanel(tree));
+    resourcesPanel(tree),
+    schedulesPanel(tree));
+}
+
+// --- schedules ----------------------------------------------------------------------------------
+
+const DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+function schedulesPanel(tree) {
+  const schedules = Object.entries(tree.schedules || {});
+  return el("div", { class: "group", id: "schedules" },
+    el("div", { class: "group-title" }, "Schedules"),
+    el("p", { class: "hint", style: "margin: 0 0 8px" }, "Working times that repeat every week; the simulation starts on Monday at 00:00. Sources, servers and resources can follow one."),
+    ...schedules.map(([name, sch]) => {
+      const path = `schedules.${name}`;
+      const error = errorFor(path);
+      const days = sch.days || DAYS;
+      return el("div", { class: `schedule field${error ? " error" : ""}` },
+        el("div", { class: "row", style: "align-items: center" },
+          el("input", { value: name, "aria-label": `schedule ${name}`, "data-schedule": name, onchange: e => renameSchedule(name, e.target.value.trim()) }),
+          el("button", { style: "flex: 0", onclick: () => deleteSchedule(name) }, "Remove")),
+        el("label", { style: "margin-top: 6px" }, "Shifts (e.g. 06:00-14:00, 14:00-22:00)"),
+        el("input", {
+          value: (sch.shifts || []).join(", "), "data-shifts": name,
+          onchange: e => setChange(`${path}.shifts`, e.target.value.split(",").map(x => x.trim()).filter(Boolean)),
+        }),
+        el("div", { class: "days" }, ...DAYS.map(d => el("label", { class: "day" },
+          el("input", {
+            type: "checkbox", checked: days.includes(d) ? true : null, "data-day": `${name}.${d}`,
+            onchange: e => {
+              const next = DAYS.filter(x => x === d ? e.target.checked : days.includes(x));
+              setChange(`${path}.days`, next.length === 7 ? null : next);
+            },
+          }), d))),
+        error ? el("div", { class: "message" }, error.message) : null);
+    }),
+    el("button", { id: "add-schedule", onclick: () => setChange(`schedules.${freeScheduleName(tree)}`, { shifts: ["08:00-16:00"], days: ["mon", "tue", "wed", "thu", "fri"] }) }, "+ Schedule"));
+}
+
+function freeScheduleName(tree) {
+  const taken = Object.keys(tree.schedules || {});
+  if (!taken.includes("day_shift")) return "day_shift";
+  for (let i = 2; ; i++) if (!taken.includes(`schedule_${i}`)) return `schedule_${i}`;
+}
+
+/** Everything that follows a schedule: [path of its `schedule` field, name]. */
+function scheduleUsers(tree) {
+  return ["sources", "servers", "resources"].flatMap(section =>
+    Object.entries(tree[section] || {}).filter(([, o]) => o.schedule).map(([n, o]) => [`${section}.${n}.schedule`, o.schedule]));
+}
+
+function deleteSchedule(name) {
+  const tree = currentTree();
+  batch(() => {
+    for (const [path, s] of scheduleUsers(tree)) if (s === name) setChange(path, null);
+    setChange(`schedules.${name}`, null);
+  });
+}
+
+function renameSchedule(oldName, newName) {
+  const tree = currentTree();
+  if (newName === oldName) return;
+  if (!isName(newName) || newName in (tree.schedules || {})) {
+    state.message = { kind: "error", text: `“${newName}” can't be used: names start with a letter, use letters, digits, _ and -, and must be unique.` };
+    return renderEditor();
+  }
+  batch(() => {
+    setChange("schedules", Object.fromEntries(Object.entries(tree.schedules).map(([k, v]) => [k === oldName ? newName : k, v])));
+    for (const [path, s] of scheduleUsers(tree)) if (s === oldName) setChange(path, newName);
+  });
+}
+
+/** Which schedule an object follows; none means always. */
+function scheduleField(tree, path, label) {
+  const names = Object.keys(tree.schedules || {});
+  if (!names.length) return null;
+  const value = getAt(tree, path);
+  const error = errorFor(path);
+  const id = `f-${path.replace(/\W/g, "-")}`;
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: id }, label,
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
+    el("select", { id, onchange: e => setChange(path, e.target.value || null) },
+      el("option", { value: "", selected: !value ? true : null }, "Always"),
+      ...names.map(n => el("option", { value: n, selected: n === value ? true : null }, n))),
+    error ? el("div", { class: "message" }, error.message) : null);
 }
 
 // --- shared resources ---------------------------------------------------------------------------
@@ -830,7 +917,8 @@ function resourcesPanel(tree) {
       el("div", { class: "row", style: "align-items: center" },
         el("input", { value: r, "aria-label": `resource ${r}`, "data-resource": r, onchange: e => renameResource(r, e.target.value.trim()) }),
         el("button", { style: "flex: 0", onclick: () => deleteResource(r), title: `Remove ${r}` }, "Remove")),
-      field("Units available", `resources.${r}.capacity`, "int"))),
+      field("Units available", `resources.${r}.capacity`, "int"),
+      scheduleField(tree, `resources.${r}.schedule`, "Available"))),
     el("button", { id: "add-resource", onclick: () => setChange(`resources.${freeName(tree, "operator")}`, { capacity: 1 }) }, "+ Resource"));
 }
 

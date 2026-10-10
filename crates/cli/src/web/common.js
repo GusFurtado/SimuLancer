@@ -4,7 +4,7 @@
 
 const API = "api/v1";
 const SPEEDS = [1, 10, 60, 300, 1800, 3600];
-const STATES = [["busy", "Busy"], ["blocked", "Blocked (output full)"], ["failed", "Failed"], ["idle", "Idle (starved)"]];
+const STATES = [["busy", "Busy"], ["blocked", "Blocked (output full)"], ["failed", "Failed"], ["idle", "Idle (starved)"], ["off", "Off shift"]];
 const OUTPUT_RULES = ["probability", "round_robin", "first_available", "shortest_queue", "by_type"];
 const INPUT_RULES = ["first_come", "priority", "round_robin"];
 const OBJECT_SIZE = 1.2;
@@ -232,7 +232,7 @@ class Replay {
     this.conveyors = {};
     for (const c of this.header.conveyors) this.conveyors[c.name] = { ...c, belt: [] };
     this.servers = {};
-    for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], failed: "" };
+    for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], failed: "", off: false };
     this.created = this.lost = this.exited = 0;
     this.types = new Map();   // part -> index into header.entities, while it's in the system
     this.time = 0;
@@ -272,6 +272,8 @@ class Replay {
       }
       case "failed": this.servers[e.server].failed = e.failure; break;
       case "repaired": this.servers[e.server].failed = ""; break;
+      case "shift_ended": this.servers[e.server].off = true; break;
+      case "shift_started": this.servers[e.server].off = false; break;
       case "exited": this.leave(e.part, e.sink, e.t); this.exited++; this.types.delete(e.part); break;
     }
   }
@@ -308,6 +310,7 @@ class Replay {
 
   state(server) {
     const s = this.servers[server];
+    if (s.off) return "off";
     if (s.failed) return "failed";
     if (s.blocked.length) return "blocked";
     if (s.busy.length) return "busy";
@@ -356,7 +359,9 @@ async function startAnimation(container, run) {
   container.replaceChildren(
     el("div", { class: "animation" }, canvas,
       el("div", { class: "overlay" }, clockText, phase, counts),
-      el("div", { class: "legend" }, STATES.map(([s, label]) => el("span", {}, el("i", { style: `background: var(--${s})` }), label)),
+      el("div", { class: "legend" }, STATES
+        .filter(([s]) => s !== "off" || header.servers.some(x => x.schedule))
+        .map(([s, label]) => el("span", {}, el("i", { style: `background: var(--${s})` }), label)),
         (header.entities || []).length > 1
           ? header.entities.map((t, i) => el("span", {}, el("i", { style: `background: var(--type-${i % TYPE_COLORS})` }), t))
           : null)),
@@ -442,7 +447,7 @@ async function startAnimation(container, run) {
     ctx.clearRect(0, 0, w, h);
     const { scale, x: ox, y: oy } = a.view;
     const X = x => ox + x * scale, Y = z => oy + z * scale;
-    const colors = Object.fromEntries(["belt", "object", "part", "ink-2", "busy", "blocked", "failed", "idle", "surface"].map(n => [n, cssVar(`--${n}`)]));
+    const colors = Object.fromEntries(["belt", "object", "part", "ink-2", "busy", "blocked", "failed", "idle", "off", "surface"].map(n => [n, cssVar(`--${n}`)]));
     const typed = (header.entities || []).length > 1;
     const typeColors = [...Array(TYPE_COLORS).keys()].map(i => cssVar(`--type-${i}`));
     const partColor = part => typed ? typeColors[replay.typeOf(part) % TYPE_COLORS] : colors.part;

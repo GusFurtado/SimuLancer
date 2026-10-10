@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node, OnFailure, PerType,
-    Resource, Routing, Server, Sink, Source, Spec, WhenBlocked,
+    Resource, Routing, Schedule, Server, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -51,6 +51,24 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         index: &entity_index,
         names: &entity_names,
     };
+
+    // Schedules have their own namespace: only `schedule:` fields name them.
+    let mut schedules = Vec::new();
+    for (name, s) in &raw.schedules.0 {
+        b.check_name(name);
+        if let Some(periods) = b.schedule(name, s) {
+            schedules.push(Schedule {
+                name: name.value.clone(),
+                periods,
+            });
+        }
+    }
+    let schedule_names: Vec<&str> = raw
+        .schedules
+        .0
+        .iter()
+        .map(|(n, _)| n.value.as_str())
+        .collect();
     let mut objects: HashMap<&str, Object> = HashMap::new();
     let all_names = [
         (
@@ -160,6 +178,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     for (i, (name, s)) in raw.sources.0.iter().enumerate() {
         let creates = b.creates(name, &s.creates, &types);
         let interarrival = b.distribution(&s.interarrival);
+        let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
         let output = endpoints_ok
             .then(|| {
                 b.output_rule(
@@ -172,8 +191,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 )
             })
             .flatten();
-        if let (Some(creates), Some(interarrival), Some((outputs, routing))) =
-            (creates, interarrival, output)
+        if let (Some(creates), Some(interarrival), Some((outputs, routing)), Some(schedule)) =
+            (creates, interarrival, output, schedule)
         {
             sources.push(Source {
                 name: name.value.clone(),
@@ -185,12 +204,14 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 },
                 outputs,
                 routing,
+                schedule,
             });
         }
     }
 
     let mut resources = Vec::new();
     for (name, r) in &raw.resources.0 {
+        let schedule = b.schedule_ref(name, &r.schedule, &schedule_names).flatten();
         if r.capacity.value == 0 {
             b.error(
                 &r.capacity,
@@ -200,6 +221,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         resources.push(Resource {
             name: name.value.clone(),
             capacity: r.capacity.value,
+            schedule,
         });
     }
 
@@ -217,6 +239,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             None => Some(1),
         };
         let process_time = b.per_type_distribution(name, &s.process_time, &types);
+        let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
         let mut needs = Vec::new();
         let mut needs_ok = true;
         for (resource, units) in &s.needs.0 {
@@ -321,13 +344,22 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             true,
             Some((inputs, input_rule)),
             Some((outputs, routing)),
-        ) = (capacity, process_time, failures_ok, needs_ok, input, output)
-        {
+            Some(schedule),
+        ) = (
+            capacity,
+            process_time,
+            failures_ok,
+            needs_ok,
+            input,
+            output,
+            schedule,
+        ) {
             servers.push(Server {
                 name: name.value.clone(),
                 capacity,
                 process_time,
                 needs,
+                schedule,
                 failures,
                 inputs,
                 input_rule,
@@ -379,6 +411,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         conveyors,
         sinks,
         resources,
+        schedules,
         experiment: experiment.expect("no diagnostics means the experiment is valid"),
     };
     check_reachability(&spec, &raw)?;
@@ -700,6 +733,146 @@ impl Builder {
         result
             .map_err(|message| self.error(at, format!("{what}{message}")))
             .ok()
+    }
+
+    /// An optional `schedule:` reference: `Some(None)` when absent,
+    /// `Some(Some(i))` when known, `None` (an error) when unknown.
+    fn schedule_ref(
+        &mut self,
+        object: &Spanned<String>,
+        schedule: &Option<Spanned<String>>,
+        names: &[&str],
+    ) -> Option<Option<usize>> {
+        let Some(schedule) = schedule else {
+            return Some(None);
+        };
+        match names.iter().position(|n| *n == schedule.value) {
+            Some(i) => Some(Some(i)),
+            None => {
+                let known = if names.is_empty() {
+                    "none".to_string()
+                } else {
+                    names
+                        .iter()
+                        .map(|n| format!("`{n}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                self.error(
+                    schedule,
+                    format!(
+                        "`{}` follows schedule `{}`, which isn't listed under `schedules` (schedules: {known})",
+                        object.value, schedule.value
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    /// A schedule's working periods within the week (see [`Schedule`]).
+    fn schedule(
+        &mut self,
+        name: &Spanned<String>,
+        raw: &raw::RawSchedule,
+    ) -> Option<Vec<(SimTime, SimTime)>> {
+        const DAYS: [&str; 7] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+        const DAY: i64 = 24 * 3600 * 1_000_000;
+        let week = Schedule::WEEK.as_micros();
+        let mut ok = true;
+        let days: Vec<usize> = match &raw.days {
+            None => (0..7).collect(),
+            Some(days) => {
+                let mut out = Vec::new();
+                for d in &days.value {
+                    match DAYS.iter().position(|x| x.eq_ignore_ascii_case(d.trim())) {
+                        Some(i) if out.contains(&i) => {
+                            self.error(days, format!("`{d}` is listed twice"));
+                            ok = false;
+                        }
+                        Some(i) => out.push(i),
+                        None => {
+                            self.error(
+                                days,
+                                format!("`{d}` isn't a day: use mon, tue, wed, thu, fri, sat, sun"),
+                            );
+                            ok = false;
+                        }
+                    }
+                }
+                if days.value.is_empty() {
+                    self.error(days, format!("schedule `{}` has no days", name.value));
+                    ok = false;
+                }
+                out
+            }
+        };
+        if raw.shifts.value.is_empty() {
+            self.error(
+                &raw.shifts,
+                format!("schedule `{}` has no shifts", name.value),
+            );
+            return None;
+        }
+        let clock = |text: &str, end: bool| -> Option<i64> {
+            let (h, m) = text.trim().split_once(':')?;
+            let (h, m): (i64, i64) = (h.parse().ok()?, m.parse().ok()?);
+            let valid = (0..=59).contains(&m) && (0..24).contains(&h) || (end && h == 24 && m == 0);
+            valid.then_some((h * 60 + m) * 60 * 1_000_000)
+        };
+        let mut periods: Vec<(i64, i64)> = Vec::new();
+        for shift in &raw.shifts.value {
+            let parsed = shift
+                .split_once('-')
+                .and_then(|(a, b)| Some((clock(a, false)?, clock(b, true)?)));
+            let Some((start, end)) = parsed else {
+                self.error(
+                    &raw.shifts,
+                    format!("`{shift}` isn't a shift: write it like `06:00-14:00`"),
+                );
+                ok = false;
+                continue;
+            };
+            if start == end {
+                self.error(
+                    &raw.shifts,
+                    format!(
+                        "`{shift}` starts and ends at the same time; `00:00-24:00` is a whole day"
+                    ),
+                );
+                ok = false;
+                continue;
+            }
+            for &d in &days {
+                let s = d as i64 * DAY + start;
+                // Ending at or before its start: the shift ends the next day.
+                let e = d as i64 * DAY + end + if end <= start { DAY } else { 0 };
+                if e > week {
+                    periods.push((s, week));
+                    periods.push((0, e - week));
+                } else {
+                    periods.push((s, e));
+                }
+            }
+        }
+        if !ok {
+            return None;
+        }
+        // Sorted, overlapping or touching periods merged.
+        periods.sort();
+        let mut merged: Vec<(i64, i64)> = Vec::new();
+        for (s, e) in periods {
+            match merged.last_mut() {
+                Some(last) if s <= last.1 => last.1 = last.1.max(e),
+                _ => merged.push((s, e)),
+            }
+        }
+        Some(
+            merged
+                .into_iter()
+                .map(|(s, e)| (SimTime::from_micros(s), SimTime::from_micros(e)))
+                .collect(),
+        )
     }
 
     /// A part type by name, or an error (at `at`) naming the known ones.

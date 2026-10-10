@@ -27,6 +27,8 @@ pub struct RawModel {
     pub sinks: OrderedMap<RawSink>,
     #[serde(default)]
     pub resources: OrderedMap<RawResource>,
+    #[serde(default)]
+    pub schedules: OrderedMap<RawSchedule>,
     pub experiment: RawExperiment,
     #[serde(default)]
     pub outputs: RawOutputs,
@@ -53,6 +55,7 @@ pub struct RawSource {
     pub when_blocked: WhenBlocked,
     /// Required with two or more outgoing conveyors.
     pub output: Option<Spanned<RawOutputRule>>,
+    pub schedule: Option<Spanned<String>>,
 }
 
 /// What a source creates: one part type, or a mix of types with shares.
@@ -180,6 +183,7 @@ pub struct RawServer {
     /// Resource name -> units held while processing.
     #[serde(default)]
     pub needs: OrderedMap<Spanned<u32>>,
+    pub schedule: Option<Spanned<String>>,
     #[serde(default)]
     pub failures: Vec<RawFailure>,
     /// Required with two or more incoming conveyors.
@@ -243,6 +247,17 @@ pub struct RawSink {}
 #[serde(deny_unknown_fields)]
 pub struct RawResource {
     pub capacity: Spanned<u32>,
+    pub schedule: Option<Spanned<String>>,
+}
+
+/// Working times that repeat every week.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawSchedule {
+    /// "06:00-14:00"; a shift ending at or before its start ends the next day.
+    pub shifts: Spanned<Vec<String>>,
+    /// mon, tue, ...; every day if absent.
+    pub days: Option<Spanned<Vec<String>>>,
 }
 
 #[derive(Debug, Deserialize)]

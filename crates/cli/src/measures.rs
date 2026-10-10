@@ -82,6 +82,11 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
             add("server", &s.name, "blocked", Unit::Fraction, &|r| {
                 r.servers[i].blocked
             });
+            if s.schedule.is_some() {
+                add("server", &s.name, "off shift", Unit::Fraction, &|r| {
+                    r.servers[i].off_shift
+                });
+            }
             if !s.needs.is_empty() {
                 add(
                     "server",
@@ -106,6 +111,11 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
             add("resource", &res.name, "busy", Unit::Fraction, &|r| {
                 r.resources[i].busy
             });
+            if res.schedule.is_some() {
+                add("resource", &res.name, "off shift", Unit::Fraction, &|r| {
+                    r.resources[i].off_shift
+                });
+            }
         }
     }
     if wants(SummaryItem::ConveyorOccupancy) {
