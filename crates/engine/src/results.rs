@@ -55,6 +55,14 @@ pub struct SinkResult {
     pub exited: u64,
     /// Seconds from creation to reaching the sink, for parts that exited.
     pub time_in_system: Tally,
+    /// The same, per part type (indexed like [`crate::Spec::entities`]).
+    pub by_type: Vec<TypeResult>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeResult {
+    pub exited: u64,
+    pub time_in_system: Tally,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

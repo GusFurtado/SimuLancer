@@ -202,7 +202,7 @@ mod tests {
         let m = |values: &[f64]| Measure {
             object_type: "sink",
             object: "shipping".into(),
-            name: "throughput",
+            name: "throughput".into(),
             unit,
             values: values.to_vec(),
         };

@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node, OnFailure, Routing,
-    Server, Sink, Source, Spec, WhenBlocked,
+    Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node, OnFailure, PerType,
+    Routing, Server, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -41,6 +41,16 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         b.check_name(name);
         entity_index.insert(name.value.as_str(), i);
     }
+    let entity_names: Vec<&str> = raw
+        .entities
+        .0
+        .iter()
+        .map(|(n, _)| n.value.as_str())
+        .collect();
+    let types = Types {
+        index: &entity_index,
+        names: &entity_names,
+    };
     let mut objects: HashMap<&str, Object> = HashMap::new();
     let all_names = [
         (
@@ -144,19 +154,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
 
     let mut sources = Vec::new();
     for (i, (name, s)) in raw.sources.0.iter().enumerate() {
-        let entity = match entity_index.get(s.creates.value.as_str()) {
-            Some(&e) => Some(e),
-            None => {
-                b.error(
-                    &s.creates,
-                    format!(
-                        "source `{}` creates `{}`, which isn't listed under `entities`",
-                        name.value, s.creates.value
-                    ),
-                );
-                None
-            }
-        };
+        let creates = b.creates(name, &s.creates, &types);
         let interarrival = b.distribution(&s.interarrival);
         let output = endpoints_ok
             .then(|| {
@@ -166,15 +164,16 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                     &s.output,
                     &source_outputs[i],
                     &conveyor_names,
+                    &types,
                 )
             })
             .flatten();
-        if let (Some(entity), Some(interarrival), Some((outputs, routing))) =
-            (entity, interarrival, output)
+        if let (Some(creates), Some(interarrival), Some((outputs, routing))) =
+            (creates, interarrival, output)
         {
             sources.push(Source {
                 name: name.value.clone(),
-                entity,
+                creates,
                 interarrival,
                 when_blocked: match s.when_blocked {
                     raw::WhenBlocked::Wait => WhenBlocked::Wait,
@@ -199,7 +198,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some(c) => Some(c.value),
             None => Some(1),
         };
-        let process_time = b.distribution(&s.process_time);
+        let process_time = b.per_type_distribution(name, &s.process_time, &types);
         let mut failures = Vec::new();
         let mut failures_ok = true;
         for (j, f) in s.failures.iter().enumerate() {
@@ -243,6 +242,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                     &s.output,
                     &server_outputs[i],
                     &conveyor_names,
+                    &types,
                 )
             })
             .flatten();
@@ -311,6 +311,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         experiment: experiment.expect("no diagnostics means the experiment is valid"),
     };
     check_reachability(&spec, &raw)?;
+    check_part_types(&spec, &raw)?;
 
     Ok(Model {
         name: raw.name.value,
@@ -387,6 +388,122 @@ fn check_reachability(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>
         Ok(())
     } else {
         Err(diagnostics)
+    }
+}
+
+/// Which part types can reach each object, following `by_type` routes:
+/// every server must have a process time, and every `by_type` rule a
+/// route, for each of them.
+fn check_part_types(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> {
+    let n = spec.entities.len();
+    let mut at_server = vec![vec![false; n]; spec.servers.len()];
+    let mut at_source = vec![vec![false; n]; spec.sources.len()];
+    let mut stack: Vec<(Node, usize)> = Vec::new();
+    for (i, s) in spec.sources.iter().enumerate() {
+        for &(e, _) in &s.creates {
+            at_source[i][e] = true;
+            stack.push((Node::Source(i), e));
+        }
+    }
+    while let Some((node, e)) = stack.pop() {
+        let (outputs, routing) = match node {
+            Node::Source(i) => (&spec.sources[i].outputs, &spec.sources[i].routing),
+            Node::Server(i) => (&spec.servers[i].outputs, &spec.servers[i].routing),
+            Node::Sink(_) => continue,
+        };
+        let next: Vec<usize> = match routing {
+            Routing::ByType(routes) => routes[e].into_iter().collect(),
+            _ => outputs.clone(),
+        };
+        for c in next {
+            if let Node::Server(s) = spec.conveyors[c].to
+                && !at_server[s][e]
+            {
+                at_server[s][e] = true;
+                stack.push((Node::Server(s), e));
+            }
+        }
+    }
+    let mut diagnostics = Vec::new();
+    let mut report = |name: &Spanned<String>, message: String| {
+        diagnostics.push(Diagnostic {
+            position: Position::from_location(&name.referenced),
+            message,
+        })
+    };
+    let missing = |arrives: &[bool], has: &dyn Fn(usize) -> bool| -> Vec<String> {
+        (0..n)
+            .filter(|&e| arrives[e] && !has(e))
+            .map(|e| format!("`{}`", spec.entities[e]))
+            .collect()
+    };
+    for (i, (name, _)) in raw.servers.0.iter().enumerate() {
+        let server = &spec.servers[i];
+        if let PerType::ByType(times) = &server.process_time {
+            let gaps = missing(&at_server[i], &|e| times[e].is_some());
+            if !gaps.is_empty() {
+                report(
+                    name,
+                    format!(
+                        "server `{}` gets parts of type {}, but `process_time` has no time for them",
+                        name.value,
+                        gaps.join(", ")
+                    ),
+                );
+            }
+        }
+        if let Routing::ByType(routes) = &server.routing {
+            let gaps = missing(&at_server[i], &|e| routes[e].is_some());
+            if !gaps.is_empty() {
+                report(
+                    name,
+                    format!(
+                        "server `{}` gets parts of type {}, but its `by_type` rule has no route for them",
+                        name.value,
+                        gaps.join(", ")
+                    ),
+                );
+            }
+        }
+    }
+    for (i, (name, _)) in raw.sources.0.iter().enumerate() {
+        if let Routing::ByType(routes) = &spec.sources[i].routing {
+            let gaps = missing(&at_source[i], &|e| routes[e].is_some());
+            if !gaps.is_empty() {
+                report(
+                    name,
+                    format!(
+                        "source `{}` creates parts of type {}, but its `by_type` rule has no route for them",
+                        name.value,
+                        gaps.join(", ")
+                    ),
+                );
+            }
+        }
+    }
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
+}
+
+/// The model's part types, for checking names given per type.
+struct Types<'a> {
+    index: &'a HashMap<&'a str, usize>,
+    names: &'a [&'a str],
+}
+
+impl Types<'_> {
+    fn list(&self) -> String {
+        if self.names.is_empty() {
+            return "none".into();
+        }
+        self.names
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -491,13 +608,129 @@ impl Builder {
     }
 
     fn distribution(&mut self, value: &Spanned<Scalar>) -> Option<Distribution> {
-        let result = match &value.value {
+        self.distribution_at(value, &value.value, "")
+    }
+
+    /// A distribution, with errors reported at `at` (prefixed with `what`).
+    fn distribution_at<T>(
+        &mut self,
+        at: &Spanned<T>,
+        value: &Scalar,
+        what: &str,
+    ) -> Option<Distribution> {
+        let result = match value {
             Scalar::Number(n) => {
                 convert_number(*n, Dimension::Time, &self.defaults).and_then(constant)
             }
             Scalar::Text(t) => parse_time_distribution(t, &self.defaults),
         };
-        result.map_err(|message| self.error(value, message)).ok()
+        result
+            .map_err(|message| self.error(at, format!("{what}{message}")))
+            .ok()
+    }
+
+    /// A part type by name, or an error (at `at`) naming the known ones.
+    fn part_type<T>(
+        &mut self,
+        at: &Spanned<T>,
+        name: &str,
+        types: &Types,
+        what: &str,
+    ) -> Option<usize> {
+        match types.index.get(name) {
+            Some(&e) => Some(e),
+            None => {
+                self.error(
+                    at,
+                    format!(
+                        "{what} `{name}`, which isn't listed under `entities` (part types: {})",
+                        types.list()
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    /// What a source creates: (type, share) pairs, shares summing to 1.
+    fn creates(
+        &mut self,
+        source: &Spanned<String>,
+        creates: &Spanned<raw::RawCreates>,
+        types: &Types,
+    ) -> Option<Vec<(usize, f64)>> {
+        let what = format!("source `{}` creates", source.value);
+        match &creates.value {
+            raw::RawCreates::One(name) => {
+                Some(vec![(self.part_type(creates, name, types, &what)?, 1.0)])
+            }
+            raw::RawCreates::Mix(mix) => {
+                let mut out = Vec::new();
+                let mut ok = true;
+                for (name, share) in mix {
+                    match self.part_type(creates, name, types, &what) {
+                        Some(e) if out.iter().any(|&(f, _)| f == e) => {
+                            self.error(creates, format!("`{name}` is listed twice"));
+                            ok = false;
+                        }
+                        Some(e) => out.push((e, *share)),
+                        None => ok = false,
+                    }
+                    if !(share.is_finite() && *share > 0.0) {
+                        self.error(
+                            creates,
+                            format!("the share of `{name}` must be greater than zero"),
+                        );
+                        ok = false;
+                    }
+                }
+                if mix.is_empty() {
+                    self.error(
+                        creates,
+                        format!("source `{}` creates nothing", source.value),
+                    );
+                    return None;
+                }
+                let sum: f64 = out.iter().map(|(_, s)| s).sum();
+                if ok && (sum - 1.0).abs() > 1e-6 {
+                    self.error(
+                        creates,
+                        format!(
+                            "the shares of the part types source `{}` creates add up to {sum}, not 1",
+                            source.value
+                        ),
+                    );
+                    ok = false;
+                }
+                ok.then_some(out)
+            }
+        }
+    }
+
+    /// A time distribution, the same for every part type or given per type.
+    fn per_type_distribution(
+        &mut self,
+        server: &Spanned<String>,
+        value: &Spanned<raw::RawPerType>,
+        types: &Types,
+    ) -> Option<PerType<Distribution>> {
+        match &value.value {
+            raw::RawPerType::Same(v) => Some(PerType::Same(self.distribution_at(value, v, "")?)),
+            raw::RawPerType::ByType(map) => {
+                let mut out: Vec<Option<Distribution>> = vec![None; types.names.len()];
+                let mut ok = true;
+                let what = format!("server `{}` has a process time for", server.value);
+                for (name, v) in map {
+                    let e = self.part_type(value, name, types, &what);
+                    let d = self.distribution_at(value, v, &format!("`{name}`: "));
+                    match (e, d) {
+                        (Some(e), Some(d)) => out[e] = Some(d),
+                        _ => ok = false,
+                    }
+                }
+                ok.then_some(PerType::ByType(out))
+            }
+        }
     }
 
     fn duration(
@@ -576,6 +809,7 @@ impl Builder {
         rule: &Option<Spanned<raw::RawOutputRule>>,
         outputs: &[usize],
         conveyor_names: &[&str],
+        types: &Types,
     ) -> Option<(Vec<usize>, Routing)> {
         let list = |items: &[usize]| {
             items
@@ -598,7 +832,7 @@ impl Builder {
             self.error(
                 name,
                 format!(
-                    "{kind} `{}` has {} outgoing conveyors ({}); add `output: {{ rule: probability | round_robin | first_available | shortest_queue }}` to say how parts choose",
+                    "{kind} `{}` has {} outgoing conveyors ({}); add `output: {{ rule: probability | round_robin | first_available | shortest_queue | by_type }}` to say how parts choose",
                     name.value,
                     outputs.len(),
                     list(outputs)
@@ -607,7 +841,62 @@ impl Builder {
             return None;
         };
         let rule = &rule.value;
+        if rule.routes.is_some() && rule.rule.value != raw::OutputRuleKind::ByType {
+            self.error(
+                &rule.rule,
+                "`routes` only apply to `rule: by_type`".to_string(),
+            );
+            return None;
+        }
         let routing = match rule.rule.value {
+            raw::OutputRuleKind::ByType => {
+                if rule.weights.is_some() {
+                    self.error(
+                        &rule.rule,
+                        "`weights` only apply to `rule: probability`".to_string(),
+                    );
+                    return None;
+                }
+                let Some(routes) = &rule.routes else {
+                    self.error(
+                        &rule.rule,
+                        format!(
+                            "`rule: by_type` needs `routes`: part type -> conveyor (one of {})",
+                            list(outputs)
+                        ),
+                    );
+                    return None;
+                };
+                let mut found: Vec<Option<usize>> = vec![None; types.names.len()];
+                let mut ok = true;
+                let what = format!("`{}` routes", name.value);
+                for (part_type, conveyor) in &routes.0 {
+                    let e = self.part_type(part_type, &part_type.value, types, &what);
+                    let c = outputs
+                        .iter()
+                        .copied()
+                        .find(|&c| conveyor_names[c] == conveyor.value);
+                    if c.is_none() {
+                        self.error(
+                            conveyor,
+                            format!(
+                                "`{}` isn't an outgoing conveyor of `{}` (those are {})",
+                                conveyor.value,
+                                name.value,
+                                list(outputs)
+                            ),
+                        );
+                    }
+                    match (e, c) {
+                        (Some(e), Some(c)) => found[e] = Some(c),
+                        _ => ok = false,
+                    }
+                }
+                if !ok {
+                    return None;
+                }
+                Routing::ByType(found)
+            }
             raw::OutputRuleKind::RoundRobin
             | raw::OutputRuleKind::FirstAvailable
             | raw::OutputRuleKind::ShortestQueue

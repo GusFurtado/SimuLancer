@@ -128,7 +128,7 @@ mod tests {
         Measure {
             object_type: "server",
             object: "m".into(),
-            name: "busy",
+            name: "busy".into(),
             unit: Unit::Fraction,
             values: values.to_vec(),
         }

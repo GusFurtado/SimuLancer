@@ -10,6 +10,8 @@ pub enum TraceEvent {
     Created {
         part: PartId,
         source: usize,
+        /// The part type, an index into [`crate::Spec::entities`].
+        entity: usize,
     },
     /// Discarded by a source because its conveyor was full.
     Lost {

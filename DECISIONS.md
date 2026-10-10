@@ -310,6 +310,21 @@ Decisions so far:
 - **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
 - **Next (planned 2026-10-10, in this order):** manager comparisons; then exposing decisions from the builder; then drawing models in the builder (place, connect, delete and rename objects; conveyor length follows the drawing by default; whole-model saves including the layout; distribution pickers; undo).
 
+## Part types (implemented 2026-10-10)
+
+- **Where types come from:** `entities` lists the part types. A source `creates` one type, or a mix with shares adding up to 1. Each arrival's type is drawn from the source's own `type` stream, which is only used for mixes, so single-type models give byte-identical results to before.
+- **Process times per type:** `process_time` is one time, or a map type -> time. Routing by type is a new output rule, `by_type`, with `routes: { type: conveyor }`. The part waits for its conveyor.
+- **Validation follows the types:** which types can reach each server is computed by following `by_type` routes from the sources. Every type that can arrive needs a process time (when given per type) and a route (with `by_type`). Types that never arrive don't.
+- **Results:** with two or more types, each sink also reports `throughput of <type>` and `time in system of <type>`. Measure names became strings for this. Decisions and results can name these measures like any other.
+- **Event log:** the header lists `entities`, and `created` events carry `entity`. The 2D animation colors parts by type (six colors, distinct from the server-state colors, with a legend). The Godot viewer ignores both for now.
+- **Format detail:** per-type values (`creates`, `process_time`) are read by hand-written deserializers, because positions don't survive untagged choices in the YAML library. Their errors point at the field, not at the entry inside it.
+- **Build page:**
+  - *Part types* in the model settings (add, rename everywhere, remove).
+  - A *Creates* field on sources: one type, or "A mix of part types…" with shares.
+  - "Different times per part type…" on servers.
+  - The `by_type` rule, with a conveyor per type.
+- **Model reference:** `docs/models.md` now documents the whole model format.
+
 ## Drawing models in the builder (implemented 2026-10-10)
 
 - **Toolbar on the diagram:** + Source, + Server, + Sink, Connect (click one object, then the next), Delete, Undo/Redo (also Ctrl+Z / Ctrl+Shift+Z). Objects are dragged on a 0.5 m grid. The panel renames and deletes the selected object or conveyor.

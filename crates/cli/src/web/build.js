@@ -286,7 +286,7 @@ function renderEditor() {
         el("div", { class: "card diagram" }, diagramToolbar(), diagram(tree),
           el("p", { class: "hint" }, state.connect
             ? (state.connect.from ? `Now click where parts go from ${state.connect.from}.` : "Click the object parts come from.")
-            : "Click an object or conveyor to edit it, drag objects to move them; click empty space for the experiment settings.")),
+            : "Click an object or conveyor to edit it, drag objects to move them; click empty space for the model settings.")),
         versionsCard()),
       el("div", { class: "card panel" }, panel(tree))),
   ].filter(Boolean));
@@ -701,7 +701,7 @@ function field(label, path, kind = "text", options = [], placeholder = null) {
 /** Distributions and their parameters, as the model language writes them. */
 const DISTRIBUTIONS = {
   constant: { label: "Always the same", params: [["value", "Value", "1 min"]] },
-  exponential: { label: "Exponential (random arrivals)", params: [["mean", "Mean", "1 min"]] },
+  exponential: { label: "Exponential", params: [["mean", "Mean", "1 min"]] },
   uniform: { label: "Uniform", params: [["min", "Min", "1 min"], ["max", "Max", "2 min"]] },
   triangular: { label: "Triangular", params: [["min", "Min", "1 min"], ["mode", "Most likely", "1.5 min"], ["max", "Max", "2 min"]] },
   lognormal: { label: "Lognormal", params: [["mean", "Mean", "1 min"], ["sd", "Std. deviation", "20 s"]], named: true },
@@ -787,13 +787,14 @@ function panel(tree) {
   switch (sel.section) {
     case "sources":
       return el("div", {}, header,
+        createsField(tree, p),
         distField("Time between arrivals", `${p}.interarrival`),
         field("When the conveyor is full", `${p}.when_blocked`, "select", ["wait", "drop"]),
         outputRule(tree, p, outputs));
     case "servers":
       return el("div", {}, header,
         field("Capacity (parts at once)", `${p}.capacity`, "int", [], "1 (default)"),
-        distField("Process time", `${p}.process_time`),
+        processTime(tree, p),
         inputRule(tree, p, inputs),
         outputRule(tree, p, outputs),
         failures(tree, p));
@@ -806,12 +807,112 @@ function panel(tree) {
   }
 }
 
-function experimentPanel() {
-  return el("div", {}, el("h3", {}, "Experiment"), el("div", { class: "kind" }, "Applies to the whole model"),
+function experimentPanel(tree) {
+  return el("div", {}, el("h3", {}, "Model settings"), el("div", { class: "kind" }, "Apply to the whole model"),
+    el("div", { class: "group-title" }, "Experiment"),
     field("Replications", "experiment.replications", "int"),
     field("Warm-up", "experiment.warmup", "text", [], "none"),
     field("Run length (after warm-up)", "experiment.run_length"),
-    field("Seed", "experiment.seed", "int"));
+    field("Seed", "experiment.seed", "int"),
+    partTypesPanel(tree));
+}
+
+// --- part types --------------------------------------------------------------------------------
+
+const typesOf = tree => Object.keys(tree.entities || {});
+
+function partTypesPanel(tree) {
+  const types = typesOf(tree);
+  return el("div", { class: "group", id: "part-types" },
+    el("div", { class: "group-title" }, "Part types"),
+    el("p", { class: "hint", style: "margin: 0 0 8px" }, "Sources create these. Process times and routing can differ by type."),
+    ...types.map(t => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
+      el("input", { value: t, "aria-label": `part type ${t}`, "data-type": t, onchange: e => renamePartType(t, e.target.value.trim()) }),
+      el("button", { style: "flex: 0", disabled: types.length < 2 ? true : null, onclick: () => setChange(`entities.${t}`, null),
+        title: types.length < 2 ? "A model needs at least one part type" : `Remove ${t}` }, "Remove"))),
+    el("button", { id: "add-part-type", onclick: () => setChange(`entities.${freeTypeName(types)}`, {}) }, "+ Part type"));
+}
+
+function freeTypeName(types) {
+  for (let i = types.length + 1; ; i++) if (!types.includes(`type_${i}`)) return `type_${i}`;
+}
+
+/** Renames a part type everywhere the model names it. */
+function renamePartType(oldName, newName) {
+  const tree = currentTree();
+  if (newName === oldName) return;
+  if (!isName(newName) || typesOf(tree).includes(newName)) {
+    state.message = { kind: "error", text: `“${newName}” can't be used: names start with a letter, use letters, digits, _ and -, and must be unique.` };
+    return renderEditor();
+  }
+  const renameKey = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k === oldName ? newName : k, v]));
+  batch(() => {
+    setChange("entities", renameKey(tree.entities));
+    for (const [name, src] of Object.entries(tree.sources || {})) {
+      if (src.creates === oldName) setChange(`sources.${name}.creates`, newName);
+      else if (src.creates && typeof src.creates === "object" && oldName in src.creates) setChange(`sources.${name}.creates`, renameKey(src.creates));
+      if (src.output?.routes && oldName in src.output.routes) setChange(`sources.${name}.output`, { ...src.output, routes: renameKey(src.output.routes) });
+    }
+    for (const [name, srv] of Object.entries(tree.servers || {})) {
+      if (srv.process_time && typeof srv.process_time === "object" && oldName in srv.process_time) setChange(`servers.${name}.process_time`, renameKey(srv.process_time));
+      if (srv.output?.routes && oldName in srv.output.routes) setChange(`servers.${name}.output`, { ...srv.output, routes: renameKey(srv.output.routes) });
+    }
+  });
+}
+
+/** What a source creates: one type, or a mix with shares. */
+function createsField(tree, p) {
+  const types = typesOf(tree);
+  const path = `${p}.creates`;
+  const value = getAt(tree, path);
+  const error = errorFor(path);
+  const mixed = value && typeof value === "object";
+  let body;
+  if (!mixed) {
+    body = [
+      el("select", { id: "f-creates", onchange: e => setChange(path, e.target.value) },
+        types.map(t => el("option", { value: t, selected: t === value }, t))),
+      types.length > 1 ? el("button", { class: "link", id: "mix", style: "padding: 2px 0", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, +(1 / types.length).toFixed(4)]))) }, "A mix of part types…") : null,
+    ];
+  } else {
+    body = [
+      ...types.map(t => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
+        el("span", {}, t),
+        el("input", {
+          value: value[t] ?? "", inputmode: "decimal", placeholder: "0", "aria-label": `share of ${t}`, "data-share": t,
+          onchange: e => {
+            const shares = { ...value };
+            const n = Number(e.target.value);
+            if (e.target.value.trim() === "" || n === 0) delete shares[t]; else shares[t] = n;
+            setChange(path, shares);
+          },
+        }))),
+      el("div", { class: "hint", style: "margin: 0" }, "Shares of the arrivals; they must add up to 1."),
+      el("button", { class: "link", style: "padding: 2px 0", onclick: () => setChange(path, Object.keys(value)[0] || types[0]) }, "Only one part type"),
+    ];
+  }
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: "f-creates" }, "Creates",
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
+    ...body,
+    error ? el("div", { class: "message" }, error.message) : null);
+}
+
+/** A process time, the same for every part type or one per type. */
+function processTime(tree, p) {
+  const types = typesOf(tree);
+  const path = `${p}.process_time`;
+  const value = getAt(tree, path);
+  if (value && typeof value === "object") {
+    return el("div", { class: "group" },
+      el("div", { class: "group-title" }, "Process time by part type"),
+      ...Object.keys(value).map(t => distField(t, `${path}.${t}`)),
+      ...types.filter(t => !(t in value)).map(t => el("button", { class: "link", onclick: () => setChange(`${path}.${t}`, Object.values(value)[0]) }, `+ A time for ${t}`)),
+      el("button", { class: "link", style: "display: block; padding: 2px 0", onclick: () => setChange(path, Object.values(value)[0]) }, "The same for every part type"));
+  }
+  return el("div", {},
+    distField("Process time", path),
+    types.length > 1 ? el("button", { class: "link", id: "per-type", style: "padding: 0 0 10px", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, value]))) }, "Different times per part type…") : null);
 }
 
 function outputRule(tree, p, outputs) {
@@ -825,10 +926,18 @@ function outputRule(tree, p, outputs) {
       const r = e.target.value;
       setChange(path, r === "probability"
         ? { rule: r, weights: Object.fromEntries(outputs.map(o => [o, +(1 / outputs.length).toFixed(4)])) }
-        : { rule: r });
+        : r === "by_type"
+          ? { rule: r, routes: Object.fromEntries(typesOf(tree).map(t => [t, outputs[0]])) }
+          : { rule: r });
     },
   }, el("option", { value: "", selected: !value.rule, disabled: true }, "choose a rule"),
   OUTPUT_RULES.map(r => el("option", { value: r, selected: value.rule === r }, r.replaceAll("_", " "))));
+  const routes = value.rule === "by_type" ? typesOf(tree).map(t => el("div", { class: "row field", style: "margin-bottom: 6px; align-items: center" },
+    el("span", {}, t),
+    el("select", {
+      "aria-label": `conveyor for ${t}`, "data-route": t,
+      onchange: e => setChange(path, { ...value, routes: { ...value.routes, [t]: e.target.value } }),
+    }, outputs.map(o => el("option", { value: o, selected: value.routes?.[t] === o }, o))))) : [];
   const weights = value.rule === "probability" ? outputs.map(o => el("div", { class: "row field", style: "margin-bottom: 6px; align-items: center" },
     el("span", {}, o),
     el("input", {
@@ -842,7 +951,7 @@ function outputRule(tree, p, outputs) {
   return el("div", { class: `group field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
     el("label", { for: `f-${path}-rule` }, "Sends parts to " + outputs.join(", "),
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
-    rule, ...weights,
+    rule, ...routes, ...weights,
     error ? el("div", { class: "message" }, error.message) : null);
 }
 

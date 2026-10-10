@@ -188,7 +188,7 @@ pub fn read(
                         let here: Vec<&str> = measures
                             .iter()
                             .filter(|m| m.object == raw.object)
-                            .map(|m| m.name)
+                            .map(|m| m.name.as_str())
                             .collect();
                         problems.push(if here.is_empty() {
                             format!(
@@ -229,9 +229,11 @@ pub fn read(
 fn default_results(measures: &[Measure]) -> Vec<ResultSpec> {
     measures
         .iter()
-        .filter(|m| m.object_type == "sink")
+        .filter(|m| {
+            m.object_type == "sink" && matches!(m.name.as_str(), "throughput" | "time in system")
+        })
         .map(|m| ResultSpec {
-            label: match m.name {
+            label: match m.name.as_str() {
                 "throughput" => format!("Parts per hour at {}", m.object),
                 "time in system" => format!("Time in system to {}", m.object),
                 other => format!("{} {other}", m.object),
@@ -239,7 +241,7 @@ fn default_results(measures: &[Measure]) -> Vec<ResultSpec> {
             object: m.object.clone(),
             measure: m.name.to_string(),
             unit: m.unit,
-            better: match m.name {
+            better: match m.name.as_str() {
                 "throughput" => Better::Higher,
                 "time in system" => Better::Lower,
                 _ => Better::Neither,
@@ -616,7 +618,7 @@ mod tests {
         vec![Measure {
             object_type: "sink",
             object: "shipping".into(),
-            name: "throughput",
+            name: "throughput".into(),
             unit: Unit::PartsPerHour,
             values: vec![],
         }]

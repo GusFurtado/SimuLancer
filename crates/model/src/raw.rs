@@ -44,12 +44,84 @@ pub struct RawEntity {}
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawSource {
-    pub creates: Spanned<String>,
+    /// One part type, or a mix: type -> share.
+    pub creates: Spanned<RawCreates>,
     pub interarrival: Spanned<Scalar>,
     #[serde(default)]
     pub when_blocked: WhenBlocked,
     /// Required with two or more outgoing conveyors.
     pub output: Option<Spanned<RawOutputRule>>,
+}
+
+/// What a source creates: one part type, or a mix of types with shares.
+/// (Positions are kept for the whole field: spans don't survive untagged
+/// choices, so these deserialize by hand.)
+#[derive(Debug)]
+pub enum RawCreates {
+    One(String),
+    Mix(Vec<(String, f64)>),
+}
+
+/// A time that may differ by part type: one value, or type -> value.
+#[derive(Debug)]
+pub enum RawPerType {
+    Same(Scalar),
+    ByType(Vec<(String, Scalar)>),
+}
+
+impl<'de> Deserialize<'de> for RawCreates {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = RawCreates;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a part type, or a map of part types to shares")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<RawCreates, E> {
+                Ok(RawCreates::One(v.to_string()))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<RawCreates, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry::<String, f64>()? {
+                    entries.push(entry);
+                }
+                Ok(RawCreates::Mix(entries))
+            }
+        }
+        deserializer.deserialize_any(V)
+    }
+}
+
+impl<'de> Deserialize<'de> for RawPerType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct V;
+        impl<'de> Visitor<'de> for V {
+            type Value = RawPerType;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a time, or a map of part types to times")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<RawPerType, E> {
+                Ok(RawPerType::Same(Scalar::Text(v.to_string())))
+            }
+            fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<RawPerType, E> {
+                Ok(RawPerType::Same(Scalar::Number(v)))
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<RawPerType, E> {
+                Ok(RawPerType::Same(Scalar::Number(v as f64)))
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<RawPerType, E> {
+                Ok(RawPerType::Same(Scalar::Number(v as f64)))
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<RawPerType, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry::<String, Scalar>()? {
+                    entries.push(entry);
+                }
+                Ok(RawPerType::ByType(entries))
+            }
+        }
+        deserializer.deserialize_any(V)
+    }
 }
 
 /// How parts choose among outgoing conveyors.
@@ -59,6 +131,8 @@ pub struct RawOutputRule {
     pub rule: Spanned<OutputRuleKind>,
     /// Conveyor name -> weight, for `probability`.
     pub weights: Option<OrderedMap<Spanned<f64>>>,
+    /// Part type -> conveyor name, for `by_type`.
+    pub routes: Option<OrderedMap<Spanned<String>>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -68,6 +142,7 @@ pub enum OutputRuleKind {
     RoundRobin,
     FirstAvailable,
     ShortestQueue,
+    ByType,
 }
 
 /// How a server chooses among parts waiting on incoming conveyors.
@@ -99,7 +174,7 @@ pub enum WhenBlocked {
 #[serde(deny_unknown_fields)]
 pub struct RawServer {
     pub capacity: Option<Spanned<u32>>,
-    pub process_time: Spanned<Scalar>,
+    pub process_time: Spanned<RawPerType>,
     #[serde(default)]
     pub failures: Vec<RawFailure>,
     /// Required with two or more incoming conveyors.
@@ -255,5 +330,38 @@ impl<'de, V: Deserialize<'de>> Deserialize<'de> for OrderedMap<V> {
         }
 
         deserializer.deserialize_map(MapVisitor(PhantomData))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn per_type_values_keep_the_field_position() {
+        #[derive(Deserialize)]
+        struct T {
+            a: Spanned<RawPerType>,
+            b: Spanned<RawPerType>,
+            c: Spanned<RawCreates>,
+            d: Spanned<RawCreates>,
+        }
+        let t: T = serde_saphyr::from_str(
+            "a: 5 min\nb: { x: \"1 min\", y: 2 }\nc: part\nd: { x: 0.25, y: 0.75 }\n",
+        )
+        .unwrap();
+        assert!(matches!(t.a.value, RawPerType::Same(Scalar::Text(ref x)) if x == "5 min"));
+        let RawPerType::ByType(b) = &t.b.value else {
+            panic!()
+        };
+        assert_eq!(b[1].0, "y");
+        assert!(matches!(b[1].1, Scalar::Number(n) if n == 2.0));
+        assert_eq!(t.b.referenced.line(), 2);
+        assert!(matches!(t.c.value, RawCreates::One(ref x) if x == "part"));
+        assert_eq!(t.c.referenced.line(), 3);
+        let RawCreates::Mix(d) = &t.d.value else {
+            panic!()
+        };
+        assert_eq!(d[0], ("x".to_string(), 0.25));
     }
 }

@@ -37,7 +37,7 @@ impl serde::Serialize for Unit {
 pub struct Measure {
     pub object_type: &'static str,
     pub object: String,
-    pub name: &'static str,
+    pub name: String,
     pub unit: Unit,
     /// One value per replication; NaN where undefined.
     pub values: Vec<f64>,
@@ -48,15 +48,16 @@ pub struct Measure {
 pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]) -> Vec<Measure> {
     let wants = |item| items.contains(&item);
     let mut out = Vec::new();
-    let mut add = |object_type, object: &str, name, unit, f: &dyn Fn(&ReplicationResult) -> f64| {
-        out.push(Measure {
-            object_type,
-            object: object.to_string(),
-            name,
-            unit,
-            values: results.iter().map(f).collect(),
-        });
-    };
+    let mut add =
+        |object_type, object: &str, name: &str, unit, f: &dyn Fn(&ReplicationResult) -> f64| {
+            out.push(Measure {
+                object_type,
+                object: object.to_string(),
+                name: name.to_string(),
+                unit,
+                values: results.iter().map(f).collect(),
+            });
+        };
 
     if wants(SummaryItem::SourceBlockedTime) {
         for (i, s) in spec.sources.iter().enumerate() {
@@ -121,6 +122,29 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
             add("sink", &s.name, "time in system", Unit::Seconds, &|r| {
                 r.sinks[i].time_in_system.mean()
             });
+        }
+        // With several part types, the same per type.
+        if spec.entities.len() > 1 {
+            for (e, entity) in spec.entities.iter().enumerate() {
+                if wants(SummaryItem::Throughput) {
+                    add(
+                        "sink",
+                        &s.name,
+                        &format!("throughput of {entity}"),
+                        Unit::PartsPerHour,
+                        &|r| r.sinks[i].by_type[e].exited as f64 / r.measured * 3600.0,
+                    );
+                }
+                if wants(SummaryItem::TimeInSystem) {
+                    add(
+                        "sink",
+                        &s.name,
+                        &format!("time in system of {entity}"),
+                        Unit::Seconds,
+                        &|r| r.sinks[i].by_type[e].time_in_system.mean(),
+                    );
+                }
+            }
         }
     }
     out

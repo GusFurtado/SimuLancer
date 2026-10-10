@@ -39,7 +39,7 @@ use crate::SimTime;
 use crate::events::{Event, EventList};
 use crate::results::{
     ConveyorResult, ReplicationResult, ServerResult, SinkResult, SourceResult, Tally, TimeAverage,
-    Totals,
+    Totals, TypeResult,
 };
 use crate::rng::Rng;
 use crate::spec::{Conveyor, FailureClock, InputRule, Node, OnFailure, Routing, Spec, WhenBlocked};
@@ -52,6 +52,8 @@ const EPS: f64 = 1e-9;
 struct Part {
     id: PartId,
     created: SimTime,
+    /// Index into [`Spec::entities`].
+    entity: usize,
 }
 
 /// The conveyor a waiting part will leave on; `None` means any output with
@@ -61,6 +63,8 @@ type Target = Option<usize>;
 struct SourceState {
     rng: Rng,
     routing_rng: Rng,
+    /// Draws the part type, for sources that create a mix.
+    type_rng: Rng,
     next_output: usize,
     /// Part waiting to get on a conveyor (`when_blocked: wait`).
     held: Option<(Part, Target)>,
@@ -202,9 +206,18 @@ fn duration(seconds: f64) -> SimTime {
 }
 
 /// Picks the conveyor a part ready to leave will take (see the module docs).
-fn pick_output(routing: &Routing, outputs: &[usize], rng: &mut Rng, next: &mut usize) -> Target {
+fn pick_output(
+    routing: &Routing,
+    outputs: &[usize],
+    entity: usize,
+    rng: &mut Rng,
+    next: &mut usize,
+) -> Target {
     match routing {
         Routing::Single => Some(outputs[0]),
+        Routing::ByType(routes) => {
+            Some(routes[entity].expect("validated: every type that gets here has a route"))
+        }
         Routing::Probability(weights) => {
             let u = 1.0 - rng.open01(); // [0, 1)
             let mut cumulative = 0.0;
@@ -245,6 +258,8 @@ struct Sim<'a, O: Observer> {
     conveyors: Vec<ConveyorState>,
     sink_exited: Vec<u64>,
     sink_times: Vec<Tally>,
+    /// Per sink, per part type: parts that exited and their times in system.
+    sink_by_type: Vec<Vec<(u64, Tally)>>,
     totals: Totals,
 }
 
@@ -258,6 +273,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             .map(|s| SourceState {
                 rng: stream(format!("source/{}/interarrival", s.name)),
                 routing_rng: stream(format!("source/{}/routing", s.name)),
+                type_rng: stream(format!("source/{}/type", s.name)),
                 next_output: 0,
                 held: None,
                 created: 0,
@@ -334,6 +350,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             conveyors,
             sink_exited: vec![0; spec.sinks.len()],
             sink_times: vec![Tally::default(); spec.sinks.len()],
+            sink_by_type: vec![vec![(0, Tally::default()); spec.entities.len()]; spec.sinks.len()],
             totals: Totals::default(),
         }
     }
@@ -406,9 +423,27 @@ impl<'a, O: Observer> Sim<'a, O> {
     // --- Sources ---
 
     fn arrival(&mut self, source: usize) {
+        let creates = &self.spec.sources[source].creates;
+        let entity = if creates.len() == 1 {
+            creates[0].0
+        } else {
+            // Drawn from the source's own stream, so adding a type elsewhere
+            // doesn't change these draws.
+            let u = 1.0 - self.sources[source].type_rng.open01(); // [0, 1)
+            let mut cumulative = 0.0;
+            creates
+                .iter()
+                .find(|(_, share)| {
+                    cumulative += share;
+                    u < cumulative
+                })
+                .unwrap_or(creates.last().expect("validated: at least one type"))
+                .0
+        };
         let part = Part {
             id: self.next_part,
             created: self.now,
+            entity,
         };
         self.next_part += 1;
         self.sources[source].created += 1;
@@ -418,6 +453,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             TraceEvent::Created {
                 part: part.id,
                 source,
+                entity,
             },
         );
 
@@ -427,6 +463,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         let target = pick_output(
             &source_spec.routing,
             &source_spec.outputs,
+            part.entity,
             &mut state.routing_rng,
             &mut state.next_output,
         );
@@ -702,7 +739,10 @@ impl<'a, O: Observer> Sim<'a, O> {
     fn start_process(&mut self, server: usize, part: Part) {
         let s = &mut self.servers[server];
         let slot = s.idle_slot().expect("caller checked for a free slot");
-        let total = duration(s.rng.sample(&self.spec.servers[server].process_time));
+        let total = duration(
+            s.rng
+                .sample(self.spec.servers[server].process_time.get(part.entity)),
+        );
         s.slots[slot] = Slot::Busy {
             part,
             finish: self.now + total,
@@ -742,6 +782,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         let target = pick_output(
             &spec.routing,
             &spec.outputs,
+            part.entity,
             &mut s.routing_rng,
             &mut s.next_output,
         );
@@ -918,7 +959,11 @@ impl<'a, O: Observer> Sim<'a, O> {
     fn exit(&mut self, sink: usize, part: Part) {
         self.sink_exited[sink] += 1;
         self.totals.exited += 1;
-        self.sink_times[sink].add((self.now - part.created).as_secs_f64());
+        let time = (self.now - part.created).as_secs_f64();
+        self.sink_times[sink].add(time);
+        let by_type = &mut self.sink_by_type[sink][part.entity];
+        by_type.0 += 1;
+        by_type.1.add(time);
         self.observer.record(
             self.now,
             TraceEvent::Exited {
@@ -983,6 +1028,9 @@ impl<'a, O: Observer> Sim<'a, O> {
         self.sink_times
             .iter_mut()
             .for_each(|t| *t = Tally::default());
+        for types in &mut self.sink_by_type {
+            types.iter_mut().for_each(|t| *t = (0, Tally::default()));
+        }
     }
 
     fn result(&self) -> ReplicationResult {
@@ -1039,9 +1087,17 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .sink_exited
                 .iter()
                 .zip(&self.sink_times)
-                .map(|(&exited, times)| SinkResult {
+                .zip(&self.sink_by_type)
+                .map(|((&exited, times), by_type)| SinkResult {
                     exited,
                     time_in_system: times.clone(),
+                    by_type: by_type
+                        .iter()
+                        .map(|(exited, times)| TypeResult {
+                            exited: *exited,
+                            time_in_system: times.clone(),
+                        })
+                        .collect(),
                 })
                 .collect(),
             totals: Totals {
