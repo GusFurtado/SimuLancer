@@ -818,6 +818,12 @@ function experimentPanel(tree) {
     field("Warm-up", "experiment.warmup", "text", [], "none"),
     field("Run length (after warm-up)", "experiment.run_length"),
     field("Seed", "experiment.seed", "int"),
+    el("label", { class: "check" },
+      el("input", {
+        type: "checkbox", id: "f-event-log", checked: getAt(tree, "outputs.event_log") === "jsonl" ? true : null,
+        onchange: e => setChange("outputs.event_log", e.target.checked ? "jsonl" : null),
+      }),
+      "Record an animation (replication 1)"),
     partTypesPanel(tree),
     resourcesPanel(tree),
     schedulesPanel(tree));
@@ -1451,8 +1457,10 @@ async function startRun() {
   });
   state.message = run.status === "failed" ? { kind: "error", text: "The run failed.", list: [run.error] } : null;
   loadRuns();
-  if (run.status === "done") showRun(run);
-  else renderEditor();
+  if (run.status === "done") {
+    state.view = "report";   // a new run opens on its report
+    showRun(run);
+  } else renderEditor();
 }
 
 function showRun(run) {
