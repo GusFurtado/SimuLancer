@@ -28,3 +28,6 @@ experiment:
   warmup: "1 h"
   run_length: "24 h"
   seed: 1
+
+outputs:
+  event_log: jsonl      # record replication 1, for the animation

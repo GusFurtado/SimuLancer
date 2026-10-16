@@ -161,6 +161,20 @@ measures = b.js("return document.querySelector('iframe.report').contentDocument.
 check("throughput of box" in measures, "per-type measures in the report")
 check("waiting for resources" in measures and "operator" in measures, "resource measures in the report")
 check("off shift" in measures, "schedule measures in the report")
+# New projects record an animation.
+click_text(".results-bar button", "Animation")
+b.wait("return document.querySelector('.animation canvas') !== null", 30)
+# Without recording, the Animation tab says how to turn it on.
+b.js("[...document.querySelectorAll('.tabs button')].find(x => x.textContent === 'Model').click()")
+b.wait("return document.querySelector('.diagram svg') !== null")
+b.js("document.querySelector('.diagram svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+b.wait("return document.getElementById('f-event-log')?.checked === true")
+b.js("const c = document.getElementById('f-event-log'); c.checked = false; c.dispatchEvent(new Event('change'))")
+b.wait("return document.getElementById('pending')?.textContent.includes('1 unsaved change')")
+b.js("document.getElementById('run').click()")
+b.wait("return document.querySelector('iframe.report') !== null", 60)
+click_text(".results-bar button", "Animation")
+b.wait("return document.getElementById('no-animation')?.textContent.includes('Record an animation')", 10)
 
 # --- Engineer: edit, save a version, publish, run. ----------------------------
 # The bike example: an assembly with its kit, a batch oven.

@@ -310,6 +310,16 @@ Decisions so far:
 - **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
 - **Next (planned 2026-10-10, in this order):** manager comparisons; then exposing decisions from the builder; then drawing models in the builder (place, connect, delete and rename objects; conveyor length follows the drawing by default; whole-model saves including the layout; distribution pickers; undo).
 
+## Animation needs an event log (fixed 2026-10-10)
+
+- **The bug:** a model without `outputs.event_log: jsonl` records nothing to replay. The Animation tab used to fall back silently to the report, so on the Decide page the button seemed broken. Projects from the new-project template had no event log.
+- **The fix:**
+  - The template records one.
+  - The Build page's model settings have a "Record an animation" switch.
+  - The Animation tab explains how to turn recording on when a run has nothing to animate.
+  - A new run on the Build page opens on its report, while reopening an old run keeps the last tab.
+- **Not on by default:** event logging stays off unless the model asks for it. A four-week run writes about 13 MB, and `run` on the command line shouldn't produce large files nobody asked for.
+
 ## Batches and assembly (implemented 2026-10-10)
 
 - **Server kinds:** a server processes one part at a time (as before), a **batch** (`batch: N`), or an **assembly** (`assembles: { type: count }` and `makes: type`). Batch and assemble together is an error. Both kinds take one process time, not one per type.

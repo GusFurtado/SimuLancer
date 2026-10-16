@@ -14,6 +14,7 @@ This is a list of problems with today's commercial DES tools: Rockwell Arena, Si
 - **Pricing is hidden.** You usually can't find list prices without talking to sales, so it's hard to compare tools or budget for them.
 - **Student versions are crippled.** Free or academic editions limit the number of entities, objects or model size, and often block saving or exporting. Students learn on toy models.
 - **Using more compute costs more.** Running replications in parallel or in the cloud may need more licenses or a paid cloud tier, so doing statistically sound work costs extra.
+- **A powerful workstation for every user.** Each person who models needs a high-end Windows machine, with a fast CPU, lots of RAM and a graphics card for 3D. It sits idle most of the day and is overkill for everything else they do. Simulation load comes in bursts, but the hardware is bought per seat.
 
 ## 2. Lock-in
 
@@ -145,6 +146,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Pricing is hidden | There's no price. | done |
 | Crippled student versions | Students get the full program. | done |
 | More compute costs more | Replications run on every core at no extra cost. | done |
+| A powerful workstation per user | One server runs the simulations for everyone, and people only need a browser. Load comes in bursts, so one shared machine stays busier than many idle workstations. The engine is efficient, so it needn't be a big machine either: 20 replications of four weeks of the bike line take 0.09 s. | done |
 | **2. Lock-in** | | |
 | Closed file formats | Models are plain YAML; results are JSON, CSV and JSON Lines; formats are documented and versioned. | done |
 | Skills don't transfer | No proprietary scripting language: the model is data, plus a small, documented formula language for distributions. | done |
