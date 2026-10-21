@@ -88,6 +88,7 @@ pub fn write_report(
         "conveyors": spec.conveyors.iter().map(|c| json!({
             "name": c.name,
             "queue": c.is_queue(),
+            "transport": c.transport_by().map(|(f, d)| json!({ "by": spec.vehicles[f].name, "distance": d })),
             "from": node(c.from),
             "to": node(c.to),
             "capacity": (c.capacity != u32::MAX).then_some(c.capacity),
@@ -276,6 +277,7 @@ impl<'a, W: Write> EventLog<'a, W> {
             "conveyors": spec.conveyors.iter().map(|c| json!({
                 "name": c.name,
                 "queue": c.is_queue(),
+                "transport": c.transport_by().map(|(f, d)| json!({ "by": spec.vehicles[f].name, "distance": d })),
                 "from": node(c.from),
                 "to": node(c.to),
                 "length": c.length,
@@ -285,6 +287,7 @@ impl<'a, W: Write> EventLog<'a, W> {
             })).collect::<Vec<_>>(),
             "sinks": spec.sinks.iter().map(|s| &s.name).collect::<Vec<_>>(),
             "resources": spec.resources.iter().map(|r| json!({ "name": r.name, "capacity": r.capacity })).collect::<Vec<_>>(),
+            "vehicles": spec.vehicles.iter().map(|f| json!({ "name": f.name, "count": f.count, "home": node(f.home) })).collect::<Vec<_>>(),
         });
         writeln!(out, "{header}")?;
         Ok(EventLog {
@@ -307,7 +310,37 @@ impl<'a, W: Write> EventLog<'a, W> {
         let micros = time.as_micros();
         let t = format!("{}.{:06}", micros / 1_000_000, micros % 1_000_000);
         // Names are validated identifiers, so they need no JSON escaping.
+        let node_name = |n: Node| match n {
+            Node::Source(i) => &s.sources[i].name,
+            Node::Server(i) => &s.servers[i].name,
+            Node::Sink(i) => &s.sinks[i].name,
+        };
         match event {
+            TraceEvent::VehicleTrip {
+                fleet,
+                vehicle,
+                from,
+                to,
+                until,
+                part,
+            } => {
+                let until = until.as_micros();
+                let part = part.map_or("null".to_string(), |p| p.to_string());
+                writeln!(
+                    self.out,
+                    r#"{{"t":{t},"type":"vehicle_trip","fleet":"{}","vehicle":{vehicle},"from":"{}","to":"{}","until":{}.{:06},"part":{part}}}"#,
+                    s.vehicles[fleet].name,
+                    node_name(from),
+                    node_name(to),
+                    until / 1_000_000,
+                    until % 1_000_000
+                )
+            }
+            TraceEvent::Delivered { part, conveyor } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"delivered","part":{part},"conveyor":"{}"}}"#,
+                s.conveyors[conveyor].name
+            ),
             TraceEvent::Created {
                 part,
                 source,

@@ -203,13 +203,13 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
     // Queues: a straight line between their objects.
     let mut conveyors = Vec::new();
     for c in &spec.conveyors {
-        if c.is_queue() {
+        if !c.is_belt() {
             if let Some((name, _)) = raw.conveyors.0.iter().find(|(n, _)| n.value == c.name) {
                 error(
                     &mut errors,
                     pos(&name.referenced),
                     format!(
-                        "`{}` is a queue; queues are drawn straight between their objects, so remove it from `conveyors`",
+                        "`{}` is a queue or transport, drawn straight between its objects, so remove it from `conveyors`",
                         c.name
                     ),
                 );
@@ -228,7 +228,7 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
                 let reverse = spec
                     .conveyors
                     .iter()
-                    .any(|o| o.is_queue() && o.from == c.to && o.to == c.from);
+                    .any(|o| !o.is_belt() && o.from == c.to && o.to == c.from);
                 conveyors.push(PlacedConveyor {
                     name: c.name.clone(),
                     path: queue_path(a, b, reverse),

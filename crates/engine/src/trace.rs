@@ -2,11 +2,27 @@
 //! are built from this; the engine itself doesn't write files.
 
 use crate::SimTime;
+use crate::spec::Node;
 
 pub type PartId = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceEvent {
+    /// A vehicle sets off from one object to another, arriving at `until`;
+    /// carrying `part`, or empty.
+    VehicleTrip {
+        fleet: usize,
+        vehicle: usize,
+        from: Node,
+        to: Node,
+        until: SimTime,
+        part: Option<PartId>,
+    },
+    /// Unloaded at the end of a transport (`conveyor`).
+    Delivered {
+        part: PartId,
+        conveyor: usize,
+    },
     /// In a queue when the run starts (`starts_with`).
     Stocked {
         part: PartId,
