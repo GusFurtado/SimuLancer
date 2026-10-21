@@ -1,0 +1,45 @@
+# The project file of the assembly-line example, as `outliers-sim serve`
+# creates it: which file is the model, and what the Simulation page lets
+# people change and read.
+
+format: outliers-sim-project/0.1
+name: Washing machine assembly line
+description: Two models on six stations over two shifts, with a final test and rework.
+model: model.yaml
+
+# What can be changed on the Simulation page.
+decisions:
+  release:
+    label: Release rate
+    description: How often a new machine starts down the line.
+    choices:
+      current:
+        label: One machine every 2.5 minutes
+      faster:
+        label: One every 2.25 minutes (11% more)
+        changes: { sources.release.interarrival: "2.25 min" }
+  wiring:
+    label: Wiring stations
+    description: The slowest step, especially for the premium model.
+    path: servers.wiring.capacity
+    min: 1
+    max: 3
+  technicians:
+    label: Rework technicians per shift
+    path: resources.technician.capacity
+    min: 1
+    max: 3
+  test_buffer:
+    label: Room before the test station
+    description: Length of the conveyor before testing. Every metre holds one more machine.
+    path: conveyors.c_to_test.length
+    unit: m
+    min: 2
+    max: 12
+
+# What the Simulation page shows, and which way is better.
+results:
+  - { label: Machines shipped per hour, object: shipping, measure: throughput, better: higher }
+  - { label: Lead time, object: shipping, measure: time in system, better: lower }
+  - { label: Wiring busy, object: wiring, measure: busy }
+  - { label: Drum station blocked by a full conveyor, object: drum, measure: blocked, better: lower }

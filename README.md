@@ -79,7 +79,7 @@ servers:
 | `crates/engine` | Simulation core. Standard units only (time in integer µs, length in m), no I/O. |
 | `crates/model` | Loads and validates YAML model files and converts units for the engine. |
 | `crates/cli` | The `outliers-sim` command (`validate`, `run`). |
-| `examples/` | Example models. `*.layout.yaml` files are read only by the viewer. |
+| `examples/` | Example models, which are also the templates new projects start from: an assembly line, a bank branch, a warehouse, and smaller ones. `templates.yaml` tags them for the template search, `projects/*.yaml` are their project files (decisions and results), `*.layout.yaml` their drawings, and `blank.yaml` is what a blank project starts as. |
 | `viewer/` | Godot 4.7 project that replays event logs in 3D. |
 | `DECISIONS.md` | Design decisions and open questions. |
 | `proprietary-des-issues.md` | Problems with commercial DES tools that this project is a response to. |

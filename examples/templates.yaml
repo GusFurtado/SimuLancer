@@ -1,0 +1,25 @@
+# The templates a new project can start from: the New project form's
+# gallery, searchable by name, description and tags.
+#
+# Each template has, in this folder, a model (<id>.yaml), its layout
+# (<id>.layout.yaml) and a project file (projects/<id>.yaml) with its name,
+# description, decisions and results. Adding one also means adding it to
+# TEMPLATES in crates/cli/src/projects.rs (files are built into the program).
+#
+# Tags: first the kind of system (manufacturing, services, logistics), then
+# what it shows, so people can find a model like theirs or one that uses a
+# feature they want to learn.
+
+templates:
+  assembly-line:
+    tags: [manufacturing, assembly line, shifts, part types, rework, failures, resources]
+  bank-branch:
+    tags: [services, bank, customers, queues, opening hours, part types, routing by type, resources]
+  warehouse:
+    tags: [logistics, warehouse, forklifts, picking, shifts, batches, kits, resources]
+  bike-assembly:
+    tags: [manufacturing, assembly, kits, batches, shifts, resources]
+  conveyor-line:
+    tags: [manufacturing, conveyors, buffers, failures]
+  two-cells:
+    tags: [manufacturing, routing, merging, rework, failures]

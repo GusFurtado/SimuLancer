@@ -1,4 +1,5 @@
-model: model.yaml
+# Layout of blank.yaml, the model a blank project starts from.
+model: blank.yaml
 units: m
 
 objects:

@@ -319,11 +319,46 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Templates, and examples from different industries (implemented 2026-10-21)
+
+Three examples, one per kind of system, built only with what the model language has today, to find what's missing:
+
+- **Washing machine assembly line** (`assembly-line`): two models on six stations, two shifts, a jamming drum station, a final test with 8% rework by one technician.
+- **Bank branch** (`bank-branch`): customers take a ticket and wait for tellers (quick) or account advisors (advice); when a line is full, newcomers leave. Customers are "parts" and the lines are conveyors they walk along.
+- **Distribution warehouse** (`warehouse`): cartons received on the morning shift and put away by forklifts, 8 per trip; orders picked from storage (2 cartons each), packed and dispatched.
+
+They ship as **templates**, not as projects:
+
+- **A new data folder has no projects.** The page opens on "Start your first project". Example projects in the list were clutter, and people could overwrite them by mistake; a template is built into the program and never changes, and a project gets a copy.
+- **New project: Blank or a template, or a copy of one of your projects.** Blank is the smallest valid model (a source, a machine, an exit): an empty model isn't valid, and an empty canvas is a harder start.
+- **Templates are searched, so the list can grow.** A search box matches names, descriptions and tags; tag buttons narrow it down. Only tags that would still narrow the results are offered, the ten most used first ("N more tags" shows the rest). Tags say the kind of system first (manufacturing, services, logistics), then what the model shows (shifts, rework, kits…). They live in `examples/templates.yaml`; a test checks every template is listed there with tags.
+- **A project made from a template starts saved and published as v1** ("Started from the Bank branch template"), so its Simulation page works right away. Two projects may share a name but not an id: the form picks `bank-branch-2` when `bank-branch` is taken.
+- **A test checks every template:** it loads, has a layout, and its decisions and results can be published.
+- Existing data folders keep the example projects they were given; they can be archived and deleted like any project.
+
+What building them showed is missing, in the order I'd add it:
+
+| Gap | Where it showed | Workaround in the example | Issue |
+|---|---|---|---|
+| **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). | #22 |
+| **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. | #23 |
+| **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". | #24 |
+| **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. | #25 |
+| **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. | #26 |
+| **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. | #27 |
+| **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. | #28 |
+| **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. | #29 |
+| **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. | #30 |
+| **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. | #31 |
+| **Changeovers between models, paced lines** | Assembly line | Not modeled. | #32, #33 |
+
+Also fixed while drawing them: conveyor labels go on the longest segment, beside vertical ones on the right of the travel direction and 40% of the way along, so loops (test → rework → test) and bends near objects keep their labels readable.
+
 ## Managing projects (implemented 2026-10-21)
 
 - **Rename and describe** from the project list (the ⋯ menu on a card). The name and description live in `project.yaml`, so a change is saved as a version ("Renamed to …"), like any other edit. The id never changes: it's the folder name, the address in links, and the key for scenarios. The name and description shown are always the current ones, even when looking at an older published version: they describe the project, not a version.
 - **Archive, then delete.** Archiving moves the project to `<data>/projects/.archive/<id>/` with everything in it; it can be undone right away ("Undo") or later from "Show archived projects". Only archived projects can be deleted, which removes the folder and the project's scenarios. Two steps, so nothing is lost to one misclick. An archived project keeps its id taken, so a new project can't inherit its scenarios.
-- **Examples only for a new data folder.** They used to be created whenever the project list was empty, so deleting them all brought them back on the next restart.
+- **Examples only for a new data folder.** They used to be created whenever the project list was empty, so deleting them all brought them back on the next restart. (Since then, new data folders get no projects at all: see Templates.)
 
 ## Animation needs an event log (fixed 2026-10-10)
 

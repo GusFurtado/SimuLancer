@@ -581,10 +581,18 @@ function diagram(tree) {
     root.append(svg("polygon", { points: "0,-0.35 0.5,0 0,0.35", fill: "var(--muted)", transform: `translate(${last[1][0]},${last[1][1]}) rotate(${angle})` }));
     root.append(svg("polyline", { points, fill: "none", stroke: "transparent", "stroke-width": 1.4, class: "hit", onclick: select("conveyors", c.name) },
       svg("title", {}, `conveyor ${c.name}: ${c.from} → ${c.to}`)));
-    const i = Math.max(0, Math.floor((path.length - 1) / 2));
+    // The label goes on the longest segment, away from the objects at the ends.
+    let i = 0;
+    for (let k = 1; k < path.length - 1; k++) if (Math.hypot(path[k + 1][0] - path[k][0], path[k + 1][1] - path[k][1]) > Math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])) i = k;
     const [mid, next] = [path[i], path[i + 1]];
-    root.append(svg("text", { x: (mid[0] + next[0]) / 2, y: (mid[1] + next[1]) / 2 - 0.45, "text-anchor": "middle", "font-size": 0.6 },
-      c.name + (changedObj("conveyors", c.name) ? " •" : "")));
+    // Above a horizontal segment. Beside a vertical one, on the right of the
+    // way parts go and 40% of the way along, so two conveyors side by side in
+    // opposite directions (a loop) keep their labels apart.
+    const dz = next[1] - mid[1];
+    const label = Math.abs(dz) > Math.abs(next[0] - mid[0])
+      ? { x: mid[0] + (dz > 0 ? -0.45 : 0.45), y: mid[1] + dz * 0.4, "text-anchor": dz > 0 ? "end" : "start", "dominant-baseline": "middle" }
+      : { x: (mid[0] + next[0]) / 2, y: (mid[1] + next[1]) / 2 - 0.45, "text-anchor": "middle" };
+    root.append(svg("text", { ...label, "font-size": 0.6 }, c.name + (changedObj("conveyors", c.name) ? " •" : "")));
   }
   const objects = [["sources", graph.sources], ["servers", graph.servers], ["sinks", graph.sinks]];
   for (const [section, names] of objects) {
