@@ -18,8 +18,8 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{
-    Arrivals, Count, Distribution, InputRule, Node, OrderQuantity, PerType, Routing, ServerKind,
-    Spec,
+    Arrivals, Changeover, Count, Distribution, InputRule, Node, OrderQuantity, PerType, Routing,
+    ServerKind, Spec,
 };
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
@@ -375,6 +375,31 @@ fn describe(path: &Path, model: &Model) -> String {
                 "  {:<12}   works on schedule {}\n",
                 "", spec.schedules[i].name
             );
+        }
+        match &s.changeover {
+            None => {}
+            Some(Changeover::Any(d)) => {
+                out += &format!(
+                    "  {:<12}   changes over between part types in {}\n",
+                    "",
+                    dist(d)
+                );
+            }
+            Some(Changeover::Pairs(pairs)) => {
+                for (from, row) in pairs.iter().enumerate() {
+                    for (to, d) in row.iter().enumerate() {
+                        if let Some(d) = d {
+                            out += &format!(
+                                "  {:<12}   changes over from {} to {} in {}\n",
+                                "",
+                                spec.entities[from],
+                                spec.entities[to],
+                                dist(d)
+                            );
+                        }
+                    }
+                }
+            }
         }
         if let Some((e, count)) = &s.splits_into {
             out += &format!(

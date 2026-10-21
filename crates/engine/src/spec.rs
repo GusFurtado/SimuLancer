@@ -126,6 +126,28 @@ pub struct Source {
     pub schedule: Option<usize>,
 }
 
+/// Time to set a station up for another part type.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Changeover {
+    /// The same for any change of type.
+    Any(Distribution),
+    /// Indexed `[from][to]` by [`Spec::entities`]; `None` takes no time.
+    Pairs(Vec<Vec<Option<Distribution>>>),
+}
+
+impl Changeover {
+    /// The setup from one type to another, if it takes any.
+    pub fn between(&self, from: usize, to: usize) -> Option<&Distribution> {
+        if from == to {
+            return None;
+        }
+        match self {
+            Changeover::Any(d) => Some(d),
+            Changeover::Pairs(pairs) => pairs[from][to].as_ref(),
+        }
+    }
+}
+
 /// A whole number of parts: always the same, or drawn uniformly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Count {
@@ -222,6 +244,8 @@ pub struct Server {
     /// After processing, each part becomes this many parts of this type
     /// (an index into [`Spec::entities`]); they leave one by one.
     pub splits_into: Option<(usize, Count)>,
+    /// Setup time when a slot starts a part of another type than its last.
+    pub changeover: Option<Changeover>,
     pub failures: Vec<Failure>,
     /// Indices into [`Spec::conveyors`]. In priority order for
     /// [`InputRule::Priority`], otherwise in file order.

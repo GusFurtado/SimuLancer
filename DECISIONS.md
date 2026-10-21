@@ -319,6 +319,13 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Changeovers (implemented 2026-10-21, issue #32)
+
+- **`changeover:` on a server**, one time for any change of part type, or `from->to: time` per change (others take none). Each slot remembers the type it last started, so parallel stations change over independently; a batch changes over once.
+- **The setup is added to the processing time**, from the server's own `changeover` stream. It holds the slot and the resource units like processing does, pauses with failures and shifts, and counts as busy. Servers report *changeovers* and *changeover* (share of working time setting up).
+- **Not done here:** sequencing at the release (batching similar models to save changeovers). Sources draw a random mix; a release that alternates or batches types can come with a scheduled release.
+- The assembly line's packing station changes over for the other model (1.5 minutes), 25% of its time; a decision tries quicker changeovers.
+
 ## Finishing the work in hand after a shift (implemented 2026-10-21, issue #30)
 
 - **`finish_work: true` on a schedule**: servers and resources on it don't stop at the end of a shift while there's work for them; they stop when there's none left. Sources ignore it: arrivals stop on time.
@@ -425,7 +432,7 @@ What building them showed is missing, in the order I'd add it:
 | **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. Done: see Which part's clock an assembly keeps. | #29 |
 | **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. Done (except one-day replications): see Finishing the work in hand. | #30 |
 | **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. | #31 |
-| **Changeovers between models, paced lines** | Assembly line | Not modeled. | #32, #33 |
+| **Changeovers between models, paced lines** | Assembly line | Not modeled. Changeovers done: see Changeovers. | #32, #33 |
 
 Also fixed while drawing them: conveyor labels go on the longest segment, beside vertical ones on the right of the travel direction and 40% of the way along, so loops (test → rework → test) and bends near objects keep their labels readable.
 

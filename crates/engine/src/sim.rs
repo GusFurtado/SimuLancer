@@ -162,6 +162,12 @@ struct ServerState {
     blocked_order: VecDeque<usize>,
     /// Per slot: the rest of a split part, leaving after the blocked one.
     split_rest: Vec<VecDeque<Part>>,
+    /// Per slot: the part type it's set up for (the last it started).
+    set_up_for: Vec<Option<usize>>,
+    changeover_rng: Rng,
+    changeovers: u64,
+    /// Seconds of setup started since the warm-up.
+    setup_time: f64,
     /// Draws how many parts a split makes.
     split_rng: Rng,
     /// Waiting in the resource queue: a part is ready, units aren't.
@@ -419,6 +425,10 @@ impl<'a, O: Observer> Sim<'a, O> {
                     slot_generation: vec![0; s.capacity as usize],
                     blocked_order: VecDeque::new(),
                     split_rest: vec![VecDeque::new(); s.capacity as usize],
+                    set_up_for: vec![None; s.capacity as usize],
+                    changeover_rng: stream(format!("server/{}/changeover", s.name)),
+                    changeovers: 0,
+                    setup_time: 0.0,
                     split_rng: stream(format!("server/{}/split", s.name)),
                     waiting_for_resources: false,
                     staging: Vec::new(),
@@ -1395,13 +1405,19 @@ impl<'a, O: Observer> Sim<'a, O> {
             self.resources[r].in_use += units;
         }
         let s = &mut self.servers[server];
-        let total = duration(
-            s.rng
-                .sample(self.spec.servers[server].process_time.get(parts[0].entity)),
-        );
+        let entity = parts[0].entity;
+        let first = s.idle_slot().expect("caller checked for free slots");
+        let setup = self.setup(server, first, entity);
+        let s = &mut self.servers[server];
+        let total = setup
+            + duration(
+                s.rng
+                    .sample(self.spec.servers[server].process_time.get(entity)),
+            );
         for (i, part) in parts.into_iter().enumerate() {
             let s = &mut self.servers[server];
             let slot = s.idle_slot().expect("caller checked for free slots");
+            s.set_up_for[slot] = Some(entity);
             s.slots[slot] = Slot::Busy {
                 part,
                 finish: self.now + total,
@@ -1418,6 +1434,24 @@ impl<'a, O: Observer> Sim<'a, O> {
             );
         }
         self.update_failure_clocks(server);
+    }
+
+    /// The setup a slot needs before a part of `entity` (zero if it's set
+    /// up for it, or the server has no changeovers), counted; the slot is
+    /// then set up for it.
+    fn setup(&mut self, server: usize, slot: usize, entity: usize) -> SimTime {
+        let s = &mut self.servers[server];
+        let last = s.set_up_for[slot].replace(entity);
+        let Some(changeover) = &self.spec.servers[server].changeover else {
+            return SimTime::ZERO;
+        };
+        let Some(d) = last.and_then(|from| changeover.between(from, entity)) else {
+            return SimTime::ZERO;
+        };
+        let setup = duration(s.changeover_rng.sample(d));
+        s.changeovers += 1;
+        s.setup_time += setup.as_secs_f64();
+        setup
     }
 
     fn resources_available(&self, server: usize) -> bool {
@@ -1482,12 +1516,16 @@ impl<'a, O: Observer> Sim<'a, O> {
                 self.resources[r].in_use += units;
             }
         }
+        let slot = self.servers[server]
+            .idle_slot()
+            .expect("caller checked for a free slot");
+        let setup = self.setup(server, slot, part.entity);
         let s = &mut self.servers[server];
-        let slot = s.idle_slot().expect("caller checked for a free slot");
-        let total = duration(
-            s.rng
-                .sample(self.spec.servers[server].process_time.get(part.entity)),
-        );
+        let total = setup
+            + duration(
+                s.rng
+                    .sample(self.spec.servers[server].process_time.get(part.entity)),
+            );
         s.slots[slot] = Slot::Busy {
             part,
             finish: self.now + total,
@@ -1814,6 +1852,8 @@ impl<'a, O: Observer> Sim<'a, O> {
         for s in &mut self.servers {
             s.processed = 0;
             s.failure_count = 0;
+            s.changeovers = 0;
+            s.setup_time = 0.0;
             s.busy.reset(now);
             s.blocked.reset(now);
             s.failed.reset(now);
@@ -1902,6 +1942,9 @@ impl<'a, O: Observer> Sim<'a, O> {
                         failures: s.failure_count,
                         waiting_for_resources: s.waiting.mean() / on,
                         overtime: s.overtime.mean(),
+                        changeovers: s.changeovers,
+                        changeover: s.setup_time
+                            / (capacity * self.spec.experiment.run_length.as_secs_f64() * on),
                     }
                 })
                 .collect(),

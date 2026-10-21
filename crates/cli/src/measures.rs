@@ -143,6 +143,14 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
                     &|r| r.servers[i].waiting_for_resources,
                 );
             }
+            if s.changeover.is_some() {
+                add("server", &s.name, "changeover", Unit::Fraction, &|r| {
+                    r.servers[i].changeover
+                });
+                add("server", &s.name, "changeovers", Unit::Count, &|r| {
+                    r.servers[i].changeovers as f64
+                });
+            }
             if !s.failures.is_empty() {
                 add("server", &s.name, "failed", Unit::Fraction, &|r| {
                     r.servers[i].failed

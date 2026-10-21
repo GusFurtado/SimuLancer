@@ -146,6 +146,7 @@ servers:
 - **Blocking:** a finished part stays in its slot until its outgoing conveyor has room. The server shows as *blocked* during that time.
 - **Process time per part type:** every type that can reach the server must have a time.
 - **`needs`:** resource units the server holds while it processes a part (see below).
+- **Changeovers:** `changeover: "8 min"` adds a setup whenever a station starts a part of another type than the last it started; `changeover: { standard->premium: "8 min", premium->standard: "5 min" }` gives a time per change (changes not listed take none). With a capacity above 1, each slot remembers its own last type. The setup is part of the processing time (and of *busy*); servers report *changeovers* (how many) and *changeover* (the share of working time spent setting up).
 - **Splitting:** `splits_into: { carton: 10 }` (or `{ carton: { min: 8, max: 12 } }`) turns each part the server finishes into that many parts of another type, like a pallet broken into cartons. They leave one by one, and keep the time the original part arrived, so time in system counts from then.
 - **Batches and kits:** see [Batches and assembly](#batches-and-assembly).
 

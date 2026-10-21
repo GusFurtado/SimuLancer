@@ -839,6 +839,7 @@ function panel(tree) {
         kindField(tree, p),
         field(say("Capacity (parts at once)"), `${p}.capacity`, "int", [], node.batch ? `${node.batch} (one batch)` : "1 (default)"),
         processTime(tree, p),
+        changeoverField(tree, p),
         splitField(tree, p),
         needsField(tree, p),
         scheduleField(tree, `${p}.schedule`, "Works"),
@@ -972,6 +973,19 @@ function parseCount(text) {
   const range = t.match(/^(\d+)\s*(?:-|to)\s*(\d+)$/);
   if (range) return { min: Number(range[1]), max: Number(range[2]) };
   return /^\d+$/.test(t) ? Number(t) : t;
+}
+
+/** Setup time when the part type changes: one time for any change here;
+ *  times per pair of types are kept, and edited in the model file. */
+function changeoverField(tree, p) {
+  if (typesOf(tree).length < 2) return null;
+  const path = `${p}.changeover`;
+  const value = getAt(tree, path);
+  if (value && typeof value === "object") {
+    return el("div", { class: "field" }, el("label", {}, "Changeover (setup when the part type changes)"),
+      el("p", { class: "hint", style: "margin: 0" }, Object.entries(value).map(([k, v]) => `${k.replace("->", " → ")}: ${v}`).join(" · ")));
+  }
+  return field("Changeover (setup when the part type changes)", path, "text", [], "none, e.g. 8 min");
 }
 
 /** What each finished part becomes: a part type and how many (or nothing). */

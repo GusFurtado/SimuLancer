@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    Arrivals, ConnectionKind, Conveyor, Count, Distribution, Experiment, Failure, FailureClock,
-    InputRule, Node, OnFailure, OrderQuantity, PerType, Resource, Restock, Routing, Schedule,
-    Server, ServerKind, Sink, Source, Spec, WhenBlocked,
+    Arrivals, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment, Failure,
+    FailureClock, InputRule, Node, OnFailure, OrderQuantity, PerType, Resource, Restock, Routing,
+    Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -471,6 +471,10 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 }
             },
         };
+        let changeover = match &s.changeover {
+            None => Some(None),
+            Some(c) => b.changeover(name, c, &types).map(Some),
+        };
         let input = endpoints_ok
             .then(|| b.input_rule(name, &s.input, &server_inputs[i], &conveyor_names))
             .flatten();
@@ -496,6 +500,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some(schedule),
             Some(kind),
             Some(splits_into),
+            Some(changeover),
         ) = (
             capacity,
             process_time,
@@ -506,11 +511,13 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             schedule,
             kind,
             splits_into,
+            changeover,
         ) {
             servers.push(Server {
                 name: name.value.clone(),
                 capacity,
                 splits_into,
+                changeover,
                 process_time,
                 needs,
                 schedule,
@@ -1604,6 +1611,47 @@ impl Builder {
     }
 
     /// A time distribution, the same for every part type or given per type.
+    /// A changeover: one time for any change of part type, or a time per
+    /// change written `from->to` (other changes take none).
+    fn changeover(
+        &mut self,
+        server: &Spanned<String>,
+        value: &Spanned<raw::RawPerType>,
+        types: &Types,
+    ) -> Option<Changeover> {
+        match &value.value {
+            raw::RawPerType::Same(v) => Some(Changeover::Any(self.distribution_at(value, v, "")?)),
+            raw::RawPerType::ByType(map) => {
+                let n = types.names.len();
+                let mut pairs = vec![vec![None; n]; n];
+                let mut ok = true;
+                let what = format!("server `{}` has a changeover", server.value);
+                for (key, v) in map {
+                    let Some((from, to)) = key.split_once("->") else {
+                        self.error(value, format!("`{key}` isn't a change of part type: write it like `standard->premium`"));
+                        ok = false;
+                        continue;
+                    };
+                    let from = self.part_type(value, from.trim(), types, &format!("{what} from"));
+                    let to = self.part_type(value, to.trim(), types, &format!("{what} to"));
+                    let d = self.distribution_at(value, v, &format!("`{key}`: "));
+                    match (from, to, d) {
+                        (Some(f), Some(t), Some(d)) if f != t => pairs[f][t] = Some(d),
+                        (Some(_), Some(_), Some(_)) => {
+                            self.error(
+                                value,
+                                format!("`{key}` isn't a change: it's the same part type"),
+                            );
+                            ok = false;
+                        }
+                        _ => ok = false,
+                    }
+                }
+                ok.then_some(Changeover::Pairs(pairs))
+            }
+        }
+    }
+
     fn per_type_distribution(
         &mut self,
         server: &Spanned<String>,
