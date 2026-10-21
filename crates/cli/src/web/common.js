@@ -1,5 +1,5 @@
 "use strict";
-// Shared by the outliers-sim pages (/build, /decide). Uses only the public
+// Shared by the outliers-sim pages (/, /modeling, /simulation). Uses only the public
 // HTTP API (docs/api.md).
 
 const API = "api/v1";
@@ -163,6 +163,45 @@ function boundsOf(layout) {
   return { minX: Math.min(...xs) - 2, maxX: Math.max(...xs) + 2, minZ: Math.min(...zs) - 2.5, maxZ: Math.max(...zs) + 2 };
 }
 
+// --- the top bar of /modeling and /simulation -------------------------------------
+
+/** The project the page is open on (`?project=`). Without one, back to the project list. */
+function pageProject() {
+  const id = new URLSearchParams(location.search).get("project");
+  if (!id) { location.replace("./"); return null; }
+  for (const page of ["modeling", "simulation"]) {
+    const link = document.getElementById(`to-${page}`);
+    link.href = `${page}?project=${encodeURIComponent(id)}`;
+    link.replaceChildren(icon(page), PAGES[page]);
+  }
+  document.getElementById("project-name").textContent = id;
+  return id;
+}
+
+/** The two ways into a project: their names and small line icons. */
+const PAGES = { modeling: "Modeling", simulation: "Simulation" };
+
+function icon(page) {
+  const shapes = page === "modeling"
+    // Modeling: three connected nodes, a flow drawn as a graph.
+    ? [["circle", { cx: 5, cy: 6, r: 2.5 }], ["circle", { cx: 5, cy: 18, r: 2.5 }], ["circle", { cx: 19, cy: 12, r: 2.5 }],
+       ["path", { d: "M7.5 6.5 16.6 11.2M7.5 17.5 16.6 12.8" }]]
+    // Simulation: a play button trailed by moving parts.
+    : [["path", { d: "M10 5.5 20 12 10 18.5Z" }], ["circle", { class: "dot", cx: 2.5, cy: 12, r: 1.2 }], ["circle", { class: "dot", cx: 6, cy: 12, r: 1.5 }]];
+  return svg("svg", { class: "icon", viewBox: "0 0 24 24", "aria-hidden": "true" }, ...shapes.map(([tag, attrs]) => svg(tag, attrs)));
+}
+
+/** Shows the project's name in the top bar and the tab title. */
+function showProjectName(name, page) {
+  document.getElementById("project-name").textContent = name;
+  document.title = `${name} · ${page} · outliers-sim`;
+}
+
+/** Fills `main` with a note that the project can't be opened, and a way back. */
+function projectMissing(main, text) {
+  main.replaceChildren(el("div", { class: "empty" }, el("p", {}, text), el("p", {}, el("a", { href: "./" }, "Back to the projects"))));
+}
+
 // --- runs and results -------------------------------------------------------------
 
 /** Polls a run until it's done or failed, calling `onProgress(run)` meanwhile. */
@@ -208,7 +247,7 @@ function runResults(container, run, view, onView) {
     body.append(el("div", { class: "card note", id: "no-animation" },
       el("h3", { style: "margin-top: 0" }, "Nothing to animate in this run"),
       el("p", {}, "The animation replays what happened in the first replication, and this model doesn't record it."),
-      el("p", {}, "To turn it on, open the project on the Build page, click empty space in the diagram, check “Record an animation” in the model settings, and run again. (In the model file it's ", el("code", {}, "outputs: { event_log: jsonl }"), ".)")));
+      el("p", {}, "To turn it on, open the project's Modeling page, click empty space in the diagram, check “Record an animation” in the model settings, and run again. (In the model file it's ", el("code", {}, "outputs: { event_log: jsonl }"), ".)")));
   } else if (view === "animation") {
     startAnimation(body, run);
   } else {

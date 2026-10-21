@@ -1,8 +1,8 @@
 //! `outliers-sim serve`: the web application and its HTTP API.
 //!
 //! Three audiences, three interfaces over the same API:
-//! - engineers build and version models (`/build`),
-//! - managers compare scenarios on published versions (`/decide`),
+//! - engineers build and version models (`/modeling`),
+//! - managers compare scenarios on published versions (`/simulation`),
 //! - developers use the HTTP API directly (docs/api.md).
 //!
 //! The web pages use only the public API. Simulations run on the server, one
@@ -112,12 +112,13 @@ async fn shutdown_signal() {
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(page("index.html")))
-        .route("/build", get(page("build.html")))
-        .route("/decide", get(page("decide.html")))
+        .route("/modeling", get(page("modeling.html")))
+        .route("/simulation", get(page("simulation.html")))
         .route("/common.css", get(asset("common.css")))
         .route("/common.js", get(asset("common.js")))
-        .route("/build.js", get(asset("build.js")))
-        .route("/decide.js", get(asset("decide.js")))
+        .route("/index.js", get(asset("index.js")))
+        .route("/modeling.js", get(asset("modeling.js")))
+        .route("/simulation.js", get(asset("simulation.js")))
         .route("/api/v1/health", get(health))
         .route("/api/v1/projects", get(list_projects).post(create_project))
         .route("/api/v1/projects/{id}", get(get_project))
@@ -153,14 +154,14 @@ const WEB: &[(&str, &str, &str)] = &[
         include_str!("web/index.html"),
     ),
     (
-        "build.html",
+        "modeling.html",
         "text/html; charset=utf-8",
-        include_str!("web/build.html"),
+        include_str!("web/modeling.html"),
     ),
     (
-        "decide.html",
+        "simulation.html",
         "text/html; charset=utf-8",
-        include_str!("web/decide.html"),
+        include_str!("web/simulation.html"),
     ),
     (
         "common.css",
@@ -173,14 +174,19 @@ const WEB: &[(&str, &str, &str)] = &[
         include_str!("web/common.js"),
     ),
     (
-        "build.js",
+        "index.js",
         "text/javascript; charset=utf-8",
-        include_str!("web/build.js"),
+        include_str!("web/index.js"),
     ),
     (
-        "decide.js",
+        "modeling.js",
         "text/javascript; charset=utf-8",
-        include_str!("web/decide.js"),
+        include_str!("web/modeling.js"),
+    ),
+    (
+        "simulation.js",
+        "text/javascript; charset=utf-8",
+        include_str!("web/simulation.js"),
     ),
 ];
 
@@ -2078,9 +2084,10 @@ mod tests {
     async fn serves_the_three_pages() {
         let (app, root) = app("pages");
         for (uri, marker) in [
-            ("/", "href=\"build\""),
-            ("/build", "<script src=\"build.js\">"),
-            ("/decide", "<script src=\"decide.js\">"),
+            ("/", "<script src=\"index.js\">"),
+            ("/index.js", "modeling?project="),
+            ("/modeling", "<script src=\"modeling.js\">"),
+            ("/simulation", "<script src=\"simulation.js\">"),
             ("/common.js", "const API"),
         ] {
             let response = app

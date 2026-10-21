@@ -1,6 +1,6 @@
 "use strict";
-// The Build page (/build): edit a project's model, choose the decisions and
-// results the Decide page offers, save versions, publish them, run and
+// The Modeling page (/modeling): edit a project's model, choose the decisions and
+// results the Simulation page offers, save versions, publish them, run and
 // inspect results. Shared code: common.js.
 
 const state = {
@@ -23,7 +23,6 @@ const state = {
   connect: null,     // null, or { from: null | name } while connecting objects
   undo: [], redo: [],
   batching: false,
-  creating: null,    // the new-project form: { name, from }
   run: null,
   view: "report",
   message: null,     // { kind: "ok" | "error", text, list?, progress? }
@@ -136,22 +135,12 @@ const errorFor = path => state.errors.find(e => e.change && related(e.change, pa
 
 // --- sidebar -------------------------------------------------------------------------
 
-async function loadProjects() {
-  const { data } = await api("GET", "projects");
-  state.projects = data.projects || [];
-  document.getElementById("projects").replaceChildren(...state.projects.map(p => el("button", {
-    class: p.id === state.project ? "current" : null,
-    onclick: () => openProject(p.id),
-    title: p.description || "",
-  }, p.name, el("span", { class: "sub" }, p.published ? `published ${p.published.name}` : "not published yet"))));
-}
-
 async function loadRuns() {
   const { data } = await api("GET", "runs");
-  state.runs = data.runs || [];
+  state.runs = (data.runs || []).filter(r => r.project === state.project);
   const list = document.getElementById("runs");
   if (!state.runs.length) {
-    list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "No runs yet."));
+    list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "No runs of this project yet."));
     return;
   }
   list.replaceChildren(...state.runs.slice(0, 15).map(r => el("button", {
@@ -167,7 +156,8 @@ async function loadRuns() {
 
 async function openProject(id, keepMessage = false) {
   const { ok, data } = await api("GET", `projects/${encodeURIComponent(id)}`);
-  if (!ok) return;
+  if (!ok) return projectMissing(document.getElementById("main"), data.error || `The project ${id} can't be opened.`);
+  showProjectName(data.name || id, PAGES.modeling);
   Object.assign(state, {
     project: id,
     detail: data,
@@ -185,14 +175,12 @@ async function openProject(id, keepMessage = false) {
     layoutChanged: false,
     connect: null,
     undo: [], redo: [],
-    creating: null,
     exposed: { decisions: data.decisions, results: data.results, decision_problems: data.decision_problems },
     offer: null,
   });
   if (!data.tree) {
     state.message = { kind: "error", text: "This model can't be read.", list: state.errors.map(e => e.message) };
   }
-  loadProjects();
   render();
 }
 
@@ -241,11 +229,7 @@ const scheduleCheck = debounce(async () => {
 
 function render() {
   const main = document.getElementById("main");
-  if (state.creating) return renderNewProject(main);
-  if (!state.project && !state.run) {
-    main.replaceChildren(el("p", { class: "empty" }, "Pick a project on the left."));
-    return;
-  }
+  if (!state.detail) return;
   const d = state.detail;
   const results = state.tab === "results" && state.run;
   main.replaceChildren(
@@ -255,9 +239,9 @@ function render() {
         el("p", {}, results ? `Run ${state.run.id}` : d?.description || "")),
     ),
     el("div", { class: "tabs" },
-      state.project ? el("button", { class: state.tab === "model" ? "current" : null, onclick: () => { state.tab = "model"; render(); } }, "Model") : null,
-      state.project ? el("button", { id: "tab-decisions", class: state.tab === "decisions" ? "current" : null, onclick: () => { state.tab = "decisions"; render(); } },
-        "Decisions", (state.exposed?.decision_problems || []).length ? el("span", { class: "badge bad", style: "margin-left: 6px" }, "!") : null) : null,
+      el("button", { class: state.tab === "model" ? "current" : null, onclick: () => { state.tab = "model"; render(); } }, "Model"),
+      el("button", { id: "tab-decisions", class: state.tab === "decisions" ? "current" : null, onclick: () => { state.tab = "decisions"; render(); } },
+        "Decisions", (state.exposed?.decision_problems || []).length ? el("span", { class: "badge bad", style: "margin-left: 6px" }, "!") : null),
       state.run ? el("button", { class: state.tab === "results" ? "current" : null, onclick: () => { state.tab = "results"; render(); } }, "Results") : null),
     el("div", { id: "content" }));
   if (results) {
@@ -315,12 +299,12 @@ function actionsBar() {
     }),
     el("button", { id: "save", onclick: saveVersion, disabled: changed === 0 }, "Save version"),
     el("button", { id: "publish", onclick: publishVersion, disabled: !canPublish,
-      title: canPublish ? "Make the last saved version available on the Decide page"
+      title: canPublish ? "Make the last saved version available on the Simulation page"
         : problems.length ? "Fix the problems on the Decisions tab first"
         : "Save your changes first; already-published versions can't be published again" }, "Publish"),
     el("button", { class: "primary", id: "run", onclick: startRun }, "▶ Run"),
     state.tab === "model" && Object.keys(state.changes).some(p => !state.written.has(p)) && !state.offer
-      ? el("button", { id: "offer", onclick: startOffer, title: "Instead of saving these changes into the model, offer them as an option on the Decide page" }, "Offer as an option…")
+      ? el("button", { id: "offer", onclick: startOffer, title: "Instead of saving these changes into the model, offer them as an option on the Simulation page" }, "Offer as an option…")
       : null,
     el("span", { class: "hint", id: "pending", style: "margin: 0" }, describe()));
 }
@@ -330,7 +314,7 @@ function versionsCard() {
   return el("div", { class: "card versions" },
     el("h3", { style: "margin: 0 0 8px; font-size: 15px" }, "Versions"),
     el("p", { class: "hint", style: "margin: 0 0 8px" },
-      "Saving keeps a version of the model; publishing makes the last saved version available on the Decide page."),
+      "Saving keeps a version of the model; publishing makes the last saved version available on the Simulation page."),
     history.slice(0, 12).map(c => el("div", { class: "item" },
       c.message, " ", c.published ? el("span", { class: "pill" }, `published ${c.published}`) : null,
       el("span", { class: "sub" }, `${new Date(c.date).toLocaleString()} · ${c.short}`))));
@@ -1217,7 +1201,7 @@ function failures(tree, p) {
     el("button", { onclick: add }, "Add a failure"));
 }
 
-// --- what the Decide page offers: the Decisions tab -------------------------------------------
+// --- what the Simulation page offers: the Decisions tab -------------------------------------------
 
 /** A number as the model writes it: `2`, or `8 m`. */
 function parseNumber(value) {
@@ -1234,7 +1218,7 @@ function exposeButton(label, path, value, placeholder) {
   const existing = numberDecisionAt(path);
   if (existing) {
     return el("button", { class: "expose on", onclick: () => { state.tab = "decisions"; render(); },
-      title: "This is a decision on the Decide page; set its limits on the Decisions tab" }, `⚑ Decision: ${existing[1].label}`);
+      title: "This is a decision on the Simulation page; set its limits on the Decisions tab" }, `⚑ Decision: ${existing[1].label}`);
   }
   const parsed = parseNumber(value ?? (placeholder ? parseFloat(placeholder) : undefined));
   if (!parsed || Number.isNaN(parsed.n)) return null;
@@ -1263,7 +1247,7 @@ function exposeNumber(label, path, value, { n, unit }) {
   const id = slug(`${object} ${label.replace(/\(.*\)/, "")}`, Object.keys(state.draft.decisions));
   state.draft.decisions[id] = decision;
   state.tab = "decisions";
-  state.message = { kind: "ok", text: `“${decision.label}” is now a decision on the Decide page. Check its name and limits, then save a version.` };
+  state.message = { kind: "ok", text: `“${decision.label}” is now a decision on the Simulation page. Check its name and limits, then save a version.` };
   scheduleCheck();
   render();
 }
@@ -1274,7 +1258,7 @@ function startOffer() {
   renderEditor();
 }
 
-/** Turn the pending model changes into an option to pick on the Decide page. */
+/** Turn the pending model changes into an option to pick on the Simulation page. */
 function offerForm() {
   const o = state.offer;
   const choices = Object.entries(state.draft.decisions).filter(([, d]) => d.choices);
@@ -1283,7 +1267,7 @@ function offerForm() {
   return el("div", { class: "card offer", id: "offer-form" },
     el("div", { class: "group-title" }, "Offer these changes as an option"),
     el("p", { class: "hint", style: "margin: 0 0 10px" },
-      "These pending changes won't go into the model. Instead, they become an option to pick in a scenario on the Decide page; the model stays as it is."),
+      "These pending changes won't go into the model. Instead, they become an option to pick in a scenario on the Simulation page; the model stays as it is."),
     el("div", { class: "field" }, el("label", {}, "Decision"),
       el("select", { id: "offer-decision", onchange: e => { o.decision = e.target.value; renderEditor(); } },
         ...choices.map(([id, d]) => el("option", { value: id, selected: o.decision === id ? true : null }, d.label)),
@@ -1368,7 +1352,7 @@ function renderDecisions(content) {
           ...[["higher", "higher is better"], ["lower", "lower is better"], ["neither", "neither"]].map(([v, l]) =>
             el("option", { value: v, selected: (r.better || "neither") === v ? true : null }, l))),
         el("button", { class: "link danger", style: "flex: 0", onclick: () => { d.results.splice(i, 1); scheduleCheck(); renderEditor(); } }, "Remove"))))
-    : el("p", { class: "hint", style: "margin: 0" }, "The Decide page shows the defaults: ",
+    : el("p", { class: "hint", style: "margin: 0" }, "The Simulation page shows the defaults: ",
         (state.exposed?.results || []).map(r => r.label).join(" · ") || "nothing", ".");
   const addResult = el("select", {
     id: "add-result",
@@ -1397,16 +1381,16 @@ function renderDecisions(content) {
           el("h3", { class: "card-title" }, "Results shown"),
           resultsEditor,
           el("div", { class: "field", style: "margin: 10px 0 0" }, addResult))),
-      el("div", { class: "card", id: "decide-preview" },
-        el("h3", { class: "card-title" }, "Preview of the Decide page"),
-        el("p", { class: "hint", style: "margin: 0 0 10px" }, "On the Decide page, once you publish."),
+      el("div", { class: "card", id: "simulation-preview" },
+        el("h3", { class: "card-title" }, "Preview of the Simulation page"),
+        el("p", { class: "hint", style: "margin: 0 0 10px" }, "On the Simulation page, once you publish."),
         previewDecisions(state.exposed?.decisions || []),
         el("p", { class: "hint" }, "They read: ", (state.exposed?.results || []).map(r => r.label).join(" · ") || "nothing"))),
   ].filter(Boolean));
 }
 
 function previewDecisions(decisions) {
-  if (!decisions.length) return el("p", { class: "hint", style: "margin: 0" }, "Nothing to change: the Decide page can only run the model as published.");
+  if (!decisions.length) return el("p", { class: "hint", style: "margin: 0" }, "Nothing to change: the Simulation page can only run the model as published.");
   const number = n => String(Math.round(n * 1e6) / 1e6);
   const value = (dec, v) => dec.kind === "choice" ? (dec.choices.find(c => c.id === v)?.label ?? v) : `${number(v)}${dec.unit ? " " + dec.unit : ""}`;
   return el("dl", { class: "decisions" }, ...decisions.flatMap(dec => [
@@ -1428,7 +1412,7 @@ async function saveVersion() {
     state.message = { kind: "error", text: data.error || "Couldn't save." };
     return renderEditor();
   }
-  state.message = { kind: "ok", text: `Saved: ${data.saved.message}. Publish it to make it available on the Decide page.` };
+  state.message = { kind: "ok", text: `Saved: ${data.saved.message}. Publish it to make it available on the Simulation page.` };
   await openProject(state.project, true);
 }
 
@@ -1436,7 +1420,7 @@ async function publishVersion() {
   const id = encodeURIComponent(state.project);
   const { ok, data } = await api("POST", `projects/${id}/publish`, { message: state.saveMessage });
   state.message = ok
-    ? { kind: "ok", text: `Published ${data.published.name}: it's now on the Decide page.` }
+    ? { kind: "ok", text: `Published ${data.published.name}: it's now on the Simulation page.` }
     : { kind: "error", text: data.error || "Couldn't publish.", list: (data.errors || []).map(e => e.message) };
   await openProject(state.project, true);
 }
@@ -1471,50 +1455,11 @@ function showRun(run) {
   loadRuns();
 }
 
-// --- new projects --------------------------------------------------------------------------------
-
-const idFor = name => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
-
-function renderNewProject(main) {
-  const c = state.creating;
-  main.replaceChildren(
-    el("div", { class: "head" }, el("div", { class: "titles" }, el("h2", {}, "New project"))),
-    el("div", { class: "card new-project" },
-      el("div", { class: "field" }, el("label", { for: "new-name" }, "Name"),
-        el("input", { id: "new-name", value: c.name, placeholder: "e.g. Packing line 2", oninput: e => { c.name = e.target.value; } })),
-      el("div", { class: "field" }, el("label", { for: "new-from" }, "Start from"),
-        el("select", { id: "new-from", onchange: e => { c.from = e.target.value; } },
-          el("option", { value: "", selected: c.from === "" ? true : null }, "A simple line (arrivals, one machine, exit)"),
-          ...state.projects.map(p => el("option", { value: p.id, selected: c.from === p.id ? true : null }, `A copy of ${p.name}`)))),
-      c.error ? el("div", { class: "status" }, c.error) : el("div"),
-      el("div", { class: "actions" },
-        el("button", { class: "primary", id: "create-project", onclick: createProject }, "Create"),
-        el("button", { onclick: () => { state.creating = null; render(); } }, "Cancel"))));
-  document.getElementById("new-name").focus();
-}
-
-async function createProject() {
-  const c = state.creating;
-  const name = c.name.trim();
-  const id = idFor(name);
-  if (!id) { c.error = "Give the project a name."; return render(); }
-  const body = { id, name };
-  if (c.from) body.from = c.from;
-  const { ok, data } = await api("POST", "projects", body);
-  if (!ok) { c.error = data.error || "The project couldn't be created."; return render(); }
-  state.creating = null;
-  await loadProjects();
-  openProject(id);
-}
-
-document.getElementById("new-project").addEventListener("click", () => {
-  stopAnimation();
-  state.creating = { name: "", from: "", error: null };
-  render();
-});
-
 // --- start -----------------------------------------------------------------------------------
 
-loadProjects();
-loadRuns();
+state.project = pageProject();
+if (state.project) {
+  openProject(state.project);
+  loadRuns();
+}
 setInterval(() => { if (state.runs.some(r => r.status === "queued" || r.status === "running")) loadRuns(); }, 2000);

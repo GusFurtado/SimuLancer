@@ -1,6 +1,6 @@
 # Deploying outliers-sim
 
-outliers-sim is one program. `outliers-sim serve` runs the web pages (`/build` to build models, `/decide` to compare scenarios) and their HTTP API, and runs simulations on the same machine. Users only need a browser.
+outliers-sim is one program. `outliers-sim serve` runs the web pages (`/` lists the projects; each opens on `/modeling` to edit its model or `/simulation` to compare scenarios) and their HTTP API, and runs simulations on the same machine. Users only need a browser.
 
 - **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results). The first start in an empty folder creates the example projects.
 - **The only runtime dependency is git**, used to version projects. The Linux binary itself is statically linked. The Docker image includes git.
