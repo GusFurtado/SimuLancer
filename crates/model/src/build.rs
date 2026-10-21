@@ -168,6 +168,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 speed,
                 spacing,
                 capacity,
+                target_wait: None,
             });
         }
     }
@@ -202,8 +203,22 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some(c) => Some(Some(c.value)),
             None => Some(None),
         };
-        if let (Some(from), Some(to), Some(capacity)) = (from, to, capacity) {
-            conveyors.push(Conveyor::queue(name.value.clone(), from, to, capacity));
+        let target_wait = match &q.target_wait {
+            None => Some(None),
+            Some(t) => b
+                .positive_quantity(t, Dimension::Time, "target_wait")
+                .map(Some),
+        };
+        if let (Some(from), Some(to), Some(capacity), Some(target_wait)) =
+            (from, to, capacity, target_wait)
+        {
+            conveyors.push(Conveyor::queue(
+                name.value.clone(),
+                from,
+                to,
+                capacity,
+                target_wait,
+            ));
         }
     }
 

@@ -33,6 +33,8 @@ decisions:
 
 # What the Simulation page shows, and which way is better.
 results:
+  - { label: Served by a teller within 5 minutes, object: teller_line, measure: within target wait, better: higher }
+  - { label: Seen by an advisor within 15 minutes, object: advisor_line, measure: within target wait, better: higher }
   - { label: Wait for a teller, object: teller_line, measure: waiting time, better: lower }
   - { label: Time in the branch (quick transactions), object: exit, measure: time in system of quick, better: lower }
   - { label: Time in the branch (advice), object: exit, measure: time in system of advice, better: lower }

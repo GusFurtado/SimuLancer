@@ -518,7 +518,7 @@ sources:
 servers:
   server: {{ process_time: "{process}" }}
 queues:
-  line: {{ from: arrivals, to: server{capacity} }}
+  line: {{ from: arrivals, to: server{capacity}, target_wait: "5 min" }}
   out: {{ from: server, to: done }}
 sinks:
   done: {{}}
@@ -552,6 +552,21 @@ fn mm1_with_a_queue_waits_as_the_formula_says() {
     );
     // The outgoing queue is never waited in: the sink takes parts at once.
     assert!(results.iter().all(|r| r.conveyors[1].time.max == 0.0));
+    // The wait is 0 with probability 1 − ρ, otherwise exponential with rate
+    // μ − λ: P(Wq ≤ t) = 1 − ρ e^(−(μ−λ)t), and its 90th percentile is
+    // ln(ρ / 0.1) / (μ − λ).
+    let within = 1.0 - 0.8 * (-0.25_f64 * 5.0).exp();
+    check(
+        &results,
+        "M/M/1 share waiting at most 5 min",
+        within,
+        0.01,
+        |r| r.conveyors[0].within_target as f64 / r.conveyors[0].time.count as f64,
+    );
+    let p90 = (0.8_f64 / 0.1).ln() / 0.25 * 60.0;
+    check(&results, "M/M/1 90th percentile wait (s)", p90, 0.03, |r| {
+        r.conveyors[0].times.as_ref().unwrap().quantile(0.9)
+    });
 }
 
 #[test]

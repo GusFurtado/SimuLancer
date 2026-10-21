@@ -169,14 +169,15 @@ conveyors:
 
 ```yaml
 queues:
-  teller_line: { from: kiosk, to: tellers, capacity: 15 }
+  teller_line: { from: kiosk, to: tellers, capacity: 15, target_wait: "5 min" }
   backlog:     { from: orders, to: pick }        # no capacity: no limit
 ```
 
 - **Waiting in line:** a queue connects two objects like a conveyor, but parts don't travel: they're at its end as soon as they get on, and leave first in, first out.
 - **Capacity:** how many parts can wait. Without it, there's no limit. When it's full, the object feeding it is blocked (or a source drops the part, with `when_blocked: drop`), as with a full conveyor.
 - **Drawing:** queues aren't in the layout file; they're drawn straight between their objects, so moving an object never changes a queue.
-- **Results:** mean and most parts waiting, the time each part waited (*waiting time*), the share of time full (for a limited queue) and throughput.
+- **Service level:** with `target_wait`, the queue also reports *within target wait*, the share of parts that waited at most that long ("95% served within 5 minutes").
+- **Results:** mean and most parts waiting; *waiting time* (the mean), *waiting time (90th percentile)* and *longest wait*; *waiting time of* each part type when several wait there; the share of time full (for a limited queue); and throughput. The percentile comes from a histogram with bins 1% apart, so it's within about half a percent of the exact value.
 
 Use a queue when the time to get from one object to the next doesn't matter, or for any line of people or store of goods. Use a conveyor when travel time and room along the way matter.
 

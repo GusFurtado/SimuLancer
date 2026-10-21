@@ -401,11 +401,15 @@ function queues(container) {
       const mean = measure("queue", c.name, "mean parts");
       const max = measure("queue", c.name, "max parts");
       const wait = measure("queue", c.name, "waiting time");
+      const p90 = measure("queue", c.name, "waiting time (90th percentile)");
+      const within = measure("queue", c.name, "within target wait");
       const full = measure("queue", c.name, "full");
       const label = el("div", { class: "row-label" },
         el("span", {}, el("strong", {}, c.name), ` ${c.from} → ${c.to}`),
         el("span", {}, `${fmt(mean, mean.mean)} waiting on average, at most ${fmt(max, max.max)}` +
           (wait && wait.mean !== null ? ` · each waits ${fmt(wait, wait.mean)}` : "") +
+          (p90 && p90.mean !== null ? `, 90% wait at most ${fmt(p90, p90.mean)}` : "") +
+          (within && within.mean !== null ? ` · ${fmt(within, within.mean)} within the target wait` : "") +
           (full ? ` · full ${fmt(full, full.mean)} of the time` : "")));
       const h = 12;
       const top = Math.max(1, max.max);

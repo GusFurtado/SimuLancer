@@ -681,6 +681,13 @@ fn queues_connect_objects_with_no_travel() {
 
     let unlimited = load_str(&with_queue("{ from: arrivals, to: machine }")).unwrap();
     assert_eq!(unlimited.spec.conveyors[1].capacity, u32::MAX);
+    assert_eq!(unlimited.spec.conveyors[1].target_wait, None);
+
+    let target = load_str(&with_queue(
+        "{ from: arrivals, to: machine, target_wait: \"5 min\" }",
+    ))
+    .unwrap();
+    assert_eq!(target.spec.conveyors[1].target_wait, Some(300.0));
 }
 
 #[test]
@@ -689,6 +696,11 @@ fn queue_errors() {
         &with_queue("{ from: arrivals, to: machine, capacity: 0 }"),
         "capacity: 0",
         "queue `line` needs room for at least one part",
+    );
+    assert_one_error(
+        &with_queue("{ from: arrivals, to: machine, target_wait: \"5 m\" }"),
+        "target_wait",
+        "is a length",
     );
     assert_one_error(
         &with_queue("{ from: done, to: machine }"),

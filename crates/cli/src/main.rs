@@ -410,7 +410,10 @@ fn describe(path: &Path, model: &Model) -> String {
             } else {
                 format!("holds {} parts", c.capacity)
             };
-            out += &format!("  {:<12} {:<20} {holds}\n", c.name, route);
+            let target = c
+                .target_wait
+                .map_or(String::new(), |t| format!(", target wait {}", duration(t)));
+            out += &format!("  {:<12} {:<20} {holds}{target}\n", c.name, route);
         }
     }
     if spec.conveyors.iter().any(|c| !c.is_queue()) {
