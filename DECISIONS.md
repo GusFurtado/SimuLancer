@@ -319,6 +319,13 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Words for what flows (implemented 2026-10-21, issue #25)
+
+- **`parts: { one: customer, many: customers }`** at the top of a model. The Modeling page ("Customer types", "Where customers come from"), the report ("of 15 customers on average", "mean customers") and `validate` ("holds 15 customers") use it. Without it, "part"/"parts".
+- **Both forms are written out**, not derived: English plurals aren't regular enough (box/boxes, person/people).
+- **Measure names don't change** (`mean parts` in summary.json and in `results:`), so result files, project files and scripts are the same whatever a model calls its parts; only what people read changes. The report shows measure names in the model's words.
+- The Modeling page sets it in Model settings, next to the part types. The bank template uses customers.
+
 ## Waiting time and service levels (implemented 2026-10-21, issue #24)
 
 - **Queues report the wait people talk about:** the mean, the 90th percentile, the longest wait, and the mean per part type when several types wait in the same queue (which types travel on each connection is now worked out with the other "types at" checks).
@@ -368,7 +375,7 @@ What building them showed is missing, in the order I'd add it:
 | **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). Done: see Queues. | #22 |
 | **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. Done: see Results over working time. | #23 |
 | **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". Done: see Waiting time and service levels. | #24 |
-| **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. | #25 |
+| **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. Done: see Words for what flows. | #25 |
 | **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. | #26 |
 | **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. | #27 |
 | **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. | #28 |

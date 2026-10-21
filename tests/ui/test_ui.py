@@ -413,6 +413,9 @@ check(b.js("return document.getElementById('f-throughput-per').value") == "opera
 # --- Queues: a capacity, no length; dragging redraws them without changing the model.
 b.go(url + "/modeling?project=bank-branch")
 b.wait("return document.querySelector('[data-connection=teller_line]') !== null", 10)
+# The bank's model calls what flows "customers".
+check(b.js("return document.querySelector('#part-types .group-title').textContent") == "Customer types", "the model's words")
+check(b.js("return document.getElementById('add-source').title") == "Where customers come from", "the model's words in tooltips")
 b.js("document.querySelector('[data-connection=teller_line]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
 b.wait("return document.querySelector('.panel .kind')?.textContent === 'Queue'")
 check(b.js("return document.getElementById('f-capacity').value") == "15", "queue capacity shown")

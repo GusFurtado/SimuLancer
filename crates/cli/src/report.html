@@ -138,6 +138,9 @@
 "use strict";
 const data = JSON.parse(document.getElementById("data").textContent);
 const app = document.getElementById("app");
+/** What flows through the model, in the model's words ("customers"). */
+const WORDS = data.words || { one: "part", many: "parts" };
+const words = text => text.replace(/\bparts\b/g, WORDS.many).replace(/\bpart\b/g, WORDS.one);
 const tooltip = document.getElementById("tooltip");
 const SVG = "http://www.w3.org/2000/svg";
 
@@ -352,7 +355,7 @@ function conveyors(container) {
   const rows = el("div", { class: "rows" });
   container.append(el("section", {},
     el("h2", {}, "How full the conveyors run"),
-    el("p", { class: "note" }, "Average parts on each conveyor against its capacity. A conveyor that is often full is where blocking starts."),
+    el("p", { class: "note" }, words("Average parts on each conveyor against its capacity. A conveyor that is often full is where blocking starts.")),
     el("div", { class: "card" }, rows)));
 
   const draw = () => {
@@ -363,17 +366,17 @@ function conveyors(container) {
       const full = measure("conveyor", c.name, "full");
       const label = el("div", { class: "row-label" },
         el("span", {}, el("strong", {}, c.name), ` ${c.from} → ${c.to}`),
-        el("span", {}, `${fmt(mean, mean.mean)} of ${c.capacity} parts on average` +
+        el("span", {}, `${fmt(mean, mean.mean)} of ${c.capacity} ${WORDS.many} on average` +
           (full ? ` · full ${fmt(full, full.mean)} of the time` : "")));
       const h = 12;
       const chart = svg("svg", { height: h, viewBox: `0 0 ${width} ${h}`, role: "img",
-        "aria-label": `${c.name}: ${fmt(mean, mean.mean)} of ${c.capacity} parts on average` });
+        "aria-label": `${c.name}: ${fmt(mean, mean.mean)} of ${c.capacity} ${WORDS.many} on average` });
       chart.append(svg("rect", { x: 0, y: 0, width, height: h, rx: 4, fill: "var(--track)" }));
       const w = Math.max(0, Math.min(1, mean.mean / c.capacity)) * width;
       if (w > 0) {
         const bar = svg("rect", { x: 0, y: 0, width: Math.max(w, 8), height: h, rx: 4, fill: "var(--accent)" });
         hoverable(bar, () => [
-          [`${fmt(mean, mean.mean)} ${ci(mean)} parts`, `${c.name} · mean parts on conveyor`, "var(--accent)"],
+          [`${fmt(mean, mean.mean)} ${ci(mean)} ${WORDS.many}`, `${c.name} · mean ${WORDS.many} on conveyor`, "var(--accent)"],
           ...(full ? [[`${fmt(full, full.mean)} ${ci(full)}`, "time full"]] : []),
         ]);
         chart.append(bar);
@@ -506,7 +509,7 @@ function fullTable(container) {
       tbody.append(el("tr", {}, el("td", { class: "group", colspan: 7 }, key)));
     }
     tbody.append(el("tr", {},
-      el("td", {}, ""), el("td", {}, m.measure),
+      el("td", {}, ""), el("td", {}, words(m.measure)),
       el("td", {}, fmt(m, m.mean)),
       el("td", {}, m.half_width === null ? "n/a" : `± ${fmt(m, m.half_width)}`),
       el("td", {}, fmt(m, m.min)), el("td", {}, fmt(m, m.max)), el("td", {}, m.n)));

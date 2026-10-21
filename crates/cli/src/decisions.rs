@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::measures::{Measure, Unit};
+use outliers_sim_model::Words;
 
 /// Model sections decisions can't touch: comparisons pair replications by
 /// their random numbers, which needs the same experiment in every scenario.
@@ -135,6 +136,8 @@ pub struct Target<'a> {
     /// The measures the model reports (values aren't needed).
     pub measures: &'a [Measure],
     pub try_changes: TryChanges<'a>,
+    /// What flows through the model, for default result labels.
+    pub words: &'a Words,
 }
 
 fn valid_id(id: &str) -> bool {
@@ -218,15 +221,21 @@ pub fn read(
         });
     }
     if results.is_empty()
-        && let Some(measures) = measures
+        && let Some(target) = target
     {
-        exposed.results = default_results(measures);
+        exposed.results = default_results(target.measures, target.words);
     }
     (exposed, problems)
 }
 
 /// Without a `results` list: what every sink delivers, and how long it takes.
-fn default_results(measures: &[Measure]) -> Vec<ResultSpec> {
+fn default_results(measures: &[Measure], words: &Words) -> Vec<ResultSpec> {
+    let many = {
+        let mut c = words.many.chars();
+        c.next().map_or(String::new(), |f| {
+            f.to_uppercase().collect::<String>() + c.as_str()
+        })
+    };
     measures
         .iter()
         .filter(|m| {
@@ -235,7 +244,7 @@ fn default_results(measures: &[Measure]) -> Vec<ResultSpec> {
         .map(|m| ResultSpec {
             label: match m.name.as_str() {
                 "throughput" => format!(
-                    "Parts per {} at {}",
+                    "{many} per {} at {}",
                     match m.unit {
                         Unit::PartsPerDay => "day",
                         Unit::PartsPerWeek => "week",
@@ -656,6 +665,7 @@ mod tests {
                 source: MODEL,
                 measures: &measures,
                 try_changes: &try_changes,
+                words: &Words::default(),
             }),
         )
     }

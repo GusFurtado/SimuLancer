@@ -33,8 +33,25 @@ pub const FORMAT: &str = "outliers-sim/0.1";
 pub struct Model {
     pub name: String,
     pub description: Option<String>,
+    /// What flows through the model, for people: "part"/"parts" by default.
+    pub words: Words,
     pub spec: Spec,
     pub outputs: Outputs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Words {
+    pub one: String,
+    pub many: String,
+}
+
+impl Default for Words {
+    fn default() -> Self {
+        Words {
+            one: "part".into(),
+            many: "parts".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -691,6 +691,34 @@ fn queues_connect_objects_with_no_travel() {
 }
 
 #[test]
+fn parts_can_be_called_what_they_are() {
+    let default = load_str(MINIMAL).unwrap();
+    assert_eq!(
+        (default.words.one.as_str(), default.words.many.as_str()),
+        ("part", "parts")
+    );
+    let bank = load_str(&replace(
+        MINIMAL,
+        "entities:",
+        "parts: { one: customer, many: customers }\nentities:",
+    ))
+    .unwrap();
+    assert_eq!(
+        (bank.words.one.as_str(), bank.words.many.as_str()),
+        ("customer", "customers")
+    );
+    assert_one_error(
+        &replace(
+            MINIMAL,
+            "entities:",
+            "parts: { one: customer, many: \"\" }\nentities:",
+        ),
+        "parts:",
+        "`parts` words are short names",
+    );
+}
+
+#[test]
 fn queue_errors() {
     assert_one_error(
         &with_queue("{ from: arrivals, to: machine, capacity: 0 }"),
