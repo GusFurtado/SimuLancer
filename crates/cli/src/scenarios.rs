@@ -61,6 +61,15 @@ impl Scenarios {
         fs::rename(&temp, self.file(project)).map_err(|e| e.to_string())
     }
 
+    /// Forgets all of a project's scenarios (when the project is deleted).
+    pub fn remove_all(&self, project: &str) -> Result<(), String> {
+        let _guard = self.lock.lock().expect("scenarios lock");
+        match fs::remove_file(self.file(project)) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        }
+    }
+
     /// Oldest first.
     pub fn list(&self, project: &str) -> Result<Vec<Scenario>, String> {
         let _guard = self.lock.lock().expect("scenarios lock");

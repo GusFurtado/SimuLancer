@@ -5,6 +5,7 @@
 //!   project.yaml        name, description, which file is the model
 //!   model.yaml          the model
 //!   model.layout.yaml   its layout (optional)
+//! projects/.archive/<id>/   archived projects, the same way
 //! ```
 //!
 //! `project.yaml` also says what managers may change and what they read
@@ -121,6 +122,101 @@ impl Projects {
         ids
     }
 
+    /// Where archived projects go. Its name isn't a project id, so it's never listed as one.
+    fn archive_root(&self) -> PathBuf {
+        self.root.join(".archive")
+    }
+
+    fn archived_dir(&self, id: &str) -> Result<PathBuf, String> {
+        let dir = self.archive_root().join(id);
+        if valid_id(id) && dir.join(PROJECT_FILE).is_file() {
+            Ok(dir)
+        } else {
+            Err(format!("no archived project `{id}`"))
+        }
+    }
+
+    /// Archived project ids, sorted.
+    pub fn archived_ids(&self) -> Vec<String> {
+        let root = self.archive_root();
+        let mut ids: Vec<String> = fs::read_dir(&root)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|id| valid_id(id) && root.join(id).join(PROJECT_FILE).is_file())
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    /// An archived project's `project.yaml`.
+    pub fn archived_project_file(&self, id: &str) -> Result<ProjectFile, String> {
+        let dir = self.archived_dir(id)?;
+        let text = fs::read_to_string(dir.join(PROJECT_FILE)).map_err(|e| e.to_string())?;
+        parse_project_file(id, &text)
+    }
+
+    /// Hides a project from the list, keeping all its files and history.
+    pub fn archive(&self, id: &str) -> Result<(), String> {
+        let dir = self.dir(id)?;
+        let target = self.archive_root().join(id);
+        if target.exists() {
+            return Err(format!("an archived project `{id}` already exists"));
+        }
+        fs::create_dir_all(self.archive_root()).map_err(|e| e.to_string())?;
+        fs::rename(dir, target).map_err(|e| e.to_string())
+    }
+
+    /// Brings an archived project back to the list.
+    pub fn restore(&self, id: &str) -> Result<(), String> {
+        let dir = self.archived_dir(id)?;
+        let target = self.root.join(id);
+        if target.exists() {
+            return Err(format!("a project `{id}` already exists"));
+        }
+        fs::rename(dir, target).map_err(|e| e.to_string())
+    }
+
+    /// Deletes an archived project for good. Only archived projects can be
+    /// deleted, so deleting always takes two steps.
+    pub fn delete_archived(&self, id: &str) -> Result<(), String> {
+        let dir = self.archived_dir(id)?;
+        fs::remove_dir_all(dir).map_err(|e| e.to_string())
+    }
+
+    /// Changes the project's name and description, saved as a new version.
+    /// Returns false when they were already like that.
+    pub fn set_details(
+        &self,
+        id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<bool, String> {
+        let mut file = self.project_file(id, None)?;
+        let mut what = Vec::new();
+        if let Some(name) = name.map(str::trim) {
+            if name.is_empty() {
+                return Err("a project needs a name".into());
+            }
+            if name != file.name {
+                file.name = name.to_string();
+                what.push(format!("Renamed to {name}"));
+            }
+        }
+        if let Some(description) = description.map(str::trim) {
+            let description = (!description.is_empty()).then(|| description.to_string());
+            if description != file.description {
+                file.description = description;
+                what.push("Changed the description".to_string());
+            }
+        }
+        if what.is_empty() {
+            return Ok(false);
+        }
+        self.save(id, &[(PROJECT_FILE, &file.to_text())], &what.join("; "))?;
+        Ok(true)
+    }
+
     /// Creates a project from files and saves them as the first version.
     pub fn create(
         &self,
@@ -136,6 +232,12 @@ impl Projects {
         let dir = self.root.join(id);
         if dir.exists() {
             return Err(format!("a project `{id}` already exists"));
+        }
+        // Its scenarios are kept under the same id, so the id stays taken.
+        if self.archive_root().join(id).exists() {
+            return Err(format!(
+                "a project `{id}` already exists in the archive; restore or delete it first"
+            ));
         }
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let result = (|| {
@@ -155,15 +257,7 @@ impl Projects {
 
     pub fn project_file(&self, id: &str, version: Option<&str>) -> Result<ProjectFile, String> {
         let text = self.read(id, version, PROJECT_FILE)?;
-        let file: ProjectFile =
-            serde_saphyr::from_str(&text).map_err(|e| format!("{id}/{PROJECT_FILE}: {e}"))?;
-        if file.format != PROJECT_FORMAT {
-            return Err(format!(
-                "{id}/{PROJECT_FILE}: unsupported format `{}` (this version reads `{PROJECT_FORMAT}`)",
-                file.format
-            ));
-        }
-        Ok(file)
+        parse_project_file(id, &text)
     }
 
     /// A file's text: from the working folder (`version` = None) or as
@@ -322,6 +416,18 @@ impl Projects {
     }
 }
 
+fn parse_project_file(id: &str, text: &str) -> Result<ProjectFile, String> {
+    let file: ProjectFile =
+        serde_saphyr::from_str(text).map_err(|e| format!("{id}/{PROJECT_FILE}: {e}"))?;
+    if file.format != PROJECT_FORMAT {
+        return Err(format!(
+            "{id}/{PROJECT_FILE}: unsupported format `{}` (this version reads `{PROJECT_FORMAT}`)",
+            file.format
+        ));
+    }
+    Ok(file)
+}
+
 /// Runs git in `dir` with a fixed identity and no user configuration
 /// (hooks, signing) getting in the way.
 pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
@@ -436,6 +542,59 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         Projects::new(root)
+    }
+
+    #[test]
+    fn rename_archive_restore_and_delete() {
+        let p = temp("archive");
+        seed_examples(&p).unwrap();
+
+        // Name and description are saved as a version; nothing changed, nothing saved.
+        assert!(
+            p.set_details("two-cells", Some(" Two mills "), Some("New text"))
+                .unwrap()
+        );
+        let file = p.project_file("two-cells", None).unwrap();
+        assert_eq!(
+            (file.name.as_str(), file.description.as_deref()),
+            ("Two mills", Some("New text"))
+        );
+        assert_eq!(
+            p.history("two-cells").unwrap()[0].message,
+            "Renamed to Two mills; Changed the description"
+        );
+        assert!(!p.set_details("two-cells", Some("Two mills"), None).unwrap());
+        assert!(p.set_details("two-cells", Some("  "), None).is_err());
+        assert!(p.set_details("two-cells", None, Some("")).unwrap());
+        assert_eq!(p.project_file("two-cells", None).unwrap().description, None);
+
+        // Archived: off the list, but kept, and its id stays taken.
+        p.archive("two-cells").unwrap();
+        assert_eq!(p.ids(), ["bike-assembly", "conveyor-line"]);
+        assert_eq!(p.archived_ids(), ["two-cells"]);
+        assert_eq!(
+            p.archived_project_file("two-cells").unwrap().name,
+            "Two mills"
+        );
+        assert!(p.dir("two-cells").is_err());
+        assert!(
+            p.create("two-cells", &template("two-cells", "Again"), "x")
+                .unwrap_err()
+                .contains("in the archive")
+        );
+        // Only archived projects can be deleted.
+        assert!(p.delete_archived("conveyor-line").is_err());
+
+        p.restore("two-cells").unwrap();
+        assert_eq!(p.ids(), ["bike-assembly", "conveyor-line", "two-cells"]);
+        assert_eq!(p.history("two-cells").unwrap().len(), 3);
+        assert!(p.restore("two-cells").is_err());
+
+        p.archive("conveyor-line").unwrap();
+        p.delete_archived("conveyor-line").unwrap();
+        assert!(p.archived_ids().is_empty());
+        assert_eq!(p.ids(), ["bike-assembly", "two-cells"]);
+        fs::remove_dir_all(&p.root).unwrap();
     }
 
     #[test]

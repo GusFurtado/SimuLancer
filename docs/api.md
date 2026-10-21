@@ -95,7 +95,7 @@ For load balancers and monitoring.
                   "published": { "name": "v2", "date": "2026-10-10T00:05:16Z", "message": "Second spindle" } } ] }
 ```
 
-`published` is `null` until the first publish.
+`published` is `null` until the first publish. `?archived=true` lists the archived projects instead (`id`, `name`, `description`).
 
 ### `POST /api/v1/projects`
 
@@ -108,14 +108,14 @@ Creates a project from another one's working copy, with a fresh history. Without
 | Status | When |
 |---|---|
 | `201` | created |
-| `409` | the id is taken |
+| `409` | the id is taken, by a project or an archived one |
 | `400` | bad id: lowercase letters, digits, `-`, `_` |
 
 ### `GET /api/v1/projects/{id}[?version=latest|vN]`
 
 | Field | Contents |
 |---|---|
-| `name`, `description` | From `project.yaml` at that version. |
+| `name`, `description` | The project's current ones (from the working copy), whichever version is asked for. |
 | `version` | `working`, or the version name (`?version=latest` resolves to it). |
 | `model_file`, `source` | The model file's name and text. |
 | `tree` | The model as JSON. Change paths address it. |
@@ -128,6 +128,22 @@ Creates a project from another one's working copy, with a fresh history. Without
 | `decision_problems` | What's wrong with them, as sentences. Empty when the version can be published. |
 | `project_file` | `project.yaml` as JSON, including the `decisions` and `results` as written. |
 | `measures` | What the model reports (`object_type`, `object`, `measure`, `unit`): what results can name. |
+
+### `PATCH /api/v1/projects/{id}`
+
+```json
+{ "name": "Second line", "description": "Cartons packed and shipped." }
+```
+
+Changes the name and/or description in `project.yaml`, saved as a new version ("Renamed to Second line"). An empty `description` removes it. The id, and so the project's address, never changes. Returns `id`, `name`, `description` and `saved` (`false` when nothing changed).
+
+### `POST /api/v1/projects/{id}/archive` and `POST /api/v1/projects/{id}/restore`
+
+Archiving takes a project off the list, keeping its files, history and scenarios (in `<data>/projects/.archive/`); restoring brings it back. `404` if there's no such project, `409` if the id is taken on the other side.
+
+### `DELETE /api/v1/projects/{id}`
+
+Deletes an **archived** project for good, with its history and scenarios: `204`. A project on the list has to be archived first (`409`), so deleting always takes two steps.
 
 ### `POST /api/v1/projects/{id}/check`
 

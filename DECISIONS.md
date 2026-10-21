@@ -319,6 +319,12 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Managing projects (implemented 2026-10-21)
+
+- **Rename and describe** from the project list (the ⋯ menu on a card). The name and description live in `project.yaml`, so a change is saved as a version ("Renamed to …"), like any other edit. The id never changes: it's the folder name, the address in links, and the key for scenarios. The name and description shown are always the current ones, even when looking at an older published version: they describe the project, not a version.
+- **Archive, then delete.** Archiving moves the project to `<data>/projects/.archive/<id>/` with everything in it; it can be undone right away ("Undo") or later from "Show archived projects". Only archived projects can be deleted, which removes the folder and the project's scenarios. Two steps, so nothing is lost to one misclick. An archived project keeps its id taken, so a new project can't inherit its scenarios.
+- **Examples only for a new data folder.** They used to be created whenever the project list was empty, so deleting them all brought them back on the next restart.
+
 ## Animation needs an event log (fixed 2026-10-10)
 
 - **The bug:** a model without `outputs.event_log: jsonl` records nothing to replay. The Animation tab used to fall back silently to the report, so on the Simulation page the button seemed broken. Projects from the new-project template had no event log.
