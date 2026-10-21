@@ -63,6 +63,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             schedules.push(Schedule {
                 name: name.value.clone(),
                 periods,
+                finish_work: s.finish_work,
             });
         }
     }

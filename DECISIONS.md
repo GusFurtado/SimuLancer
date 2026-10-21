@@ -319,6 +319,15 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Finishing the work in hand after a shift (implemented 2026-10-21, issue #30)
+
+- **`finish_work: true` on a schedule**: servers and resources on it don't stop at the end of a shift while there's work for them; they stop when there's none left. Sources ignore it: arrivals stop on time.
+- **"Work for them"** is parts in the server, parts on its incoming conveyors and queues, and parts that can still come: an upstream server that's still working on something, or a source still on shift. Without looking upstream, the tellers would go home while the kiosk still had a customer for them. A resource has work while a server that needs it has.
+- **Overtime counts as working time** (it's not off shift), and is reported as *overtime per week* for servers and resources on such a schedule.
+- **Caveat:** a server whose resource stops on time (a schedule without `finish_work`) can't finish; it stays in overtime with nothing to do until the next shift. Put both on the same schedule.
+- **Not done here: terminating simulations** (each replication one day: open, close, drain, results per day). Weekly schedules with `finish_work` cover the bank; a day-per-replication mode can come later if a model needs it.
+- The bank's staff hours are now its real ones (09:45–16:00, finishing up), instead of running to 17:00 so customers weren't stuck overnight. Its Simulation page shows teller overtime (about 17 minutes a week).
+
 ## Which part's clock an assembly keeps (implemented 2026-10-21, issue #29)
 
 - **`keeps_clock_of: order`** on an assembly server: the new part's time in system counts from its earliest component of that type, instead of its earliest component of any type. Without it nothing changes.
@@ -414,7 +423,7 @@ What building them showed is missing, in the order I'd add it:
 | **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. Done (except orders of different sizes): see Arrivals in groups, and splitting. | #27 |
 | **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. Done: see Stock and restocking. | #28 |
 | **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. Done: see Which part's clock an assembly keeps. | #29 |
-| **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. | #30 |
+| **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. Done (except one-day replications): see Finishing the work in hand. | #30 |
 | **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. | #31 |
 | **Changeovers between models, paced lines** | Assembly line | Not modeled. | #32, #33 |
 

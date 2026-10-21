@@ -1071,6 +1071,10 @@ function schedulesPanel(tree) {
           value: (sch.shifts || []).join(", "), "data-shifts": name,
           onchange: e => setChange(`${path}.shifts`, e.target.value.split(",").map(x => x.trim()).filter(Boolean)),
         }),
+        el("label", { class: "check", style: "margin: 6px 0 0" },
+          el("input", { type: "checkbox", "data-finish": name, checked: sch.finish_work ? true : null,
+            onchange: e => setChange(`${path}.finish_work`, e.target.checked ? true : null) }),
+          say("Finish the work in hand after each shift (parts already inside)")),
         el("div", { class: "days" }, ...DAYS.map(d => el("label", { class: "day" },
           el("input", {
             type: "checkbox", checked: days.includes(d) ? true : null, "data-day": `${name}.${d}`,

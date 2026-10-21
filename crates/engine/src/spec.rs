@@ -38,6 +38,9 @@ pub struct Schedule {
     /// Working periods within the week, as [start, end) offsets from Monday
     /// 00:00: sorted, not overlapping, not touching, within one week.
     pub periods: Vec<(SimTime, SimTime)>,
+    /// At the end of a shift, servers and resources on this schedule finish
+    /// the work in hand (overtime) before they stop.
+    pub finish_work: bool,
 }
 
 impl Schedule {

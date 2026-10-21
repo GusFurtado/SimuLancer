@@ -45,6 +45,7 @@ fn weekly_periods_and_changes() {
     let always = Schedule {
         name: "always".into(),
         periods: vec![(SimTime::ZERO, Schedule::WEEK)],
+        finish_work: false,
     };
     assert_eq!(always.next_change(h(5)), None);
 }
@@ -195,6 +196,7 @@ fn on_time_counts_working_time_in_any_window() {
     let s = Schedule {
         name: "day".into(),
         periods: (0..5).map(|d| (h(24 * d + 6), h(24 * d + 14))).collect(),
+        finish_work: false,
     };
     assert_eq!(s.on_time(h(0), h(168)), h(40));
     assert_eq!(s.on_time(h(0), h(4 * 168)), h(160));

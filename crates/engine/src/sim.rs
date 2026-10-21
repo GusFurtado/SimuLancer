@@ -173,6 +173,9 @@ struct ServerState {
     /// The failure the server is currently down for.
     down_for: Option<usize>,
     off_shift: bool,
+    /// The shift is over, but it's finishing the work in hand.
+    closing: bool,
+    overtime: TimeAverage,
     off: TimeAverage,
     processed: u64,
     failure_count: u64,
@@ -323,6 +326,9 @@ pub fn simulate<O: Observer>(spec: &Spec, replication: u32, observer: &mut O) ->
 struct ResourceState {
     in_use: u32,
     off_shift: bool,
+    /// The shift is over, but units still go to work in hand.
+    closing: bool,
+    overtime: TimeAverage,
     busy: TimeAverage,
     off: TimeAverage,
 }
@@ -343,6 +349,8 @@ struct Sim<'a, O: Observer> {
     resource_queue: VecDeque<usize>,
     /// Per conveyor: restocking sources that check after each part leaves it.
     restockers: Vec<Vec<usize>>,
+    /// Some server or resource is finishing work after its shift.
+    closing: bool,
     sink_exited: Vec<u64>,
     sink_times: Vec<Tally>,
     /// Per sink, per part type: parts that exited and their times in system.
@@ -418,6 +426,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                     failures,
                     down_for: None,
                     off_shift: false,
+                    closing: false,
+                    overtime: TimeAverage::default(),
                     off: TimeAverage::default(),
                     processed: 0,
                     failure_count: 0,
@@ -464,11 +474,14 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .map(|_| ResourceState {
                     in_use: 0,
                     off_shift: false,
+                    closing: false,
+                    overtime: TimeAverage::default(),
                     busy: TimeAverage::default(),
                     off: TimeAverage::default(),
                 })
                 .collect(),
             resource_queue: VecDeque::new(),
+            closing: false,
             restockers: (0..spec.conveyors.len())
                 .map(|c| {
                     (0..spec.sources.len())
@@ -596,6 +609,11 @@ impl<'a, O: Observer> Sim<'a, O> {
                             .schedule(self.now + *every, Event::Review { source });
                     }
                 }
+            }
+            if self.closing {
+                self.finish_overtime();
+                self.closing = self.servers.iter().any(|s| s.closing)
+                    || self.resources.iter().any(|r| r.closing);
             }
             self.sample_state();
         }
@@ -863,37 +881,118 @@ impl<'a, O: Observer> Sim<'a, O> {
             if spec.servers[server].schedule != Some(schedule) {
                 continue;
             }
-            self.observer.record(
-                self.now,
-                if on {
-                    TraceEvent::ShiftStarted { server }
-                } else {
-                    TraceEvent::ShiftEnded { server }
-                },
-            );
             if on {
+                if self.servers[server].closing {
+                    // Still finishing the last shift's work: it never stopped.
+                    self.servers[server].closing = false;
+                    continue;
+                }
+                self.observer
+                    .record(self.now, TraceEvent::ShiftStarted { server });
                 self.servers[server].off_shift = false;
                 if self.servers[server].down_for.is_none() {
                     self.resume_slots(server);
                 }
                 self.update_failure_clocks(server);
                 self.release_blocked(server);
+            } else if spec.schedules[schedule].finish_work {
+                self.servers[server].closing = true; // stops when the work in hand is done
+                self.closing = true;
             } else {
-                self.suspend_slots(server, OnFailure::Resume);
-                self.servers[server].off_shift = true;
-                self.update_failure_clocks(server);
+                self.stop_server(server);
             }
         }
         let mut freed = false;
         for r in 0..spec.resources.len() {
             if spec.resources[r].schedule == Some(schedule) {
-                self.resources[r].off_shift = !on;
-                freed |= on;
+                let res = &mut self.resources[r];
+                if on {
+                    freed |= res.off_shift;
+                    res.off_shift = false;
+                    res.closing = false;
+                } else if spec.schedules[schedule].finish_work {
+                    res.closing = true;
+                    self.closing = true;
+                } else {
+                    res.off_shift = true;
+                }
             }
         }
         if freed {
             self.serve_resource_queue();
         }
+    }
+
+    /// A server's shift ends: what it's processing pauses until the next one.
+    fn stop_server(&mut self, server: usize) {
+        self.observer
+            .record(self.now, TraceEvent::ShiftEnded { server });
+        self.suspend_slots(server, OnFailure::Resume);
+        let s = &mut self.servers[server];
+        s.off_shift = true;
+        s.closing = false;
+        self.update_failure_clocks(server);
+    }
+
+    /// Servers and resources finishing their work after a shift stop once
+    /// there's none left for them. Called after every event.
+    fn finish_overtime(&mut self) {
+        for server in 0..self.servers.len() {
+            if self.servers[server].closing && !self.has_work(server) {
+                self.stop_server(server);
+            }
+        }
+        for r in 0..self.resources.len() {
+            if self.resources[r].closing && self.resources[r].in_use == 0 {
+                let needed = (0..self.spec.servers.len()).any(|s| {
+                    self.spec.servers[s].needs.iter().any(|&(x, _)| x == r) && self.has_work(s)
+                });
+                if !needed {
+                    let res = &mut self.resources[r];
+                    res.closing = false;
+                    res.off_shift = true;
+                }
+            }
+        }
+    }
+
+    /// Whether a server has work in hand: parts in it, or parts that can
+    /// still come to it (on its way in, in an upstream object that's still
+    /// working, or from a source still on shift).
+    fn has_work(&self, server: usize) -> bool {
+        let busy = |s: &ServerState| {
+            !s.staging.is_empty() || s.slots.iter().any(|x| !matches!(x, Slot::Idle))
+        };
+        if busy(&self.servers[server]) {
+            return true;
+        }
+        let mut seen = vec![server];
+        let mut stack = vec![server];
+        while let Some(s) = stack.pop() {
+            for &c in &self.spec.servers[s].inputs {
+                if !self.conveyors[c].belt.is_empty() {
+                    return true;
+                }
+                match self.spec.conveyors[c].from {
+                    Node::Source(src) => {
+                        let source = &self.sources[src];
+                        if !source.off_shift || !source.held.is_empty() {
+                            return true;
+                        }
+                    }
+                    Node::Server(up) if !seen.contains(&up) => {
+                        let state = &self.servers[up];
+                        if !state.off_shift && busy(state) {
+                            return true;
+                        }
+                        seen.push(up);
+                        stack.push(up);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
     }
 
     /// Pauses every part being processed (a failure, or the end of a shift).
@@ -1687,10 +1786,12 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.blocked.set(now, blocked);
             s.failed.set(now, failed);
             s.waiting.set(now, u64::from(s.waiting_for_resources));
+            s.overtime.set(now, u64::from(s.closing));
         }
         for r in &mut self.resources {
             r.busy.set(now, u64::from(r.in_use));
             r.off.set(now, u64::from(r.off_shift));
+            r.overtime.set(now, u64::from(r.closing));
         }
         for (c, spec) in self.conveyors.iter_mut().zip(&self.spec.conveyors) {
             let n = c.belt.len() as u64;
@@ -1718,10 +1819,12 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.failed.reset(now);
             s.waiting.reset(now);
             s.off.reset(now);
+            s.overtime.reset(now);
         }
         for r in &mut self.resources {
             r.busy.reset(now);
             r.off.reset(now);
+            r.overtime.reset(now);
         }
         for c in &mut self.conveyors {
             c.entered = 0;
@@ -1798,6 +1901,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                         processed: s.processed,
                         failures: s.failure_count,
                         waiting_for_resources: s.waiting.mean() / on,
+                        overtime: s.overtime.mean(),
                     }
                 })
                 .collect(),
@@ -1824,6 +1928,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     // Of the time it's on shift (all the time without a schedule).
                     busy: r.busy.mean() / f64::from(spec.capacity) / working_share(r.off.mean()),
                     off_shift: r.off.mean(),
+                    overtime: r.overtime.mean(),
                 })
                 .collect(),
             sinks: self

@@ -50,6 +50,9 @@ pub struct Measure {
     pub values: Vec<f64>,
 }
 
+/// Seconds in a week, for "overtime per week".
+const WEEK: f64 = 7.0 * 24.0 * 3600.0;
+
 /// Extracts the measures selected in the model's `outputs.summary`, grouped
 /// by object in the order sources, servers, resources, queues, conveyors,
 /// sinks. Throughputs are per `outputs.throughput_per`.
@@ -117,10 +120,19 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
             add("server", &s.name, "blocked", Unit::Fraction, &|r| {
                 r.servers[i].blocked
             });
-            if s.schedule.is_some() {
+            if let Some(schedule) = s.schedule {
                 add("server", &s.name, "off shift", Unit::Fraction, &|r| {
                     r.servers[i].off_shift
                 });
+                if spec.schedules[schedule].finish_work {
+                    add(
+                        "server",
+                        &s.name,
+                        "overtime per week",
+                        Unit::Seconds,
+                        &|r| r.servers[i].overtime * WEEK,
+                    );
+                }
             }
             if !s.needs.is_empty() {
                 add(
@@ -146,10 +158,19 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
             add("resource", &res.name, "busy", Unit::Fraction, &|r| {
                 r.resources[i].busy
             });
-            if res.schedule.is_some() {
+            if let Some(schedule) = res.schedule {
                 add("resource", &res.name, "off shift", Unit::Fraction, &|r| {
                     r.resources[i].off_shift
                 });
+                if spec.schedules[schedule].finish_work {
+                    add(
+                        "resource",
+                        &res.name,
+                        "overtime per week",
+                        Unit::Seconds,
+                        &|r| r.resources[i].overtime * WEEK,
+                    );
+                }
             }
         }
     }
