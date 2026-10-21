@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Arrivals, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment, Failure,
-    FailureClock, Fleet, InputRule, Node, OnFailure, OrderQuantity, PerType, Resource, Restock,
-    Routing, Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
+    FailureClock, Fleet, InputRule, Node, OnFailure, OrderQuantity, PacedLine, PerType, Resource,
+    Restock, Routing, Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -665,6 +665,58 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     }
 
     let experiment = b.experiment(&raw.experiment);
+    // Paced lines: their own namespace (only `lines` names them).
+    let mut lines = Vec::new();
+    let mut in_a_line: Vec<Option<&str>> = vec![None; raw.servers.0.len()];
+    for (name, l) in &raw.lines.0 {
+        b.check_name(name);
+        let takt = b.positive_quantity(&l.takt, Dimension::Time, "takt");
+        let mut stations = Vec::new();
+        let mut ok = true;
+        for station in &l.stations.value {
+            let Some(i) = raw.servers.0.iter().position(|(n, _)| n.value == *station) else {
+                b.error(
+                    &l.stations,
+                    format!("line `{}`: `{station}` isn't a server", name.value),
+                );
+                ok = false;
+                continue;
+            };
+            if raw.servers.0[i]
+                .1
+                .capacity
+                .as_ref()
+                .is_some_and(|c| c.value != 1)
+                || raw.servers.0[i].1.batch.is_some()
+            {
+                b.error(&l.stations, format!("line `{}`: station `{station}` must hold one part at a time (capacity 1, no batches)", name.value));
+                ok = false;
+            }
+            if let Some(other) = in_a_line[i] {
+                b.error(
+                    &l.stations,
+                    format!("`{station}` is already a station of line `{other}`"),
+                );
+                ok = false;
+            }
+            in_a_line[i] = Some(name.value.as_str());
+            stations.push(i);
+        }
+        if l.stations.value.len() < 2 {
+            b.error(
+                &l.stations,
+                format!("line `{}` needs at least two stations", name.value),
+            );
+            ok = false;
+        }
+        if let (true, Some(takt)) = (ok, takt) {
+            lines.push(PacedLine {
+                name: name.value.clone(),
+                stations,
+                takt: SimTime::from_secs_f64(takt),
+            });
+        }
+    }
     let words = match &raw.parts {
         None => Words::default(),
         Some(w) => {
@@ -728,6 +780,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         resources,
         schedules,
         vehicles,
+        lines,
         experiment: experiment.expect("no diagnostics means the experiment is valid"),
     };
     check_reachability(&spec, &raw)?;

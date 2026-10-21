@@ -319,6 +319,15 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Paced lines (implemented 2026-10-21, issue #33)
+
+- **`lines: { front: { stations: [frame, drum], takt: "2.5 min" } }`**: the stations (servers, capacity 1, no batches, in one line only) release finished parts only when the line moves. A takt event checks the stations: if all are done, the line moves; if not, it waits for the last, moves when it finishes, and the next takt counts from then ("a station that isn't done stops the line"). Moving releases the stations last-first, so each frees its place before the one before hands over.
+- **Built on the existing gates**, not a new kind of object: a station's blocked parts simply wait for the line, so routing, resources, failures and shifts work as before. A failure pauses its station's part, which stops the line until repaired.
+- **Results:** moves, stops, stopped (share of the line's working time, all stations on shift: off shift a line is off, not stopped) and stops caused by each station.
+- **Not done:** units continuing incomplete to be finished off-line, and moving the line while a station is still working.
+- The assembly line has a decision "How frame and drum move machines on": buffered (as before) or paced every 2.5 minutes with room for one between them. Paced, jams at the drum stop the frame too: lead time 64 minutes instead of 47 and slightly lower throughput, which is the comparison the issue asked for.
+- Scenario changes may now also create `queues`, `transports`, `vehicles`, `lines` and `parts` sections, so a decision can turn a line paced.
+
 ## Vehicles (implemented 2026-10-21, issue #31)
 
 - **Vehicles carry parts along transports**: `vehicles:` (count, speed, load and unload times, a home object) and `transports:` (from, to, by, distance, optional capacity). A transport is a connection like a conveyor or queue, so routing, merging and blocking work unchanged; the receiving object takes delivered parts like from a queue.
@@ -442,7 +451,7 @@ What building them showed is missing, in the order I'd add it:
 | **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. Done: see Which part's clock an assembly keeps. | #29 |
 | **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. Done (except one-day replications): see Finishing the work in hand. | #30 |
 | **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. Done: see Vehicles. | #31 |
-| **Changeovers between models, paced lines** | Assembly line | Not modeled. Changeovers done: see Changeovers. | #32, #33 |
+| **Changeovers between models, paced lines** | Assembly line | Not modeled. Done: see Changeovers and Paced lines. | #32, #33 |
 
 Also fixed while drawing them: conveyor labels go on the longest segment, beside vertical ones on the right of the travel direction and 40% of the way along, so loops (test → rework → test) and bends near objects keep their labels readable.
 

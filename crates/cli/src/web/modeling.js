@@ -1088,6 +1088,7 @@ function experimentPanel(tree) {
     partTypesPanel(tree),
     resourcesPanel(tree),
     vehiclesPanel(tree),
+    linesPanel(tree),
     schedulesPanel(tree));
 }
 
@@ -1215,6 +1216,20 @@ function vehiclesPanel(tree) {
         field("Unload time", `vehicles.${f}.unload_time`, "text", [], "0 s")),
       field("Start at", `vehicles.${f}.home`, "select", homes))),
     el("button", { id: "add-vehicles", onclick: () => setChange(`vehicles.${freeName(tree, "forklifts")}`, { count: 1, speed: "1.5 m/s", home: homes[0] || "" }) }, "+ Vehicles"));
+}
+
+/** Paced lines: stations that move on together every takt. The stations
+ *  are listed in the model file; the takt is edited here. */
+function linesPanel(tree) {
+  const lines = Object.entries(tree.lines || {});
+  if (!lines.length) return null;
+  return el("div", { class: "group", id: "lines" },
+    el("div", { class: "group-title" }, "Paced lines"),
+    el("p", { class: "hint", style: "margin: 0 0 8px" }, say("Stations that move their parts on together every takt; a station that isn't done stops the line.")),
+    ...lines.map(([name, l]) => el("div", { class: "resource" },
+      el("b", {}, name), el("span", { class: "sub" }, (l.stations || []).join(" → ")),
+      field("Takt", `lines.${name}.takt`),
+      el("button", { class: "link danger", onclick: () => setChange(`lines.${name}`, null) }, "Remove the line"))));
 }
 
 /** Removes vehicles and the transports they carry. */

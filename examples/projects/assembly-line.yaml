@@ -29,6 +29,17 @@ decisions:
     path: resources.technician.capacity
     min: 1
     max: 3
+  front_of_line:
+    label: How frame and drum move machines on
+    description: Buffered, each passes a machine on when it's done; paced, both move together every takt, and a jam at the drum stops both.
+    choices:
+      buffered:
+        label: When each is done (a buffer of 4 between them)
+      paced:
+        label: Together every 2.5 minutes (no buffer)
+        changes:
+          lines.front: { stations: [frame, drum], takt: "2.5 min" }
+          conveyors.c_to_drum.length: "1 m"
   pack_changeover:
     label: Packing changeover
     description: Setting packing up for the other model.

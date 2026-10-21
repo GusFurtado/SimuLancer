@@ -514,6 +514,22 @@ fn describe(path: &Path, model: &Model) -> String {
             );
         }
     }
+    if !spec.lines.is_empty() {
+        out += "\npaced lines\n";
+        for l in &spec.lines {
+            let stations: Vec<&str> = l
+                .stations
+                .iter()
+                .map(|&s| spec.servers[s].name.as_str())
+                .collect();
+            out += &format!(
+                "  {:<12} {} move on together every {}\n",
+                l.name,
+                stations.join(", "),
+                duration(l.takt.as_secs_f64())
+            );
+        }
+    }
     if !spec.vehicles.is_empty() {
         out += "\nvehicles\n";
         for f in &spec.vehicles {
