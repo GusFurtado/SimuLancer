@@ -7,14 +7,18 @@
 <link rel="stylesheet" href="common.css">
 </head>
 <body>
-<div class="app">
-  <aside>
-    <h1>Decide</h1>
-    <a class="home" href="./">outliers-sim</a>
-    <h2>Projects</h2>
-    <div class="list" id="projects"></div>
-  </aside>
-  <main id="main"><p class="empty">Pick a project on the left.</p></main>
+<div class="shell">
+  <header class="topbar">
+    <a class="back" href="./">← Projects</a>
+    <b id="project-name"></b>
+    <nav class="pages">
+      <a id="to-build">Edit the model</a>
+      <a class="current" id="to-decide">Run scenarios</a>
+    </nav>
+  </header>
+  <div class="app single">
+    <main id="main"></main>
+  </div>
 </div>
 <script src="common.js"></script>
 <script src="decide.js"></script>

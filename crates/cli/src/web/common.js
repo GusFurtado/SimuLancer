@@ -1,5 +1,5 @@
 "use strict";
-// Shared by the outliers-sim pages (/build, /decide). Uses only the public
+// Shared by the outliers-sim pages (/, /build, /decide). Uses only the public
 // HTTP API (docs/api.md).
 
 const API = "api/v1";
@@ -161,6 +161,28 @@ function boundsOf(layout) {
   const points = [...Object.values(layout.positions), ...Object.values(layout.paths).flat()];
   const xs = points.map(p => p[0]), zs = points.map(p => p[1]);
   return { minX: Math.min(...xs) - 2, maxX: Math.max(...xs) + 2, minZ: Math.min(...zs) - 2.5, maxZ: Math.max(...zs) + 2 };
+}
+
+// --- the top bar of /build and /decide ---------------------------------------------
+
+/** The project the page is open on (`?project=`). Without one, back to the project list. */
+function pageProject() {
+  const id = new URLSearchParams(location.search).get("project");
+  if (!id) { location.replace("./"); return null; }
+  for (const page of ["build", "decide"]) document.getElementById(`to-${page}`).href = `${page}?project=${encodeURIComponent(id)}`;
+  document.getElementById("project-name").textContent = id;
+  return id;
+}
+
+/** Shows the project's name in the top bar and the tab title. */
+function showProjectName(name, page) {
+  document.getElementById("project-name").textContent = name;
+  document.title = `${name} · ${page} · outliers-sim`;
+}
+
+/** Fills `main` with a note that the project can't be opened, and a way back. */
+function projectMissing(main, text) {
+  main.replaceChildren(el("div", { class: "empty" }, el("p", {}, text), el("p", {}, el("a", { href: "./" }, "Back to the projects"))));
 }
 
 // --- runs and results -------------------------------------------------------------

@@ -134,7 +134,7 @@ Use these to evaluate any tool, open-source or commercial:
 
 ## 16. How outliers-sim answers these issues
 
-Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-10.
+Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-21.
 
 | Issue | What outliers-sim does about it | Status |
 |---|---|---|
@@ -156,7 +156,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | **3. Old architecture** | | |
 | Old foundations, Windows-only | Rust engine; Linux binary, Docker image, web interface in any browser. | done |
 | Single-threaded engines | Replications run in parallel across all cores, with results independent of the thread count. | done |
-| Slow startup and heavy UI | 30 replications of the examples in about 0.2 s; the web UI is plain HTML/JS with no install. | done |
+| Slow startup and heavy UI | 30 replications of the examples in about 0.2 s; the web UI is plain HTML/JS with no install, and shows one project at a time (picked from the project list). | done |
 | GUI is the only full interface | CLI, HTTP API and web UI are equal citizens; the web UI uses only the public API. | done |
 | Weak APIs | A documented JSON HTTP API (`docs/api.md`), scriptable from any language. | done |
 | **4. Reproducibility and engineering practice** | | |

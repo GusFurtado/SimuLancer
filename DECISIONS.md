@@ -298,7 +298,7 @@ The product has three kinds of users, with completely separate interfaces over o
 
 Decisions so far:
 
-- **No access control for now:** just separate pages (`/`, `/build`, `/decide`). Roles come later, likely through the reverse proxy.
+- **No access control for now:** just separate pages (`/` lists the projects, `/build` and `/decide` open one). Roles come later, likely through the reverse proxy.
 - **Git stays local:** one repository per project, no remote.
 - **No review step:** the engineer publishes when they want; in practice they model alone.
 - **Projects** (`<data>/projects/<id>/`): `project.yaml` (format `outliers-sim-project/0.1`, name, description, `model:` file), the model and its `*.layout.yaml`. Git is run as a command with a fixed identity and no user config (hooks, signing). The engineer never sees it.
@@ -309,6 +309,14 @@ Decisions so far:
 - **The API changed shape** (projects instead of a flat models folder); `docs/api.md` is rewritten. `serve --data <dir>` replaces `--models`/`--runs`. An empty data folder gets the example projects, saved and published as v1.
 - **Docker image:** now Alpine plus git, about 41 MB (was 8 MB on `scratch`). Replacing the git command with a pure-Rust git library would shrink it again, at the cost of a big dependency; not done.
 - **Next (planned 2026-10-10, in this order):** manager comparisons; then exposing decisions from the builder; then drawing models in the builder (place, connect, delete and rename objects; conveyor length follows the drawing by default; whole-model saves including the layout; distribution pickers; undo).
+
+## One project at a time (implemented 2026-10-21)
+
+The landing page (`/`) used to ask which page you wanted, and both pages then listed every project in a sidebar next to the one being worked on. Now:
+
+- **`/` is the project list.** Each project card says whether and when it was published, with two ways in: *Edit the model* (`/build?project=<id>`) and *Run scenarios* (`/decide?project=<id>`, only once a version is published). New projects are created here too, then open on the Build page.
+- **`/build` and `/decide` show one project.** A top bar has the way back to the projects, the project's name, and a switch between editing and running the same project. The Build page's recent runs are this project's only. Without `?project=` the pages go back to `/`; an unknown or unpublished project gets a sentence and a link back instead of an empty page.
+- The API link moves to a line under the project list.
 
 ## Animation needs an event log (fixed 2026-10-10)
 

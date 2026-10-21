@@ -9,24 +9,11 @@
 <body>
 <main class="doors">
   <h1>outliers-sim</h1>
-  <p>Discrete event simulation. Pick what you're here to do.</p>
-  <div class="door-grid">
-    <a class="door" href="decide">
-      <span class="who">Decide</span>
-      <h2>Compare scenarios</h2>
-      <p>Try the decisions a published model offers (a faster machine, a bigger buffer) and see what they change, in plain numbers.</p>
-    </a>
-    <a class="door" href="build">
-      <span class="who">Build</span>
-      <h2>Build models</h2>
-      <p>Edit a project's model, run it, save versions, and publish them to the Decide page.</p>
-    </a>
-    <a class="door" href="api/v1/projects">
-      <span class="who">API</span>
-      <h2>Use the API</h2>
-      <p>Everything these pages do goes through the HTTP API: models, versions, runs and results as JSON. See docs/api.md.</p>
-    </a>
-  </div>
+  <p>Discrete event simulation. Pick a project to work on.</p>
+  <div class="door-grid" id="projects"></div>
+  <p class="hint api-hint">Everything these pages do goes through the <a href="api/v1/projects">HTTP API</a>: models, versions, runs and results as JSON. See docs/api.md.</p>
 </main>
+<script src="common.js"></script>
+<script src="index.js"></script>
 </body>
 </html>

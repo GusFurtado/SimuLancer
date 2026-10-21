@@ -116,6 +116,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/decide", get(page("decide.html")))
         .route("/common.css", get(asset("common.css")))
         .route("/common.js", get(asset("common.js")))
+        .route("/index.js", get(asset("index.js")))
         .route("/build.js", get(asset("build.js")))
         .route("/decide.js", get(asset("decide.js")))
         .route("/api/v1/health", get(health))
@@ -171,6 +172,11 @@ const WEB: &[(&str, &str, &str)] = &[
         "common.js",
         "text/javascript; charset=utf-8",
         include_str!("web/common.js"),
+    ),
+    (
+        "index.js",
+        "text/javascript; charset=utf-8",
+        include_str!("web/index.js"),
     ),
     (
         "build.js",
@@ -2078,7 +2084,8 @@ mod tests {
     async fn serves_the_three_pages() {
         let (app, root) = app("pages");
         for (uri, marker) in [
-            ("/", "href=\"build\""),
+            ("/", "<script src=\"index.js\">"),
+            ("/index.js", "build?project="),
             ("/build", "<script src=\"build.js\">"),
             ("/decide", "<script src=\"decide.js\">"),
             ("/common.js", "const API"),

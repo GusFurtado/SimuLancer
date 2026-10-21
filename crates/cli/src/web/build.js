@@ -23,7 +23,6 @@ const state = {
   connect: null,     // null, or { from: null | name } while connecting objects
   undo: [], redo: [],
   batching: false,
-  creating: null,    // the new-project form: { name, from }
   run: null,
   view: "report",
   message: null,     // { kind: "ok" | "error", text, list?, progress? }
@@ -136,22 +135,12 @@ const errorFor = path => state.errors.find(e => e.change && related(e.change, pa
 
 // --- sidebar -------------------------------------------------------------------------
 
-async function loadProjects() {
-  const { data } = await api("GET", "projects");
-  state.projects = data.projects || [];
-  document.getElementById("projects").replaceChildren(...state.projects.map(p => el("button", {
-    class: p.id === state.project ? "current" : null,
-    onclick: () => openProject(p.id),
-    title: p.description || "",
-  }, p.name, el("span", { class: "sub" }, p.published ? `published ${p.published.name}` : "not published yet"))));
-}
-
 async function loadRuns() {
   const { data } = await api("GET", "runs");
-  state.runs = data.runs || [];
+  state.runs = (data.runs || []).filter(r => r.project === state.project);
   const list = document.getElementById("runs");
   if (!state.runs.length) {
-    list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "No runs yet."));
+    list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "No runs of this project yet."));
     return;
   }
   list.replaceChildren(...state.runs.slice(0, 15).map(r => el("button", {
@@ -167,7 +156,8 @@ async function loadRuns() {
 
 async function openProject(id, keepMessage = false) {
   const { ok, data } = await api("GET", `projects/${encodeURIComponent(id)}`);
-  if (!ok) return;
+  if (!ok) return projectMissing(document.getElementById("main"), data.error || `The project ${id} can't be opened.`);
+  showProjectName(data.name || id, "Build");
   Object.assign(state, {
     project: id,
     detail: data,
@@ -185,14 +175,12 @@ async function openProject(id, keepMessage = false) {
     layoutChanged: false,
     connect: null,
     undo: [], redo: [],
-    creating: null,
     exposed: { decisions: data.decisions, results: data.results, decision_problems: data.decision_problems },
     offer: null,
   });
   if (!data.tree) {
     state.message = { kind: "error", text: "This model can't be read.", list: state.errors.map(e => e.message) };
   }
-  loadProjects();
   render();
 }
 
@@ -241,11 +229,7 @@ const scheduleCheck = debounce(async () => {
 
 function render() {
   const main = document.getElementById("main");
-  if (state.creating) return renderNewProject(main);
-  if (!state.project && !state.run) {
-    main.replaceChildren(el("p", { class: "empty" }, "Pick a project on the left."));
-    return;
-  }
+  if (!state.detail) return;
   const d = state.detail;
   const results = state.tab === "results" && state.run;
   main.replaceChildren(
@@ -255,9 +239,9 @@ function render() {
         el("p", {}, results ? `Run ${state.run.id}` : d?.description || "")),
     ),
     el("div", { class: "tabs" },
-      state.project ? el("button", { class: state.tab === "model" ? "current" : null, onclick: () => { state.tab = "model"; render(); } }, "Model") : null,
-      state.project ? el("button", { id: "tab-decisions", class: state.tab === "decisions" ? "current" : null, onclick: () => { state.tab = "decisions"; render(); } },
-        "Decisions", (state.exposed?.decision_problems || []).length ? el("span", { class: "badge bad", style: "margin-left: 6px" }, "!") : null) : null,
+      el("button", { class: state.tab === "model" ? "current" : null, onclick: () => { state.tab = "model"; render(); } }, "Model"),
+      el("button", { id: "tab-decisions", class: state.tab === "decisions" ? "current" : null, onclick: () => { state.tab = "decisions"; render(); } },
+        "Decisions", (state.exposed?.decision_problems || []).length ? el("span", { class: "badge bad", style: "margin-left: 6px" }, "!") : null),
       state.run ? el("button", { class: state.tab === "results" ? "current" : null, onclick: () => { state.tab = "results"; render(); } }, "Results") : null),
     el("div", { id: "content" }));
   if (results) {
@@ -1471,50 +1455,11 @@ function showRun(run) {
   loadRuns();
 }
 
-// --- new projects --------------------------------------------------------------------------------
-
-const idFor = name => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
-
-function renderNewProject(main) {
-  const c = state.creating;
-  main.replaceChildren(
-    el("div", { class: "head" }, el("div", { class: "titles" }, el("h2", {}, "New project"))),
-    el("div", { class: "card new-project" },
-      el("div", { class: "field" }, el("label", { for: "new-name" }, "Name"),
-        el("input", { id: "new-name", value: c.name, placeholder: "e.g. Packing line 2", oninput: e => { c.name = e.target.value; } })),
-      el("div", { class: "field" }, el("label", { for: "new-from" }, "Start from"),
-        el("select", { id: "new-from", onchange: e => { c.from = e.target.value; } },
-          el("option", { value: "", selected: c.from === "" ? true : null }, "A simple line (arrivals, one machine, exit)"),
-          ...state.projects.map(p => el("option", { value: p.id, selected: c.from === p.id ? true : null }, `A copy of ${p.name}`)))),
-      c.error ? el("div", { class: "status" }, c.error) : el("div"),
-      el("div", { class: "actions" },
-        el("button", { class: "primary", id: "create-project", onclick: createProject }, "Create"),
-        el("button", { onclick: () => { state.creating = null; render(); } }, "Cancel"))));
-  document.getElementById("new-name").focus();
-}
-
-async function createProject() {
-  const c = state.creating;
-  const name = c.name.trim();
-  const id = idFor(name);
-  if (!id) { c.error = "Give the project a name."; return render(); }
-  const body = { id, name };
-  if (c.from) body.from = c.from;
-  const { ok, data } = await api("POST", "projects", body);
-  if (!ok) { c.error = data.error || "The project couldn't be created."; return render(); }
-  state.creating = null;
-  await loadProjects();
-  openProject(id);
-}
-
-document.getElementById("new-project").addEventListener("click", () => {
-  stopAnimation();
-  state.creating = { name: "", from: "", error: null };
-  render();
-});
-
 // --- start -----------------------------------------------------------------------------------
 
-loadProjects();
-loadRuns();
+state.project = pageProject();
+if (state.project) {
+  openProject(state.project);
+  loadRuns();
+}
 setInterval(() => { if (state.runs.some(r => r.status === "queued" || r.status === "running")) loadRuns(); }, 2000);

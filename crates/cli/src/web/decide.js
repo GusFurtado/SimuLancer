@@ -4,7 +4,6 @@
 // the current setup in plain language.
 
 const state = {
-  projects: [],
   project: null,      // id
   detail: null,       // GET /projects/{id}?version=...
   scenarios: [],      // of this version
@@ -18,23 +17,15 @@ const state = {
 
 const enc = encodeURIComponent;
 
-async function loadProjects() {
-  const { data } = await api("GET", "projects");
-  state.projects = (data.projects || []).filter(p => p.published);
-  const list = document.getElementById("projects");
-  if (!state.projects.length) {
-    list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "Nothing published yet. Projects are published from the Build page."));
-    return;
-  }
-  list.replaceChildren(...state.projects.map(p => el("button", {
-    class: p.id === state.project ? "current" : null,
-    onclick: () => openProject(p.id),
-  }, p.name, el("span", { class: "sub" }, `${p.published.name} · ${new Date(p.published.date).toLocaleDateString()}`))));
-}
-
 async function openProject(id, version = "latest") {
   const { ok, data } = await api("GET", `projects/${enc(id)}?version=${enc(version)}`);
-  if (!ok) return;
+  if (!ok) {
+    const { ok: exists, data: working } = await api("GET", `projects/${enc(id)}`);
+    return projectMissing(document.getElementById("main"), exists
+      ? `${working.name} isn't published yet. Publish a version from the model editor to run its scenarios here.`
+      : data.error || `The project ${id} can't be opened.`);
+  }
+  showProjectName(data.name || id, "Decide");
   stopAnimation();
   Object.assign(state, { project: id, detail: data, editing: null, details: null, message: null, comparison: null });
   state.selected = new Set();
@@ -42,7 +33,6 @@ async function openProject(id, version = "latest") {
   // Pick up the latest comparison of this version, if there is one.
   const { data: list } = await api("GET", "comparisons");
   state.comparison = (list.comparisons || []).find(c => c.project === id && c.version === data.version) || null;
-  loadProjects();
   render();
   if (state.comparison && ["queued", "running"].includes(state.comparison.status)) followComparison(state.comparison);
 }
@@ -70,10 +60,7 @@ function valueText(decision, value) {
 function render() {
   const main = document.getElementById("main");
   const d = state.detail;
-  if (!d) {
-    main.replaceChildren(el("p", { class: "empty" }, "Pick a project on the left."));
-    return;
-  }
+  if (!d) return;
   const version = d.versions.find(v => v.name === d.version);
   const versionPicker = el("select", {
     id: "version", style: "width: auto",
@@ -379,4 +366,5 @@ async function runAsPublished() {
   render();
 }
 
-loadProjects();
+const opened = pageProject();
+if (opened) openProject(opened);
