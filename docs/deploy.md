@@ -2,7 +2,7 @@
 
 outliers-sim is one program. `outliers-sim serve` runs the web pages (`/` lists the projects; each opens on `/modeling` to edit its model or `/simulation` to compare scenarios) and their HTTP API, and runs simulations on the same machine. Users only need a browser.
 
-- **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results). The first start in an empty folder creates three example projects (an assembly line, a bank branch, a warehouse); every example can also be started from the New project form.
+- **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results). A new data folder starts with no projects; people start them blank or from the built-in templates.
 - **The only runtime dependency is git**, used to version projects. The Linux binary itself is statically linked. The Docker image includes git.
 
 ## Option 1: binary + systemd
@@ -34,7 +34,7 @@ docker run -d --name outliers-sim --restart unless-stopped \
 ```
 
 - **Image:** about 41 MB: the binary plus git on Alpine. It runs as an unprivileged user (uid 65532).
-- **Data:** `/data/projects` (an empty volume gets the example projects) and `/data/runs` live in the volume.
+- **Data:** `/data/projects` and `/data/runs` live in the volume.
 - **Host folder instead of a volume:** make it writable by uid 65532 (`sudo chown -R 65532:65532 /srv/outliers-sim`).
 - **Stopping:** `docker stop` shuts down cleanly in well under a second.
 - **Building it yourself:** `docker build -t outliers-sim .`

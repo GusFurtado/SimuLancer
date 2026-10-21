@@ -43,7 +43,7 @@ use crate::thread_count;
 pub struct ServeArgs {
     /// Data folder: `projects/` (one git repository per project), `scenarios/`
     /// (managers' scenarios) and `runs/`.
-    /// Created if missing; an empty one gets the example projects.
+    /// Created if missing. A new one starts with no projects.
     #[arg(long, default_value = "data")]
     data: PathBuf,
     /// Address to listen on. The default only accepts connections from this
@@ -62,16 +62,11 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
         .map_err(|e| format!("outliers-sim serve needs git to version projects: {e}"))?;
     let projects_dir = args.data.join("projects");
     let runs_dir = args.data.join("runs");
-    // Examples only for a new data folder: deleting them all must not bring them back.
-    let new_folder = !projects_dir.exists();
+    // A new data folder starts empty: projects start from templates or blank.
     for dir in [&projects_dir, &runs_dir] {
         fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     }
     let projects = Projects::new(projects_dir);
-    if new_folder {
-        let created = projects::seed_examples(&projects, false)?;
-        println!("created example projects: {}", created.join(", "));
-    }
     let scenarios = Scenarios::new(args.data.join("scenarios"));
     let state = AppState::start(projects, scenarios, runs_dir, thread_count(args.threads));
     let address = SocketAddr::new(args.host, args.port);
@@ -123,7 +118,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/simulation.js", get(asset("simulation.js")))
         .route("/api/v1/health", get(health))
         .route("/api/v1/projects", get(list_projects).post(create_project))
-        .route("/api/v1/examples", get(list_examples))
+        .route("/api/v1/templates", get(list_templates))
         .route(
             "/api/v1/projects/{id}",
             get(get_project)
@@ -788,43 +783,43 @@ struct CreateProject {
     id: String,
     name: Option<String>,
     /// An existing project to start from (its working copy). Without it
-    /// or `example`, the project starts as a simple line to build on.
+    /// or `template`, the project starts blank: a simple line to build on.
     from: Option<String>,
-    /// A built-in example to start from (`GET /api/v1/examples`); the
-    /// project starts with it saved and published as v1.
-    example: Option<String>,
+    /// A template to start from (`GET /api/v1/templates`); the project
+    /// starts with it saved and published as v1.
+    template: Option<String>,
 }
 
-/// The built-in examples a project can start from.
-async fn list_examples() -> Response {
-    let examples: Vec<Value> = projects::EXAMPLES
+/// The templates a project can start from.
+async fn list_templates() -> Response {
+    let templates: Vec<Value> = projects::TEMPLATES
         .iter()
-        .map(|e| {
-            let file = e.project_file();
-            json!({ "id": e.id, "name": file.name, "description": file.description })
+        .map(|t| {
+            let file = t.project_file();
+            json!({ "id": t.id, "name": file.name, "description": file.description, "tags": t.tags() })
         })
         .collect();
-    Json(json!({ "examples": examples })).into_response()
+    Json(json!({ "templates": templates })).into_response()
 }
 
 async fn create_project(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateProject>,
 ) -> Response {
-    if let Some(example) = &body.example {
+    if let Some(template) = &body.template {
         if body.from.is_some() {
             return error(
                 StatusCode::BAD_REQUEST,
-                "give `from` or `example`, not both",
+                "give `from` or `template`, not both",
             );
         }
-        if !projects::EXAMPLES.iter().any(|e| e.id == example) {
-            return error(StatusCode::NOT_FOUND, format!("no example `{example}`"));
+        if !projects::TEMPLATES.iter().any(|t| t.id == template) {
+            return error(StatusCode::NOT_FOUND, format!("no template `{template}`"));
         }
-        return match projects::create_from_example(
+        return match projects::create_from_template(
             &state.projects,
             &body.id,
-            example,
+            template,
             body.name.as_deref(),
         ) {
             Ok(()) => (StatusCode::CREATED, Json(json!({ "id": body.id }))).into_response(),
@@ -835,8 +830,8 @@ async fn create_project(
     let name = body.name.clone().unwrap_or_else(|| body.id.clone());
     let (files, message) = match &body.from {
         None => (
-            projects::template(&body.id, &name),
-            "Started from a simple line".to_string(),
+            projects::blank(&body.id, &name),
+            "Started blank".to_string(),
         ),
         Some(from) => {
             let source = match state.projects.project_file(from, None) {
@@ -1686,14 +1681,16 @@ mod tests {
     use http_body_util::BodyExt;
     use tower::ServiceExt;
 
-    /// A server over a fresh data folder with the example projects.
+    /// A server over a fresh data folder with a project from each template.
     fn app(name: &str) -> (Router, PathBuf) {
         let root =
             std::env::temp_dir().join(format!("outliers-sim-serve-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("projects")).unwrap();
         let projects = Projects::new(root.join("projects"));
-        projects::seed_examples(&projects, true).unwrap();
+        for t in projects::TEMPLATES {
+            projects::create_from_template(&projects, t.id, t.id, None).unwrap();
+        }
         let state = AppState::start(
             projects,
             Scenarios::new(root.join("scenarios")),
@@ -1747,39 +1744,49 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// Every shipped example loads, with a layout, and its decisions and
+    /// Every template loads, with a layout, and its decisions and
     /// results can be published; and projects can start from it.
     #[tokio::test]
-    async fn examples_are_valid_and_projects_start_from_them() {
-        let (app, root) = app("examples");
-        let (_, body) = call(&app, "GET", "/api/v1/examples", None).await;
-        let examples = body["examples"].as_array().unwrap();
-        assert_eq!(examples.len(), projects::EXAMPLES.len());
-        assert_eq!(examples[1]["name"], "Bank branch");
-        for example in projects::EXAMPLES {
+    async fn templates_are_valid_and_projects_start_from_them() {
+        let (app, root) = app("templates");
+        let (_, body) = call(&app, "GET", "/api/v1/templates", None).await;
+        let templates = body["templates"].as_array().unwrap();
+        assert_eq!(templates.len(), projects::TEMPLATES.len());
+        assert_eq!(templates[1]["name"], "Bank branch");
+        assert!(
+            templates[1]["tags"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("services"))
+        );
+        for template in projects::TEMPLATES {
             let (_, project) = call(
                 &app,
                 "GET",
-                &format!("/api/v1/projects/{}", example.id),
+                &format!("/api/v1/projects/{}", template.id),
                 None,
             )
             .await;
             assert_eq!(
                 project["valid"], true,
                 "{}: {}",
-                example.id, project["errors"]
+                template.id, project["errors"]
             );
-            assert!(project["layout"].is_object(), "{} has a layout", example.id);
-            assert_eq!(project["decision_problems"], json!([]), "{}", example.id);
+            assert!(
+                project["layout"].is_object(),
+                "{} has a layout",
+                template.id
+            );
+            assert_eq!(project["decision_problems"], json!([]), "{}", template.id);
             assert!(
                 !project["decisions"].as_array().unwrap().is_empty(),
                 "{}",
-                example.id
+                template.id
             );
             assert!(
                 !project["results"].as_array().unwrap().is_empty(),
                 "{}",
-                example.id
+                template.id
             );
         }
 
@@ -1787,7 +1794,7 @@ mod tests {
             &app,
             "POST",
             "/api/v1/projects",
-            Some(json!({ "id": "my-bank", "name": "My bank", "example": "bank-branch" })),
+            Some(json!({ "id": "my-bank", "name": "My bank", "template": "bank-branch" })),
         )
         .await;
         assert_eq!(status, StatusCode::CREATED);
@@ -1798,15 +1805,15 @@ mod tests {
         );
         for (body, expected) in [
             (
-                json!({ "id": "x", "example": "nope" }),
+                json!({ "id": "x", "template": "nope" }),
                 StatusCode::NOT_FOUND,
             ),
             (
-                json!({ "id": "x", "example": "warehouse", "from": "two-cells" }),
+                json!({ "id": "x", "template": "warehouse", "from": "two-cells" }),
                 StatusCode::BAD_REQUEST,
             ),
             (
-                json!({ "id": "my-bank", "example": "warehouse" }),
+                json!({ "id": "my-bank", "template": "warehouse" }),
                 StatusCode::CONFLICT,
             ),
         ] {

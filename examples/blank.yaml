@@ -1,5 +1,5 @@
-# A new project starts as this simple line: parts arrive, one machine works
-# on them, and they leave. Build on it in the builder.
+# A blank project starts as this simple line: parts arrive, one machine works
+# on them, and they leave. Build on it on the Modeling page.
 format: outliers-sim/0.1
 name: new-line
 

@@ -24,7 +24,7 @@ jobs:
       - name: Validate example models
         run: |
           for model in examples/*.yaml; do
-            case "$model" in *.layout.yaml) continue ;; esac
+            case "$model" in *.layout.yaml|*/templates.yaml) continue ;; esac
             cargo run -q -- validate "$model"
           done
 

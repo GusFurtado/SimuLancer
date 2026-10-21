@@ -462,8 +462,9 @@ pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     }
 }
 
-/// A new project's files: a simple line (source, server, sink) to build on.
-pub fn template(id: &str, name: &str) -> Vec<(String, String)> {
+/// A blank project's files: a simple line (source, server, sink) to build on.
+/// (An empty model isn't valid: a model needs a source and a sink.)
+pub fn blank(id: &str, name: &str) -> Vec<(String, String)> {
     let project = ProjectFile {
         format: PROJECT_FORMAT.into(),
         name: name.into(),
@@ -476,99 +477,111 @@ pub fn template(id: &str, name: &str) -> Vec<(String, String)> {
         (PROJECT_FILE.into(), project.to_text()),
         (
             "model.yaml".into(),
-            include_str!("../../../examples/projects/template.yaml")
+            include_str!("../../../examples/blank.yaml")
                 .replace("name: new-line", &format!("name: {id}")),
         ),
         (
             "model.layout.yaml".into(),
-            include_str!("../../../examples/projects/template.layout.yaml").into(),
+            include_str!("../../../examples/blank.layout.yaml")
+                .replace("model: blank.yaml", "model: model.yaml"),
         ),
     ]
 }
 
-/// A model shipped with the program, to start a project from.
-pub struct Example {
+/// A model shipped with the program that new projects can start from. The
+/// template itself never changes: a project gets a copy.
+pub struct Template {
     pub id: &'static str,
     pub project: &'static str,
     pub model: &'static str,
     pub layout: &'static str,
-    /// Created in a new data folder. The others are offered when starting a project.
-    pub featured: bool,
 }
 
-macro_rules! example {
-    ($id:literal, $featured:expr) => {
-        Example {
+macro_rules! template {
+    ($id:literal) => {
+        Template {
             id: $id,
             project: include_str!(concat!("../../../examples/projects/", $id, ".yaml")),
             model: include_str!(concat!("../../../examples/", $id, ".yaml")),
             layout: include_str!(concat!("../../../examples/", $id, ".layout.yaml")),
-            featured: $featured,
         }
     };
 }
 
-/// The examples, one per kind of system first.
-pub const EXAMPLES: &[Example] = &[
-    example!("assembly-line", true),
-    example!("bank-branch", true),
-    example!("warehouse", true),
-    example!("bike-assembly", false),
-    example!("conveyor-line", false),
-    example!("two-cells", false),
+/// The templates, in the gallery's order. Their tags are in `examples/templates.yaml`.
+pub const TEMPLATES: &[Template] = &[
+    template!("assembly-line"),
+    template!("bank-branch"),
+    template!("warehouse"),
+    template!("bike-assembly"),
+    template!("conveyor-line"),
+    template!("two-cells"),
 ];
 
-impl Example {
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Catalog {
+    templates: std::collections::BTreeMap<String, CatalogEntry>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CatalogEntry {
+    tags: Vec<String>,
+}
+
+static CATALOG: std::sync::LazyLock<Catalog> = std::sync::LazyLock::new(|| {
+    serde_saphyr::from_str(include_str!("../../../examples/templates.yaml"))
+        .expect("examples/templates.yaml is valid")
+});
+
+impl Template {
     /// Its `project.yaml`, as written.
     pub fn project_file(&self) -> ProjectFile {
-        parse_project_file(self.id, self.project).expect("the shipped examples are valid")
+        parse_project_file(self.id, self.project).expect("the shipped templates are valid")
+    }
+
+    /// What it's about and what it shows, for searching the gallery.
+    pub fn tags(&self) -> &'static [String] {
+        CATALOG.templates.get(self.id).map_or(&[], |e| &e.tags)
     }
 }
 
-/// Creates a project from an example, saved and published as v1 so its
-/// Simulation page works right away. `name` replaces the example's.
-pub fn create_from_example(
+/// Creates a project from a template, saved and published as v1 so its
+/// Simulation page works right away. `name` replaces the template's.
+pub fn create_from_template(
     projects: &Projects,
     id: &str,
-    example: &str,
+    template: &str,
     name: Option<&str>,
 ) -> Result<(), String> {
-    let example = EXAMPLES
+    let template = TEMPLATES
         .iter()
-        .find(|e| e.id == example)
-        .ok_or_else(|| format!("no example `{example}`"))?;
+        .find(|t| t.id == template)
+        .ok_or_else(|| format!("no template `{template}`"))?;
+    let mut file = template.project_file();
+    let message = format!("Started from the {} template", file.name);
     let project = match name {
         Some(name) => {
-            let mut file = example.project_file();
             file.name = name.to_string();
             file.to_text()
         }
-        None => example.project.to_string(),
+        None => template.project.to_string(),
     };
-    let layout = example
+    let layout = template
         .layout
-        .replace(&format!("model: {}.yaml", example.id), "model: model.yaml");
+        .replace(&format!("model: {}.yaml", template.id), "model: model.yaml");
     projects.create(
         id,
         &[
             (PROJECT_FILE.into(), project),
-            ("model.yaml".into(), example.model.into()),
+            ("model.yaml".into(), template.model.into()),
             ("model.layout.yaml".into(), layout),
         ],
-        "Example project",
+        &message,
     )?;
     projects.publish(id, "First version")?;
     Ok(())
-}
-
-/// Example projects for a new data folder: the featured examples, or all of them.
-pub fn seed_examples(projects: &Projects, all: bool) -> Result<Vec<String>, String> {
-    let mut created = Vec::new();
-    for example in EXAMPLES.iter().filter(|e| all || e.featured) {
-        create_from_example(projects, example.id, example.id, None)?;
-        created.push(example.id.to_string());
-    }
-    Ok(created)
 }
 
 #[cfg(test)]
@@ -586,10 +599,26 @@ mod tests {
     }
 
     #[test]
+    fn every_template_is_in_the_catalog_with_tags() {
+        let ids: Vec<&str> = TEMPLATES.iter().map(|t| t.id).collect();
+        let catalog: Vec<&str> = CATALOG.templates.keys().map(String::as_str).collect();
+        let mut sorted = ids.clone();
+        sorted.sort();
+        assert_eq!(
+            sorted, catalog,
+            "examples/templates.yaml and TEMPLATES list the same ids"
+        );
+        for t in TEMPLATES {
+            assert!(!t.tags().is_empty(), "{} has tags", t.id);
+            t.project_file();
+        }
+    }
+
+    #[test]
     fn rename_archive_restore_and_delete() {
         let p = temp("archive");
         for id in ["bike-assembly", "conveyor-line", "two-cells"] {
-            create_from_example(&p, id, id, None).unwrap();
+            create_from_template(&p, id, id, None).unwrap();
         }
 
         // Name and description are saved as a version; nothing changed, nothing saved.
@@ -621,7 +650,7 @@ mod tests {
         );
         assert!(p.dir("two-cells").is_err());
         assert!(
-            p.create("two-cells", &template("two-cells", "Again"), "x")
+            p.create("two-cells", &blank("two-cells", "Again"), "x")
                 .unwrap_err()
                 .contains("in the archive")
         );
@@ -643,14 +672,11 @@ mod tests {
     #[test]
     fn save_publish_and_read_versions() {
         let p = temp("versions");
+        create_from_template(&p, "two-cells", "two-cells", None).unwrap();
+        assert_eq!(p.ids(), ["two-cells"]);
         assert_eq!(
-            seed_examples(&p, false).unwrap(),
-            ["assembly-line", "bank-branch", "warehouse"]
-        );
-        create_from_example(&p, "two-cells", "two-cells", None).unwrap();
-        assert_eq!(
-            p.ids(),
-            ["assembly-line", "bank-branch", "two-cells", "warehouse"]
+            p.history("two-cells").unwrap()[0].message,
+            "Started from the Two cells template"
         );
         let v1 = p.latest_version("two-cells").unwrap().unwrap();
         assert_eq!(

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Browser test of the web pages: starts `outliers-sim serve` on a fresh data
-# folder (which gets the example projects) and a headless Firefox, then drives
+# folder (which starts with no projects) and a headless Firefox, then drives
 # an engineer's and a manager's session
 # (tests/ui/test_ui.py). Screenshots go to $SHOTS (default: a temp folder).
 #

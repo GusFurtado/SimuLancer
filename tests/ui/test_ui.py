@@ -2,8 +2,8 @@
 Firefox (Marionette).
 
 Usage: test_ui.py <server url> <marionette port> <screenshot dir>
-Run by tests/ui/run.sh, which starts the server (with the example projects)
-and Firefox.
+Run by tests/ui/run.sh, which starts the server (on a new, empty data
+folder) and Firefox.
 """
 import json, os, sys, time, urllib.request
 from marionette import Browser
@@ -18,26 +18,52 @@ def check(condition, what):
 def click_text(selector, text):
     b.js(f"[...document.querySelectorAll({selector!r})].find(x => x.textContent.trim().startsWith({text!r})).click()")
 
+def set_value(element_id, value, event="change"):
+    b.js(f"const i = document.getElementById({element_id!r}); i.value = {value!r}; i.dispatchEvent(new Event({event!r}))")
+
 def click_in_diagram(title):
     b.js(f"""[...document.querySelectorAll('.diagram rect, .diagram polyline.hit')]
              .find(r => r.querySelector('title')?.textContent.startsWith({title!r}))
              .dispatchEvent(new MouseEvent('click', {{bubbles: true}}))""")
 
-# A new data folder has the featured examples; the sessions below also use
-# two of the others, created from the examples like the New project form does.
-for example in ["two-cells", "bike-assembly"]:
+def from_template(template, id=None):
+    """Creates a project from a template through the API, like the New project form."""
     request = urllib.request.Request(url + "/api/v1/projects", method="POST",
-        data=json.dumps({"id": example, "example": example}).encode(), headers={"content-type": "application/json"})
+        data=json.dumps({"id": id or template, "template": template}).encode(), headers={"content-type": "application/json"})
     urllib.request.urlopen(request).close()
+
+def choices():
+    return b.js("return [...document.querySelectorAll('.choice b')].map(x => x.textContent)")
 
 b = Browser(port)
 b.call("WebDriver:SetWindowRect", {"width": 1400, "height": 950})
 
+# --- First run: no projects, so the page offers to start one. -------------------
+b.go(url + "/")
+b.wait("return document.querySelector('.creating h2')?.textContent === 'Start your first project'")
+check(choices()[0] == "Blank" and "Bank branch" in choices(), f"blank and templates: {choices()}")
+check(b.js("return document.querySelector('[data-from=\"\"]').classList.contains('selected')"), "blank by default")
+b.js("document.getElementById('template-search').focus()")
+set_value("template-search", "bank", "input")
+b.wait("return document.querySelectorAll('.choice').length === 2")
+check(choices() == ["Blank", "Bank branch"], f"search: {choices()}")
+check(b.js("return document.activeElement.id") == "template-search", "typing keeps the focus")
+set_value("template-search", "", "input")
+b.js("document.querySelector('[data-tag=manufacturing]').click()")
+b.js("document.querySelector('[data-tag=rework]').click()")
+b.wait("return document.querySelectorAll('.choice').length === 3")
+check(choices() == ["Blank", "Washing machine assembly line", "Two cells"], f"tags: {choices()}")
+b.screenshot(f"{out}/0-first-run.png")
+
+# The sessions below use two of the templates.
+for template in ["two-cells", "bike-assembly"]:
+    from_template(template)
+
 # --- The landing page: the projects, each opened to edit or to run. -------------
 b.go(url + "/")
-b.wait("return document.querySelectorAll('.door.project').length === 5")
+b.wait("return document.querySelectorAll('.door.project').length === 2")
 listed = b.js("return [...document.querySelectorAll('.door.project h2')].map(h => h.textContent)")
-check(listed[:3] == ["Washing machine assembly line", "Bank branch", "Bike assembly"], f"projects listed: {listed}")
+check(listed == ["Bike assembly", "Two cells"], f"projects listed: {listed}")
 check(b.js("return document.querySelector('[data-project=two-cells] a[href=\"simulation?project=two-cells\"]')") is not None, "two cells can be run")
 b.screenshot(f"{out}/1-landing.png")
 
@@ -47,9 +73,6 @@ def obj(name):
 
 def click_obj(name):
     b.js(f"{obj(name)}.dispatchEvent(new MouseEvent('click', {{bubbles: true}}))")
-
-def set_value(element_id, value, event="change"):
-    b.js(f"const i = document.getElementById({element_id!r}); i.value = {value!r}; i.dispatchEvent(new Event({event!r}))")
 
 def conveyor_length(name):
     click_in_diagram(f"conveyor {name}:")
@@ -187,7 +210,7 @@ click_text(".results-bar button", "Animation")
 b.wait("return document.getElementById('no-animation')?.textContent.includes('Record an animation')", 10)
 
 # --- Engineer: edit, save a version, publish, run. ----------------------------
-# The bike example: an assembly with its kit, a batch oven.
+# The bike assembly: an assembly with its kit, a batch oven.
 # Not published yet: the list says so, and the Simulation page explains it.
 b.go(url + "/")
 b.wait("return document.querySelector('[data-project=packing-line]') !== null")
@@ -365,19 +388,24 @@ b.js("document.querySelector('[data-archived=packing-line] [data-action=confirm-
 b.wait("return document.querySelector('.notice')?.textContent.includes('Packing line 2 was deleted') && document.getElementById('show-archived') === null")
 check(b.js(f"return {card('packing-line')}") is None, "deleted")
 
-# --- New project from an example: published right away, a free address. ---------
+# --- New project from a template: published right away, a free address. ---------
+from_template("bank-branch")
+b.go(url + "/")
+b.wait("return document.getElementById('new-project') !== null")
 b.js("document.getElementById('new-project').click()")
-b.wait("return document.getElementById('new-from') !== null")
-set_value("new-from", "example:bank-branch")
+b.wait("return document.querySelector('[data-from=\"template:bank-branch\"]') !== null")
+b.js("document.querySelector('[data-from=\"template:bank-branch\"]').click()")
 b.wait("return document.getElementById('new-name').placeholder === 'Bank branch'")
 b.js("document.getElementById('create-project').click()")
 b.wait("return location.search === '?project=bank-branch-2' && document.querySelector('.diagram svg') !== null", 10)
-check("published v1" in b.js("return document.querySelector('.versions').textContent"), "examples start published")
+check("published v1" in b.js("return document.querySelector('.versions').textContent"), "templates start published")
 b.go(url + "/simulation?project=bank-branch-2")
 b.wait("return document.querySelector('dl.decisions')?.textContent.includes('Tellers on duty')")
 b.screenshot(f"{out}/12-bank-simulation.png")
-for example in ["assembly-line", "bank-branch", "warehouse"]:
-    b.go(url + f"/modeling?project={example}")
+for template in ["assembly-line", "warehouse"]:
+    from_template(template)
+for template in ["assembly-line", "bank-branch", "warehouse"]:
+    b.go(url + f"/modeling?project={template}")
     b.wait("return document.querySelector('.diagram svg') !== null && document.querySelector('.versions') !== null", 10)
-    b.screenshot(f"{out}/13-{example}.png")
+    b.screenshot(f"{out}/13-{template}.png")
 print("web UI sessions (Modeling and Simulation): all checks passed")

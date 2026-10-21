@@ -13,7 +13,7 @@ outliers-sim serve --data ./data --host 0.0.0.0       # other machines (put it b
 
 ## Concepts
 
-- **Projects** live in `<data>/projects/<id>/`, each a git repository with `project.yaml` (name, description, model file), the model and its layout. A new data folder gets the featured example projects; `GET /api/v1/examples` lists every built-in example to start a project from.
+- **Projects** live in `<data>/projects/<id>/`, each a git repository with `project.yaml` (name, description, model file), the model and its layout. A new data folder has none. Projects start blank, from a template (`GET /api/v1/templates`), or as a copy of another project.
 - **Working copy** is the model as last saved on the Modeling page.
   - **Saving** applies changes and records a version (a git commit with a message).
   - **Publishing** marks the last saved version as `v1`, `v2`, … (a git tag).
@@ -103,22 +103,23 @@ For load balancers and monitoring.
 { "id": "line-2", "name": "Second line", "from": "conveyor-line" }
 ```
 
-Creates a project from another one's working copy, with a fresh history. With `"example": "bank-branch"` instead of `from`, it starts from a built-in example, saved and published as v1 so it can be simulated right away. With neither, the project starts as a simple line (arrivals, one machine, exit) with a layout.
+Creates a project from another one's working copy, with a fresh history. With `"template": "bank-branch"` instead of `from`, it starts from a template, saved and published as v1 so it can be simulated right away; the template itself never changes. With neither, the project starts blank: a simple line (arrivals, one machine, exit) with a layout.
 
 | Status | When |
 |---|---|
 | `201` | created |
 | `409` | the id is taken, by a project or an archived one |
-| `404` | no such example |
-| `400` | bad id (lowercase letters, digits, `-`, `_`), or both `from` and `example` |
+| `404` | no such template |
+| `400` | bad id (lowercase letters, digits, `-`, `_`), or both `from` and `template` |
 
-### `GET /api/v1/examples`
+### `GET /api/v1/templates`
 
 ```json
-{ "examples": [ { "id": "bank-branch", "name": "Bank branch", "description": "..." } ] }
+{ "templates": [ { "id": "bank-branch", "name": "Bank branch", "description": "...",
+                   "tags": ["services", "bank", "customers", "queues"] } ] }
 ```
 
-The built-in examples, to pass as `example` when creating a project.
+The built-in templates, to pass as `template` when creating a project. Tags say the kind of system first (manufacturing, services, logistics), then what the model shows; they come from `examples/templates.yaml`.
 
 ### `GET /api/v1/projects/{id}[?version=latest|vN]`
 
