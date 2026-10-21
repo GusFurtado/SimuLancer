@@ -12,6 +12,7 @@ pub struct ReplicationResult {
     pub conveyors: Vec<ConveyorResult>,
     pub sinks: Vec<SinkResult>,
     pub resources: Vec<ResourceResult>,
+    pub vehicles: Vec<FleetResult>,
     /// Counts over the whole run, warm-up included, for conservation checks.
     pub totals: Totals,
 }
@@ -69,6 +70,17 @@ pub struct ResourceResult {
     pub overtime: f64,
 }
 
+/// Shares are of the fleet's vehicle-time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FleetResult {
+    /// Not idle: travelling, loading or unloading.
+    pub busy: f64,
+    /// Travelling empty to a pickup (part of `busy`).
+    pub empty: f64,
+    /// Parts delivered.
+    pub trips: u64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConveyorResult {
     /// Time-weighted mean number of parts on the conveyor.
@@ -89,6 +101,8 @@ pub struct ConveyorResult {
     pub within_target: u64,
     /// Fraction of time it held nothing (for a stock: out of stock).
     pub empty: f64,
+    /// Transports: seconds from a part being ready to its vehicle arriving.
+    pub pickup_wait: Tally,
 }
 
 #[derive(Debug, Clone, PartialEq)]

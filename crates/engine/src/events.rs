@@ -54,6 +54,11 @@ pub(crate) enum Event {
         source: usize,
         parts: u32,
     },
+    /// A vehicle finishes its current step (a trip, loading or unloading).
+    Vehicle {
+        fleet: usize,
+        vehicle: usize,
+    },
     /// A restocking source with periodic review checks its stock.
     Review {
         source: usize,

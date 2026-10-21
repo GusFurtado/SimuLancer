@@ -382,9 +382,9 @@ function say(text) {
     .replace(/\bpart\b/g, one).replace(/\bPart\b/g, up(one));
 }
 
-const allNames = tree => ["sources", "servers", "sinks", "conveyors", "queues", "resources"].flatMap(s => Object.keys(tree[s] || {}));
-/** Conveyors and queues: the two kinds of connection. */
-const CONNECTIONS = ["conveyors", "queues"];
+const allNames = tree => ["sources", "servers", "sinks", "conveyors", "queues", "transports", "vehicles", "resources"].flatMap(s => Object.keys(tree[s] || {}));
+/** Conveyors, queues and transports: the kinds of connection. */
+const CONNECTIONS = ["conveyors", "queues", "transports"];
 const isConnection = section => CONNECTIONS.includes(section);
 const connectionSection = (tree, name) => CONNECTIONS.find(s => tree[s] && name in tree[s]);
 
@@ -443,6 +443,22 @@ function connectObjects(from, to, kind = "conveyors") {
   if (from === to || fromSection === "sinks" || toSection === "sources") {
     state.message = { kind: "error", text: "Conveyors and queues go from a source or server to a server or sink." };
     return renderEditor();
+  }
+  if (kind === "transports") {
+    const fleets = Object.keys(tree.vehicles || {});
+    if (!fleets.length) {
+      state.message = { kind: "error", text: "Add vehicles first (Model settings → Vehicles): they carry parts along transports." };
+      return renderEditor();
+    }
+    const name = freeName(tree, `t_${from}_${to}`.slice(0, 40));
+    const [a, b] = [state.layout.positions[from], state.layout.positions[to]];
+    const meters = Math.max(1, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1])));
+    return batch(() => {
+      setChange(`transports.${name}`, { from, to, by: fleets[0], distance: `${meters} m` });
+      state.layoutChanged = true;
+      state.selected = { section: "transports", name };
+      state.message = null;
+    });
   }
   if (kind === "queues") {
     const name = freeName(tree, `q_${from}_${to}`.slice(0, 40));
@@ -555,6 +571,7 @@ function rename(section, oldName, newName) {
           if (c.to === oldName) setChange(`${s}.${name}.to`, newName);
         }
       }
+      for (const [f, v] of Object.entries(tree.vehicles || {})) if (v.home === oldName) setChange(`vehicles.${f}.home`, newName);
       state.layout.positions[newName] = state.layout.positions[oldName];
       delete state.layout.positions[oldName];
       renameInDraft(`${section}.${oldName}`, `${section}.${newName}`, oldName, newName);
@@ -572,6 +589,7 @@ function diagramToolbar() {
     tool("+ Sink", () => addObject("sinks"), { id: "add-sink", title: say("Where parts leave") }),
     connectTool("conveyors", "Conveyor", "connect", say("Click an object, then the next one, to link them with a conveyor (parts travel along it)")),
     connectTool("queues", "Queue", "connect-queue", say("Click an object, then the next one, to link them with a queue (parts wait in line, no travel time)")),
+    connectTool("transports", "Transport", "connect-transport", say("Click an object, then the next one, to have vehicles carry parts between them")),
     tool("Delete", deleteSelected, { id: "delete", disabled: state.selected ? null : true, title: "Delete the selected object or conveyor" }),
     el("span", { style: "flex: 1" }),
     tool("↶ Undo", undo, { id: "undo", disabled: state.undo.length ? null : true, title: "Undo (Ctrl+Z)" }),
@@ -619,7 +637,9 @@ function diagram(tree) {
     const points = path.map(p => p.join(",")).join(" ");
     const cls = invalid(c.section, c.name) ? "invalid" : isSelected(c.section, c.name) ? "selected" : "";
     // Conveyors are belts; queues are dashed lines (no length, no travel).
-    root.append(svg("polyline", c.queue
+    root.append(svg("polyline", c.transport
+      ? { points, fill: "none", stroke: "var(--accent)", "stroke-width": 0.14, "stroke-dasharray": "0.08 0.3", "stroke-linecap": "round" }
+      : c.queue
       ? { points, fill: "none", stroke: "var(--muted)", "stroke-width": 0.18, "stroke-dasharray": "0.35 0.3", "stroke-linecap": "round" }
       : { points, fill: "none", stroke: "var(--belt)", "stroke-width": 0.5, "stroke-linecap": "round", "stroke-linejoin": "round" }));
     if (cls) root.append(svg("polyline", { points, fill: "none", class: cls, "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
@@ -627,7 +647,7 @@ function diagram(tree) {
     const angle = Math.atan2(last[1][1] - last[0][1], last[1][0] - last[0][0]) * 180 / Math.PI;
     root.append(svg("polygon", { points: "0,-0.35 0.5,0 0,0.35", fill: "var(--muted)", transform: `translate(${last[1][0]},${last[1][1]}) rotate(${angle})` }));
     root.append(svg("polyline", { points, fill: "none", stroke: "transparent", "stroke-width": 1.4, class: "hit", onclick: select(c.section, c.name), "data-connection": c.name },
-      svg("title", {}, `${c.queue ? "queue" : "conveyor"} ${c.name}: ${c.from} → ${c.to}`)));
+      svg("title", {}, `${c.transport ? "transport" : c.queue ? "queue" : "conveyor"} ${c.name}: ${c.from} → ${c.to}`)));
     // The label goes on the longest segment, away from the objects at the ends.
     let i = 0;
     for (let k = 1; k < path.length - 1; k++) if (Math.hypot(path[k + 1][0] - path[k][0], path[k + 1][1] - path[k][1]) > Math.hypot(path[i + 1][0] - path[i][0], path[i + 1][1] - path[i][1])) i = k;
@@ -639,8 +659,9 @@ function diagram(tree) {
     const label = Math.abs(dz) > Math.abs(next[0] - mid[0])
       ? { x: mid[0] + (dz > 0 ? -0.45 : 0.45), y: mid[1] + dz * 0.4, "text-anchor": dz > 0 ? "end" : "start", "dominant-baseline": "middle" }
       : { x: (mid[0] + next[0]) / 2, y: (mid[1] + next[1]) / 2 - 0.45, "text-anchor": "middle" };
-    const capacity = c.queue ? tree.queues[c.name].capacity : null;
-    const text = c.queue ? `${c.name} · ${capacity ?? "∞"}` : c.name;
+    const node = tree[c.section][c.name];
+    const text = c.transport ? `${c.name} · ${node.by}, ${node.distance}`
+      : c.queue ? `${c.name} · ${node.capacity ?? "∞"}` : c.name;
     root.append(svg("text", { ...label, "font-size": 0.6 }, text + (changedObj(c.section, c.name) ? " •" : "")));
   }
   const objects = [["sources", graph.sources], ["servers", graph.servers], ["sinks", graph.sinks]];
@@ -815,7 +836,7 @@ function panel(tree) {
   const node = tree[sel.section]?.[sel.name];
   if (!node) { state.selected = null; return experimentPanel(tree); }
   const p = `${sel.section}.${sel.name}`;
-  const kind = { sources: "Source", servers: "Server", conveyors: "Conveyor", queues: "Queue", sinks: "Sink" }[sel.section];
+  const kind = { sources: "Source", servers: "Server", conveyors: "Conveyor", queues: "Queue", transports: "Transport", sinks: "Sink" }[sel.section];
   const header = [el("h3", {}, sel.name), el("div", { class: "kind" }, kind),
     el("div", { class: "field" },
       el("label", { for: "f-name" }, "Name"),
@@ -850,6 +871,12 @@ function panel(tree) {
       return el("div", {}, header,
         el("p", { class: "hint", style: "margin: 0 0 12px" }, `${node.from} → ${node.to}`),
         field("Length", `${p}.length`), field("Speed", `${p}.speed`), field(say("Spacing between parts"), `${p}.spacing`));
+    case "transports":
+      return el("div", {}, header,
+        el("p", { class: "hint", style: "margin: 0 0 12px" }, say(`${node.from} → ${node.to}. A vehicle fetches each part, loads it, carries it and unloads it.`)),
+        field("Carried by", `${p}.by`, "select", Object.keys(tree.vehicles || {})),
+        field("Distance", `${p}.distance`),
+        capacityField(`${p}.capacity`));
     case "queues":
       return el("div", {}, header,
         el("p", { class: "hint", style: "margin: 0 0 12px" }, say(`${node.from} → ${node.to}. Parts wait here in line, first in first out, with no travel time.`)),
@@ -1060,6 +1087,7 @@ function experimentPanel(tree) {
     throughputPerField(tree),
     partTypesPanel(tree),
     resourcesPanel(tree),
+    vehiclesPanel(tree),
     schedulesPanel(tree));
 }
 
@@ -1168,6 +1196,48 @@ function resourcesPanel(tree) {
       field("Units available", `resources.${r}.capacity`, "int"),
       scheduleField(tree, `resources.${r}.schedule`, "Available"))),
     el("button", { id: "add-resource", onclick: () => setChange(`resources.${freeName(tree, "operator")}`, { capacity: 1 }) }, "+ Resource"));
+}
+
+function vehiclesPanel(tree) {
+  const fleets = Object.keys(tree.vehicles || {});
+  const homes = ["sources", "servers", "sinks"].flatMap(x => Object.keys(tree[x] || {}));
+  return el("div", { class: "group", id: "vehicles" },
+    el("div", { class: "group-title" }, "Vehicles"),
+    el("p", { class: "hint", style: "margin: 0 0 8px" }, say("Forklifts, carts or AGVs that carry parts along transports, one at a time.")),
+    ...fleets.map(f => el("div", { class: "resource" },
+      el("div", { class: "row", style: "align-items: center" },
+        el("input", { value: f, "aria-label": `vehicles ${f}`, "data-fleet": f, onchange: e => renameFleet(f, e.target.value.trim()) }),
+        el("button", { style: "flex: 0", onclick: () => deleteFleet(f), title: `Remove ${f}` }, "Remove")),
+      field("How many", `vehicles.${f}.count`, "int"),
+      field("Speed", `vehicles.${f}.speed`),
+      el("div", { class: "row" },
+        field("Load time", `vehicles.${f}.load_time`, "text", [], "0 s"),
+        field("Unload time", `vehicles.${f}.unload_time`, "text", [], "0 s")),
+      field("Start at", `vehicles.${f}.home`, "select", homes))),
+    el("button", { id: "add-vehicles", onclick: () => setChange(`vehicles.${freeName(tree, "forklifts")}`, { count: 1, speed: "1.5 m/s", home: homes[0] || "" }) }, "+ Vehicles"));
+}
+
+/** Removes vehicles and the transports they carry. */
+function deleteFleet(name) {
+  const tree = currentTree();
+  batch(() => {
+    for (const [t, tr] of Object.entries(tree.transports || {})) if (tr.by === name) deleteConveyor(currentTree(), t);
+    setChange(`vehicles.${name}`, null);
+  });
+}
+
+function renameFleet(oldName, newName) {
+  const tree = currentTree();
+  if (newName === oldName) return;
+  if (!isName(newName) || allNames(tree).includes(newName)) {
+    state.message = { kind: "error", text: `“${newName}” can't be used: names start with a letter, use letters, digits, _ and -, and must be unique.` };
+    return renderEditor();
+  }
+  batch(() => {
+    setChange(`vehicles.${oldName}`, null);
+    setChange(`vehicles.${newName}`, clone(tree.vehicles[oldName]));
+    for (const [t, tr] of Object.entries(tree.transports || {})) if (tr.by === oldName) setChange(`transports.${t}.by`, newName);
+  });
 }
 
 /** Removes a resource and every server's need for it. */

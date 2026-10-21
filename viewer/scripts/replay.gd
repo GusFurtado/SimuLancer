@@ -70,6 +70,7 @@ func reset() -> void:
 			"from": c["from"], "to": c["to"],
 			"length": float(c["length"]), "speed": float(c["speed"]),
 			"spacing": float(c["spacing"]), "capacity": int(c["capacity"]),
+			"transport": c.get("transport"),
 			"belt": [],
 		}
 	servers.clear()
@@ -146,7 +147,13 @@ func _apply(e: Dictionary) -> void:
 			var c: Dictionary = conveyors[e["conveyor"]]
 			if servers.has(c["from"]):
 				servers[c["from"]]["blocked"].erase(part)
-			c["belt"].append({"part": part, "pos": 0.0, "since": t})
+			# A transport's part waits for a vehicle: it's on the belt once delivered.
+			if c.get("transport") == null:
+				c["belt"].append({"part": part, "pos": 0.0, "since": t})
+		"delivered":
+			conveyors[e["conveyor"]]["belt"].append({"part": int(e["part"]), "pos": 0.0, "since": t})
+		"vehicle_trip":
+			pass  # vehicles aren't drawn in 3D yet
 		"reached_end":
 			pass  # positions already stop at the end
 		"started_process":

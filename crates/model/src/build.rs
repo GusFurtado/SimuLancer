@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Arrivals, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment, Failure,
-    FailureClock, InputRule, Node, OnFailure, OrderQuantity, PerType, Resource, Restock, Routing,
-    Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
+    FailureClock, Fleet, InputRule, Node, OnFailure, OrderQuantity, PerType, Resource, Restock,
+    Routing, Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -85,6 +85,11 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Kind::Conveyor,
         ),
         (raw.queues.0.iter().map(|(n, _)| n).collect(), Kind::Queue),
+        (
+            raw.transports.0.iter().map(|(n, _)| n).collect(),
+            Kind::Transport,
+        ),
+        (raw.vehicles.0.iter().map(|(n, _)| n).collect(), Kind::Fleet),
         (raw.sinks.0.iter().map(|(n, _)| n).collect(), Kind::Sink),
         (
             raw.resources.0.iter().map(|(n, _)| n).collect(),
@@ -98,7 +103,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 Some(existing) => b.error(
                     name,
                     format!(
-                        "`{}` is already used by a {}; names must be unique across sources, servers, conveyors, queues, sinks and resources",
+                        "`{}` is already used by a {}; names must be unique across sources, servers, conveyors, queues, transports, vehicles, sinks and resources",
                         name.value,
                         existing.kind.describe()
                     ),
@@ -224,12 +229,121 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         }
     }
 
+    // Vehicles: where they start, how fast, how long to load and unload.
+    let mut vehicles = Vec::new();
+    for (name, f) in &raw.vehicles.0 {
+        if f.count.value == 0 {
+            b.error(
+                &f.count,
+                format!("vehicles `{}` need a count of at least 1", name.value),
+            );
+        }
+        let speed = b.positive_quantity(&f.speed, Dimension::Speed, "speed");
+        let zero = Spanned {
+            value: Scalar::Text("0 s".into()),
+            referenced: name.referenced,
+            defined: name.defined,
+        };
+        let load_time = b.distribution(f.load_time.as_ref().unwrap_or(&zero));
+        let unload_time = b.distribution(f.unload_time.as_ref().unwrap_or(&zero));
+        let home = match objects.get(f.home.value.as_str()) {
+            Some(Object {
+                kind: Kind::Source,
+                index,
+            }) => Some(Node::Source(*index)),
+            Some(Object {
+                kind: Kind::Server,
+                index,
+            }) => Some(Node::Server(*index)),
+            Some(Object {
+                kind: Kind::Sink,
+                index,
+            }) => Some(Node::Sink(*index)),
+            _ => {
+                b.error(
+                    &f.home,
+                    format!(
+                        "`home` is a source, server or sink, and `{}` isn't one",
+                        f.home.value
+                    ),
+                );
+                None
+            }
+        };
+        if let (Some(speed), Some(load_time), Some(unload_time), Some(home)) =
+            (speed, load_time, unload_time, home)
+        {
+            vehicles.push(Fleet {
+                name: name.value.clone(),
+                count: f.count.value.max(1),
+                speed,
+                load_time,
+                unload_time,
+                home,
+            });
+        }
+    }
+
+    // Transports come after the queues in `Spec::conveyors`.
+    for (k, (name, t)) in raw.transports.0.iter().enumerate() {
+        let i = raw.conveyors.0.len() + raw.queues.0.len() + k;
+        let from = b.endpoint(&objects, "transport", name, &t.from, End::From);
+        let to = b.endpoint(&objects, "transport", name, &t.to, End::To);
+        endpoints_ok &= from.is_some() && to.is_some();
+        match from {
+            Some(Node::Source(s)) => source_outputs[s].push(i),
+            Some(Node::Server(s)) => server_outputs[s].push(i),
+            _ => {}
+        }
+        match to {
+            Some(Node::Server(s)) => server_inputs[s].push(i),
+            Some(Node::Sink(s)) => sink_inputs[s].push(i),
+            _ => {}
+        }
+        let fleet = raw
+            .vehicles
+            .0
+            .iter()
+            .position(|(n, _)| n.value == t.by.value);
+        if fleet.is_none() {
+            b.error(
+                &t.by,
+                format!(
+                    "`by` names vehicles, and there are no vehicles `{}`",
+                    t.by.value
+                ),
+            );
+        }
+        let distance = b.positive_quantity(&t.distance, Dimension::Length, "distance");
+        let capacity = match &t.capacity {
+            Some(c) if c.value == 0 => {
+                b.error(c, format!("transport `{}` needs room for at least one part; leave `capacity` out for no limit", name.value));
+                None
+            }
+            Some(c) => Some(Some(c.value)),
+            None => Some(None),
+        };
+        if let (Some(from), Some(to), Some(fleet), Some(distance), Some(capacity)) =
+            (from, to, fleet, distance, capacity)
+        {
+            conveyors.push(Conveyor::transport(
+                name.value.clone(),
+                from,
+                to,
+                capacity,
+                fleet,
+                distance,
+            ));
+        }
+    }
+
     let conveyor_names: Vec<&str> = raw
         .conveyors
         .0
         .iter()
         .map(|(n, _)| n.value.as_str())
         .chain(raw.queues.0.iter().map(|(n, _)| n.value.as_str()))
+        .chain(raw.transports.0.iter().map(|(n, _)| n.value.as_str()))
         .collect();
 
     let mut sources = Vec::new();
@@ -613,6 +727,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         sinks,
         resources,
         schedules,
+        vehicles,
         experiment: experiment.expect("no diagnostics means the experiment is valid"),
     };
     check_reachability(&spec, &raw)?;
@@ -942,6 +1057,8 @@ enum Kind {
     Server,
     Conveyor,
     Queue,
+    Transport,
+    Fleet,
     Sink,
     Resource,
 }
@@ -953,6 +1070,8 @@ impl Kind {
             Kind::Server => "server",
             Kind::Conveyor => "conveyor",
             Kind::Queue => "queue",
+            Kind::Transport => "transport",
+            Kind::Fleet => "fleet of vehicles",
             Kind::Sink => "sink",
             Kind::Resource => "resource",
         }
@@ -1731,6 +1850,7 @@ impl Builder {
                     Kind::Source => "nothing can go into a source",
                     Kind::Sink => "nothing comes out of a sink",
                     Kind::Resource => "it's a resource, which servers use, not a place parts go",
+                    Kind::Fleet => "it's vehicles, which carry parts along transports",
                     _ => "conveyors and queues connect objects, not other conveyors or queues",
                 };
                 self.error(

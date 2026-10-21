@@ -18,6 +18,8 @@ pub struct Spec {
     pub resources: Vec<Resource>,
     /// Weekly working times for sources, servers and resources.
     pub schedules: Vec<Schedule>,
+    /// Vehicles that carry parts along transports.
+    pub vehicles: Vec<Fleet>,
     pub experiment: Experiment,
 }
 
@@ -456,10 +458,29 @@ pub struct Conveyor {
     pub starts_with: Option<(usize, u32)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ConnectionKind {
     Conveyor,
     Queue,
+    /// Carried by a vehicle of `fleet` (an index into [`Spec::vehicles`]),
+    /// `distance` meters.
+    Transport {
+        fleet: usize,
+        distance: f64,
+    },
+}
+
+/// Vehicles that carry parts along transports, one at a time.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fleet {
+    pub name: String,
+    pub count: u32,
+    /// Meters per second, loaded or empty.
+    pub speed: f64,
+    pub load_time: Distribution,
+    pub unload_time: Distribution,
+    /// Where the vehicles are when the run starts.
+    pub home: Node,
 }
 
 impl Conveyor {
@@ -485,8 +506,37 @@ impl Conveyor {
         }
     }
 
+    /// A transport between two objects, carried by a vehicle of `fleet`.
+    pub fn transport(
+        name: String,
+        from: Node,
+        to: Node,
+        capacity: Option<u32>,
+        fleet: usize,
+        distance: f64,
+    ) -> Conveyor {
+        Conveyor {
+            kind: ConnectionKind::Transport { fleet, distance },
+            ..Conveyor::queue(name, from, to, capacity, None)
+        }
+    }
+
     pub fn is_queue(&self) -> bool {
         self.kind == ConnectionKind::Queue
+    }
+
+    /// The fleet and distance of a transport.
+    pub fn transport_by(&self) -> Option<(usize, f64)> {
+        match self.kind {
+            ConnectionKind::Transport { fleet, distance } => Some((fleet, distance)),
+            _ => None,
+        }
+    }
+
+    /// A conveyor: it has a length, and is drawn along a path in the layout.
+    /// Queues and transports are drawn straight between their objects.
+    pub fn is_belt(&self) -> bool {
+        self.kind == ConnectionKind::Conveyor
     }
 }
 

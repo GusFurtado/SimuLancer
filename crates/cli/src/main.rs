@@ -498,10 +498,40 @@ fn describe(path: &Path, model: &Model) -> String {
             out += &format!("  {:<12} {:<20} {holds}{target}\n", c.name, route);
         }
     }
-    if spec.conveyors.iter().any(|c| !c.is_queue()) {
+    let transports: Vec<_> = spec
+        .conveyors
+        .iter()
+        .filter(|c| c.transport_by().is_some())
+        .collect();
+    if !transports.is_empty() {
+        out += "\ntransports\n";
+        for c in transports {
+            let route = format!("{} -> {}", node_name(spec, c.from), node_name(spec, c.to));
+            let (fleet, distance) = c.transport_by().expect("a transport");
+            out += &format!(
+                "  {:<12} {:<20} by {}, {distance} m\n",
+                c.name, route, spec.vehicles[fleet].name
+            );
+        }
+    }
+    if !spec.vehicles.is_empty() {
+        out += "\nvehicles\n";
+        for f in &spec.vehicles {
+            out += &format!(
+                "  {:<12} {} at {} m/s, load {}, unload {}, start at {}\n",
+                f.name,
+                f.count,
+                f.speed,
+                dist(&f.load_time),
+                dist(&f.unload_time),
+                node_name(spec, f.home)
+            );
+        }
+    }
+    if spec.conveyors.iter().any(|c| c.is_belt()) {
         out += "\nconveyors\n";
     }
-    for c in spec.conveyors.iter().filter(|c| !c.is_queue()) {
+    for c in spec.conveyors.iter().filter(|c| c.is_belt()) {
         let route = format!("{} -> {}", node_name(spec, c.from), node_name(spec, c.to));
         out += &format!(
             "  {:<12} {:<20} {} m at {} m/s, holds {} {}, transit {}\n",

@@ -28,6 +28,10 @@ pub struct RawModel {
     #[serde(default)]
     pub queues: OrderedMap<RawQueue>,
     #[serde(default)]
+    pub transports: OrderedMap<RawTransport>,
+    #[serde(default)]
+    pub vehicles: OrderedMap<RawFleet>,
+    #[serde(default)]
     pub sinks: OrderedMap<RawSink>,
     #[serde(default)]
     pub resources: OrderedMap<RawResource>,
@@ -342,6 +346,31 @@ pub struct RawQueue {
     pub target_wait: Option<Spanned<Scalar>>,
     /// Parts in it when the run starts: `150`, or `{ pallet: 150 }`.
     pub starts_with: Option<Spanned<RawStartsWith>>,
+}
+
+/// Parts carried from one object to another by a vehicle.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawTransport {
+    pub from: Spanned<String>,
+    pub to: Spanned<String>,
+    /// The fleet that carries them.
+    pub by: Spanned<String>,
+    pub distance: Spanned<Scalar>,
+    /// Parts waiting, carried and delivered at once; unlimited when absent.
+    pub capacity: Option<Spanned<u32>>,
+}
+
+/// Vehicles: forklifts, carts, AGVs.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawFleet {
+    pub count: Spanned<u32>,
+    pub speed: Spanned<Scalar>,
+    pub load_time: Option<Spanned<Scalar>>,
+    pub unload_time: Option<Spanned<Scalar>>,
+    /// Where they are when the run starts.
+    pub home: Spanned<String>,
 }
 
 /// `150`, or `{ pallet: 150 }` when the part type has to be named.

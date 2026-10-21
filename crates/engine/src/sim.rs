@@ -58,8 +58,8 @@ use std::collections::VecDeque;
 use crate::SimTime;
 use crate::events::{Event, EventList};
 use crate::results::{
-    ConveyorResult, Histogram, ReplicationResult, ResourceResult, ServerResult, SinkResult,
-    SourceResult, Tally, TimeAverage, Totals, TypeResult,
+    ConveyorResult, FleetResult, Histogram, ReplicationResult, ResourceResult, ServerResult,
+    SinkResult, SourceResult, Tally, TimeAverage, Totals, TypeResult,
 };
 use crate::rng::Rng;
 use crate::spec::{
@@ -235,6 +235,11 @@ struct ConveyorState {
     within_target: u64,
     /// Parts that left over the whole run (not reset after the warm-up).
     departed_total: u64,
+    /// Transports: parts waiting for a vehicle, with when they got on and
+    /// whether a vehicle is on its way for them; and parts being carried.
+    pickup: VecDeque<(Part, SimTime, bool)>,
+    in_transit: usize,
+    pickup_wait: Tally,
     parts: TimeAverage,
     full: TimeAverage,
     empty: TimeAverage,
@@ -255,8 +260,13 @@ impl ConveyorState {
         })
     }
 
+    /// Parts on it: on the belt, and for a transport, waiting or on their way.
+    fn occupancy(&self) -> usize {
+        self.belt.len() + self.pickup.len() + self.in_transit
+    }
+
     fn can_enter(&self, c: &Conveyor, now: SimTime) -> bool {
-        if self.belt.len() >= c.capacity as usize {
+        if self.occupancy() >= c.capacity as usize {
             return false;
         }
         match self.positions(c, now).last() {
@@ -329,6 +339,34 @@ pub fn simulate<O: Observer>(spec: &Spec, replication: u32, observer: &mut O) ->
     sim.result()
 }
 
+/// What a vehicle is doing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Phase {
+    Idle,
+    /// Travelling empty to pick a part up.
+    ToPickup,
+    Loading,
+    Carrying,
+    Unloading,
+}
+
+struct VehicleState {
+    /// Where it is, or where it's going.
+    at: Node,
+    phase: Phase,
+    /// The transport and the part it's fetching or carrying, with when the
+    /// part got on the transport.
+    job: Option<(usize, Part, SimTime)>,
+}
+
+struct FleetState {
+    vehicles: Vec<VehicleState>,
+    handling_rng: Rng,
+    trips: u64,
+    busy: TimeAverage,
+    empty: TimeAverage,
+}
+
 struct ResourceState {
     in_use: u32,
     off_shift: bool,
@@ -357,6 +395,7 @@ struct Sim<'a, O: Observer> {
     restockers: Vec<Vec<usize>>,
     /// Some server or resource is finishing work after its shift.
     closing: bool,
+    fleets: Vec<FleetState>,
     sink_exited: Vec<u64>,
     sink_times: Vec<Tally>,
     /// Per sink, per part type: parts that exited and their times in system.
@@ -461,6 +500,9 @@ impl<'a, O: Observer> Sim<'a, O> {
                 times: c.is_queue().then(Histogram::default),
                 within_target: 0,
                 departed_total: 0,
+                pickup: VecDeque::new(),
+                in_transit: 0,
+                pickup_wait: Tally::default(),
                 parts: TimeAverage::default(),
                 full: TimeAverage::default(),
                 empty: TimeAverage::default(),
@@ -492,6 +534,23 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .collect(),
             resource_queue: VecDeque::new(),
             closing: false,
+            fleets: spec
+                .vehicles
+                .iter()
+                .map(|f| FleetState {
+                    vehicles: (0..f.count)
+                        .map(|_| VehicleState {
+                            at: f.home,
+                            phase: Phase::Idle,
+                            job: None,
+                        })
+                        .collect(),
+                    handling_rng: stream(format!("vehicles/{}/handling", f.name)),
+                    trips: 0,
+                    busy: TimeAverage::default(),
+                    empty: TimeAverage::default(),
+                })
+                .collect(),
             restockers: (0..spec.conveyors.len())
                 .map(|c| {
                     (0..spec.sources.len())
@@ -608,6 +667,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 Event::Repair { server, mode } => self.repair(server, mode),
                 Event::Pull { server } => self.pull(server),
                 Event::Delivery { source, parts } => self.delivery(source, parts),
+                Event::Vehicle { fleet, vehicle } => self.vehicle_step(fleet, vehicle),
                 Event::Review { source } => {
                     self.review(source);
                     if let Arrivals::Restock(Restock {
@@ -1118,6 +1178,20 @@ impl<'a, O: Observer> Sim<'a, O> {
         if !state.can_enter(c, self.now) {
             return false;
         }
+        if let Some((fleet, _)) = c.transport_by() {
+            // Waits where it is for a vehicle.
+            state.pickup.push_back((part, self.now, false));
+            state.entered += 1;
+            self.observer.record(
+                self.now,
+                TraceEvent::EnteredConveyor {
+                    part: part.id,
+                    conveyor,
+                },
+            );
+            self.dispatch(fleet);
+            return true;
+        }
         state.belt.push_back(OnBelt {
             part,
             pos: 0.0,
@@ -1222,7 +1296,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             self.notify_upstream(conveyor);
             return;
         }
-        if state.belt.len() >= c.capacity as usize {
+        if state.occupancy() >= c.capacity as usize {
             return; // the next departure calls back
         }
         // Room depends on the last part moving one spacing from the entrance.
@@ -1250,6 +1324,160 @@ impl<'a, O: Observer> Sim<'a, O> {
             Node::Source(source) => self.release_held(source),
             Node::Server(server) => self.release_blocked(server),
             Node::Sink(_) => unreachable!("validated: conveyors don't start at sinks"),
+        }
+    }
+
+    // --- Vehicles ---
+
+    /// How far apart two objects are for a vehicle: along a transport
+    /// between them (either way), or `fallback` if there's none.
+    fn distance(&self, a: Node, b: Node, fallback: f64) -> f64 {
+        if a == b {
+            return 0.0;
+        }
+        self.spec
+            .conveyors
+            .iter()
+            .find_map(|c| {
+                let (_, d) = c.transport_by()?;
+                ((c.from == a && c.to == b) || (c.from == b && c.to == a)).then_some(d)
+            })
+            .unwrap_or(fallback)
+    }
+
+    /// Sends idle vehicles to the parts that have waited longest, each to
+    /// the nearest idle vehicle.
+    fn dispatch(&mut self, fleet: usize) {
+        let spec = self.spec;
+        // Parts no vehicle is coming for yet, oldest first.
+        let mut pending: Vec<(SimTime, usize, usize)> = Vec::new();
+        for (i, c) in spec.conveyors.iter().enumerate() {
+            if c.transport_by().is_some_and(|(f, _)| f == fleet) {
+                for (k, &(_, since, assigned)) in self.conveyors[i].pickup.iter().enumerate() {
+                    if !assigned {
+                        pending.push((since, i, k));
+                    }
+                }
+            }
+        }
+        pending.sort_by_key(|&(since, i, k)| (since, i, k));
+        for (_, conveyor, k) in pending {
+            let c = &spec.conveyors[conveyor];
+            let (_, distance) = c.transport_by().expect("a transport");
+            let nearest = self.fleets[fleet]
+                .vehicles
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| v.phase == Phase::Idle)
+                .map(|(i, v)| (i, self.distance(v.at, c.from, distance)))
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            let Some((vehicle, empty)) = nearest else {
+                return; // all busy: the next one free comes back here
+            };
+            let (part, since, _) = self.conveyors[conveyor].pickup[k];
+            self.conveyors[conveyor].pickup[k].2 = true;
+            let speed = spec.vehicles[fleet].speed;
+            let until = self.now + duration(empty / speed);
+            let v = &mut self.fleets[fleet].vehicles[vehicle];
+            let from = v.at;
+            v.phase = Phase::ToPickup;
+            v.at = c.from;
+            v.job = Some((conveyor, part, since));
+            self.observer.record(
+                self.now,
+                TraceEvent::VehicleTrip {
+                    fleet,
+                    vehicle,
+                    from,
+                    to: c.from,
+                    until,
+                    part: None,
+                },
+            );
+            self.events
+                .schedule(until, Event::Vehicle { fleet, vehicle });
+        }
+    }
+
+    /// A vehicle finished a step: arrived to pick up, loaded, arrived to
+    /// deliver, or unloaded.
+    fn vehicle_step(&mut self, fleet: usize, vehicle: usize) {
+        let spec = self.spec;
+        let f = &spec.vehicles[fleet];
+        let v = &self.fleets[fleet].vehicles[vehicle];
+        let (conveyor, part, since) = v.job.expect("a busy vehicle has a job");
+        let c = &spec.conveyors[conveyor];
+        let (_, distance) = c.transport_by().expect("a transport");
+        match v.phase {
+            Phase::ToPickup => {
+                // The part leaves the pickup for the vehicle.
+                let state = &mut self.conveyors[conveyor];
+                let k = state
+                    .pickup
+                    .iter()
+                    .position(|(p, _, _)| p.id == part.id)
+                    .expect("the part waits for this vehicle");
+                state.pickup.remove(k);
+                state.in_transit += 1;
+                state.pickup_wait.add((self.now - since).as_secs_f64());
+                let load = duration(self.fleets[fleet].handling_rng.sample(&f.load_time));
+                self.fleets[fleet].vehicles[vehicle].phase = Phase::Loading;
+                self.events
+                    .schedule(self.now + load, Event::Vehicle { fleet, vehicle });
+            }
+            Phase::Loading => {
+                let until = self.now + duration(distance / f.speed);
+                let v = &mut self.fleets[fleet].vehicles[vehicle];
+                v.phase = Phase::Carrying;
+                v.at = c.to;
+                self.observer.record(
+                    self.now,
+                    TraceEvent::VehicleTrip {
+                        fleet,
+                        vehicle,
+                        from: c.from,
+                        to: c.to,
+                        until,
+                        part: Some(part.id),
+                    },
+                );
+                self.events
+                    .schedule(until, Event::Vehicle { fleet, vehicle });
+            }
+            Phase::Carrying => {
+                let unload = duration(self.fleets[fleet].handling_rng.sample(&f.unload_time));
+                self.fleets[fleet].vehicles[vehicle].phase = Phase::Unloading;
+                self.events
+                    .schedule(self.now + unload, Event::Vehicle { fleet, vehicle });
+            }
+            Phase::Unloading => {
+                // Delivered: at the transport's end, for the next object.
+                let state = &mut self.conveyors[conveyor];
+                state.in_transit -= 1;
+                state.belt.push_back(OnBelt {
+                    part,
+                    pos: 0.0,
+                    since: self.now,
+                    entered: since,
+                });
+                self.observer.record(
+                    self.now,
+                    TraceEvent::Delivered {
+                        part: part.id,
+                        conveyor,
+                    },
+                );
+                if self.conveyors[conveyor].belt.len() == 1 {
+                    self.schedule_reach_end(conveyor);
+                }
+                let fs = &mut self.fleets[fleet];
+                fs.trips += 1;
+                let v = &mut fs.vehicles[vehicle];
+                v.phase = Phase::Idle;
+                v.job = None;
+                self.dispatch(fleet);
+            }
+            Phase::Idle => unreachable!("idle vehicles have no pending step"),
         }
     }
 
@@ -1826,13 +2054,20 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.waiting.set(now, u64::from(s.waiting_for_resources));
             s.overtime.set(now, u64::from(s.closing));
         }
+        for f in &mut self.fleets {
+            let count =
+                |phase: Phase| f.vehicles.iter().filter(|v| v.phase == phase).count() as u64;
+            f.busy
+                .set(now, f.vehicles.len() as u64 - count(Phase::Idle));
+            f.empty.set(now, count(Phase::ToPickup));
+        }
         for r in &mut self.resources {
             r.busy.set(now, u64::from(r.in_use));
             r.off.set(now, u64::from(r.off_shift));
             r.overtime.set(now, u64::from(r.closing));
         }
         for (c, spec) in self.conveyors.iter_mut().zip(&self.spec.conveyors) {
-            let n = c.belt.len() as u64;
+            let n = c.occupancy() as u64;
             c.parts.set(now, n);
             c.empty.set(now, u64::from(n == 0));
             c.full.set(now, u64::from(n >= u64::from(spec.capacity)));
@@ -1861,6 +2096,11 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.off.reset(now);
             s.overtime.reset(now);
         }
+        for f in &mut self.fleets {
+            f.trips = 0;
+            f.busy.reset(now);
+            f.empty.reset(now);
+        }
         for r in &mut self.resources {
             r.busy.reset(now);
             r.off.reset(now);
@@ -1876,6 +2116,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 *times = Histogram::default();
             }
             c.within_target = 0;
+            c.pickup_wait = Tally::default();
             c.parts.reset(now);
             c.full.reset(now);
             c.empty.reset(now);
@@ -1904,7 +2145,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .flat_map(|s| &s.slots)
                 .filter(|s| !matches!(s, Slot::Idle))
                 .count()
-            + self.conveyors.iter().map(|c| c.belt.len()).sum::<usize>();
+            + self.conveyors.iter().map(|c| c.occupancy()).sum::<usize>();
         ReplicationResult {
             replication: self.replication,
             measured: self.spec.experiment.run_length.as_secs_f64(),
@@ -1961,6 +2202,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     times: c.times.clone(),
                     within_target: c.within_target,
                     empty: c.empty.mean(),
+                    pickup_wait: c.pickup_wait.clone(),
                 })
                 .collect(),
             resources: self
@@ -1989,6 +2231,18 @@ impl<'a, O: Observer> Sim<'a, O> {
                             time_in_system: times.clone(),
                         })
                         .collect(),
+                })
+                .collect(),
+            vehicles: self
+                .fleets
+                .iter()
+                .map(|f| {
+                    let n = f.vehicles.len().max(1) as f64;
+                    FleetResult {
+                        busy: f.busy.mean() / n,
+                        empty: f.empty.mean() / n,
+                        trips: f.trips,
+                    }
                 })
                 .collect(),
             totals: Totals {

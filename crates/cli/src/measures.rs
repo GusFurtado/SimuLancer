@@ -261,11 +261,40 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
                 rate(r.conveyors[i].entered, r)
             });
         }
+        for (i, c) in spec.conveyors.iter().enumerate() {
+            if c.transport_by().is_none() {
+                continue;
+            }
+            add("transport", &c.name, "mean parts", Unit::Parts, &|r| {
+                r.conveyors[i].mean_parts
+            });
+            add(
+                "transport",
+                &c.name,
+                "waiting for pickup",
+                Unit::Seconds,
+                &|r| r.conveyors[i].pickup_wait.mean(),
+            );
+            add("transport", &c.name, "throughput", per_unit, &|r| {
+                rate(r.conveyors[i].entered, r)
+            });
+        }
+        for (i, f) in spec.vehicles.iter().enumerate() {
+            add("vehicles", &f.name, "busy", Unit::Fraction, &|r| {
+                r.vehicles[i].busy
+            });
+            add("vehicles", &f.name, "empty travel", Unit::Fraction, &|r| {
+                r.vehicles[i].empty
+            });
+            add("vehicles", &f.name, "trips", Unit::Count, &|r| {
+                r.vehicles[i].trips as f64
+            });
+        }
         for (i, c) in spec
             .conveyors
             .iter()
             .enumerate()
-            .filter(|(_, c)| !c.is_queue())
+            .filter(|(_, c)| c.is_belt())
         {
             add("conveyor", &c.name, "mean parts", Unit::Parts, &|r| {
                 r.conveyors[i].mean_parts
