@@ -319,6 +319,16 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Vehicles (implemented 2026-10-21, issue #31)
+
+- **Vehicles carry parts along transports**: `vehicles:` (count, speed, load and unload times, a home object) and `transports:` (from, to, by, distance, optional capacity). A transport is a connection like a conveyor or queue, so routing, merging and blocking work unchanged; the receiving object takes delivered parts like from a queue.
+- **Dispatching:** the part that has waited longest gets the nearest idle vehicle. A vehicle that delivers stays where it is (no return home yet).
+- **Distances are in the model, not taken from the layout**: the engine never reads layouts, and a run mustn't change because someone moved a box on the drawing. An empty trip uses the distance of a transport between the two places, or the requested transport's own distance. A path network (aisles, one-way lanes, congestion) can come later.
+- **Each vehicle is a small state machine** (idle, to pickup, loading, carrying, unloading), stepped by one event type. Results: transport *waiting for pickup*; fleet *busy*, *empty travel*, *trips*. The event log has `vehicle_trip` and `delivered`; the web animation draws vehicles moving with their load (the Godot viewer handles the events but doesn't draw vehicles yet).
+- **Not yet:** vehicle schedules, failures and charging; returning home when idle.
+- Tested with exact answers: one vehicle, a part every 10 minutes, 60 m at 1 m/s and 10 s to load and unload: every part after the first takes exactly 140 s and the vehicle is busy 140/600 of the time, 60/600 empty.
+- The warehouse's forklifts are a fleet carrying pallets 60 m from the dock to the racks, instead of a resource held for a fixed "trip time".
+
 ## Changeovers (implemented 2026-10-21, issue #32)
 
 - **`changeover:` on a server**, one time for any change of part type, or `from->to: time` per change (others take none). Each slot remembers the type it last started, so parallel stations change over independently; a batch changes over once.
@@ -431,7 +441,7 @@ What building them showed is missing, in the order I'd add it:
 | **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. Done: see Stock and restocking. | #28 |
 | **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. Done: see Which part's clock an assembly keeps. | #29 |
 | **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. Done (except one-day replications): see Finishing the work in hand. | #30 |
-| **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. | #31 |
+| **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. Done: see Vehicles. | #31 |
 | **Changeovers between models, paced lines** | Assembly line | Not modeled. Changeovers done: see Changeovers. | #32, #33 |
 
 Also fixed while drawing them: conveyor labels go on the longest segment, beside vertical ones on the right of the travel direction and 40% of the way along, so loops (test → rework → test) and bends near objects keep their labels readable.

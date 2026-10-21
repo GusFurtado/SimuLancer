@@ -96,12 +96,12 @@ const related = (a, b) => a === b || a.startsWith(b + ".") || b.startsWith(a + "
  *  queues (`queue: true`, with `section` saying which part of the model). */
 function graphOf(tree) {
   const connections = section => Object.entries(tree[section] || {})
-    .map(([name, c]) => ({ name, from: c.from, to: c.to, queue: section === "queues", section }));
+    .map(([name, c]) => ({ name, from: c.from, to: c.to, queue: section !== "conveyors", transport: section === "transports", section }));
   return {
     sources: Object.keys(tree.sources || {}),
     servers: Object.keys(tree.servers || {}),
     sinks: Object.keys(tree.sinks || {}),
-    conveyors: [...connections("conveyors"), ...connections("queues")],
+    conveyors: [...connections("conveyors"), ...connections("queues"), ...connections("transports")],
   };
 }
 
@@ -299,7 +299,13 @@ class Replay {
 
   reset() {
     this.conveyors = {};
-    for (const c of this.header.conveyors) this.conveyors[c.name] = { ...c, belt: [] };
+    // Transports also have parts waiting for a vehicle (`pickup`).
+    for (const c of this.header.conveyors) this.conveyors[c.name] = { ...c, belt: [], pickup: [] };
+    // Vehicles: where each one is going, from where, and what it carries.
+    this.vehicles = {};
+    for (const f of this.header.vehicles || []) {
+      this.vehicles[f.name] = Array.from({ length: f.count }, () => ({ from: f.home, to: f.home, start: 0, until: 0, part: null }));
+    }
     this.servers = {};
     // waiting: parts collected into a batch or kit, not yet processing.
     for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], waiting: [], failed: "", off: false };
@@ -333,7 +339,22 @@ class Replay {
         const c = this.conveyors[e.conveyor];
         const from = this.servers[c.from];
         if (from) from.blocked = from.blocked.filter(p => p !== e.part);
+        if (c.transport) c.pickup.push(e.part);
+        else c.belt.push({ part: e.part, pos: 0, since: e.t });
+        break;
+      }
+      case "vehicle_trip": {
+        const v = this.vehicles[e.fleet][e.vehicle];
+        Object.assign(v, { from: e.from, to: e.to, start: e.t, until: e.until, part: e.part });
+        if (e.part !== null) {
+          for (const c of Object.values(this.conveyors)) c.pickup = c.pickup.filter(p => p !== e.part);
+        }
+        break;
+      }
+      case "delivered": {
+        const c = this.conveyors[e.conveyor];
         c.belt.push({ part: e.part, pos: 0, since: e.t });
+        for (const vs of Object.values(this.vehicles)) for (const v of vs) if (v.part === e.part) v.part = null;
         break;
       }
       case "started_process": {
@@ -437,7 +458,7 @@ async function startAnimation(container, run) {
   const replay = new Replay(header, lines);
   const graph = {
     sources: header.sources, servers: header.servers.map(s => s.name), sinks: header.sinks,
-    conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to, queue: Boolean(c.queue) })),
+    conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to, queue: Boolean(c.queue || c.transport) })),
   };
   const layout = layoutOf(graph, layoutFile);
   const paths = {};
@@ -449,7 +470,8 @@ async function startAnimation(container, run) {
     }
     const drawn = cumulative[cumulative.length - 1];
     // Queues have no length: their parts line up back from the end, drawn.
-    paths[c.name] = { points, cumulative, queue: Boolean(c.queue), drawn, scale: c.queue ? 1 : drawn / c.length };
+    const straight = Boolean(c.queue || c.transport);
+    paths[c.name] = { points, cumulative, queue: straight, drawn, scale: straight ? 1 : drawn / c.length };
   }
 
   const canvas = el("canvas", { "aria-label": "Animation of the run" });
@@ -595,6 +617,32 @@ async function startAnimation(container, run) {
         ctx.fillRect(X(x) - p / 2, Y(z) - p / 2, p, p);
         ctx.strokeRect(X(x) - p / 2, Y(z) - p / 2, p, p);
       });
+    }
+    // Parts waiting for a vehicle, beside where they'll be picked up.
+    for (const [name, path] of Object.entries(paths)) {
+      const waiting = replay.conveyors[name].pickup;
+      waiting.forEach((part, i) => {
+        const [x, z] = pointOn(path, Math.min(path.drawn, i * 0.45));
+        ctx.fillStyle = partColor(part);
+        ctx.fillRect(X(x) - p / 2, Y(z) - p / 2, p, p);
+        ctx.strokeRect(X(x) - p / 2, Y(z) - p / 2, p, p);
+      });
+    }
+    // Vehicles, between objects, with what they carry.
+    const vs = Math.max(6, 0.55 * scale);
+    for (const fleet of Object.values(replay.vehicles)) {
+      for (const v of fleet) {
+        const a = layout.positions[v.from], b = layout.positions[v.to];
+        if (!a || !b) continue;
+        const f = v.until > v.start ? Math.max(0, Math.min(1, (replay.time - v.start) / (v.until - v.start))) : 1;
+        const [x, z] = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f + 0.9];
+        ctx.fillStyle = colors["ink-2"];
+        ctx.fillRect(X(x) - vs / 2, Y(z) - vs / 2, vs, vs);
+        if (v.part !== null) {
+          ctx.fillStyle = partColor(v.part);
+          ctx.fillRect(X(x) - p / 2, Y(z) - p / 2 - vs / 2, p, p);
+        }
+      }
     }
     for (const [name, sv] of Object.entries(replay.servers)) {
       const [x, z] = layout.positions[name];

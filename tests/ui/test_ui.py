@@ -418,6 +418,11 @@ b.wait("return document.getElementById('f-arrivals-mode')?.value === 'restock'")
 check(b.js("return document.getElementById('f-sources-trucks-reorder_point').value") == "250", "reorder point")
 click_obj("pick")
 b.wait("return document.getElementById('f-keeps-clock')?.value === 'order'")
+# Forklifts carry pallets along a transport.
+b.js("document.querySelector('[data-connection=to_racks]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+b.wait("return document.querySelector('.panel .kind')?.textContent === 'Transport'")
+check(b.js("return document.getElementById('f-transports-to_racks-by').value") == "forklifts", "carried by forklifts")
+check("to_racks · forklifts, 60 m" in b.js("return document.querySelector('.diagram svg').textContent"), "transport on the diagram")
 click_obj("break_pallet")
 b.wait("return document.getElementById('f-split-type')?.value === 'carton' && document.getElementById('f-split-count').value === '10'")
 

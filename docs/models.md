@@ -226,6 +226,21 @@ queues:
 
 Use a queue when the time to get from one object to the next doesn't matter, or for any line of people or store of goods. Use a conveyor when travel time and room along the way matter.
 
+## Vehicles and transports
+
+```yaml
+vehicles:
+  forklifts: { count: 3, speed: "2 m/s", load_time: "20 s", unload_time: "20 s", home: unload }
+transports:
+  to_racks: { from: unload, to: putaway, by: forklifts, distance: "60 m" }
+```
+
+- **A transport** connects two objects like a conveyor or queue, but a vehicle carries each part. A part ready to leave on it waits where it is; the nearest idle vehicle drives there (empty), loads it, drives the `distance`, unloads it, and stays there until it's needed again. Parts waiting longest are fetched first.
+- **Empty trips** are as long as a transport between the two places (either way); without one, as long as the transport the vehicle is fetching for.
+- **Capacity** (optional) counts parts waiting, carried and delivered; when it's full, the object feeding the transport is blocked.
+- **Results:** the transport reports *waiting for pickup* (from ready to the vehicle's arrival), mean parts and throughput; the vehicles report *busy* (travelling, loading or unloading), *empty travel* and *trips*. Vehicles work around the clock: they have no schedule yet.
+- Transports aren't in layout files: they're drawn straight between their objects, and the animation shows the vehicles moving.
+
 ## Resources
 
 ```yaml
