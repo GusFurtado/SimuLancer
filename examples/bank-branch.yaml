@@ -36,7 +36,10 @@ resources:
 sources:
   door:
     creates: { quick: 0.85, advice: 0.15 }
-    interarrival: "exponential(1.2 min)"
+    arrivals_per_hour:                       # busier at lunchtime
+      "10:00-12:00": 40
+      "12:00-14:00": 70
+      "14:00-16:00": 45
     when_blocked: drop                       # the line at the kiosk is full: they leave
     schedule: doors_open
 

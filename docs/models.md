@@ -84,7 +84,17 @@ sources:
     output: { rule: round_robin }        # needed with several outgoing conveyors
 ```
 
-- **The first part** arrives at time 0.
+- **The first part** arrives at time 0 (with `interarrival`).
+- **Arrivals by time of day:** instead of `interarrival`, give `arrivals_per_hour`, a rate for each period of the day:
+
+  ```yaml
+  sources:
+    door:
+      creates: customer
+      arrivals_per_hour: { "10:00-12:00": 40, "12:00-14:00": 70, "14:00-16:00": 45 }
+  ```
+
+  Arrivals are random (a Poisson process) at each period's rate, the same every day, and none outside the periods. A period can run past midnight (`"22:00-02:00"`). With a `schedule` too, the source only creates parts while both say so (e.g. the rate by time of day, on weekdays only).
 - **A mix of types:** each arrival's type is drawn with the given shares, which must add up to 1.
 - **`when_blocked`:** what happens when the outgoing conveyor is full.
   - `wait` stops the source until there's room. The next interarrival time starts when the part gets on.

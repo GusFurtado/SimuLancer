@@ -63,7 +63,8 @@ use crate::results::{
 };
 use crate::rng::Rng;
 use crate::spec::{
-    Conveyor, FailureClock, InputRule, Node, OnFailure, Routing, ServerKind, Spec, WhenBlocked,
+    Arrivals, Conveyor, Distribution, FailureClock, InputRule, Node, OnFailure, Routing,
+    ServerKind, Spec, WhenBlocked,
 };
 use crate::trace::{Observer, PartId, TraceEvent};
 
@@ -87,6 +88,8 @@ struct SourceState {
     routing_rng: Rng,
     /// Draws the part type, for sources that create a mix.
     type_rng: Rng,
+    /// Accepts or rejects candidate arrivals, for rate profiles (thinning).
+    thinning_rng: Rng,
     next_output: usize,
     /// Part waiting to get on a conveyor (`when_blocked: wait`).
     held: Option<(Part, Target)>,
@@ -336,6 +339,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 rng: stream(format!("source/{}/interarrival", s.name)),
                 routing_rng: stream(format!("source/{}/routing", s.name)),
                 type_rng: stream(format!("source/{}/type", s.name)),
+                thinning_rng: stream(format!("source/{}/thinning", s.name)),
                 next_output: 0,
                 held: None,
                 off_shift: false,
@@ -470,13 +474,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
         for source in 0..self.spec.sources.len() {
             if !self.sources[source].off_shift {
-                self.events.schedule(
-                    SimTime::ZERO,
-                    Event::Arrival {
-                        source,
-                        generation: 0,
-                    },
-                );
+                self.first_arrival(source);
             }
         }
         for server in 0..self.spec.servers.len() {
@@ -610,18 +608,50 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
     }
 
+    /// The first arrival of the run or of a shift: at once with a time
+    /// between arrivals, drawn from the rate with a profile.
+    fn first_arrival(&mut self, source: usize) {
+        match self.spec.sources[source].arrivals {
+            Arrivals::Interarrival(_) => {
+                let generation = self.sources[source].arrival_generation;
+                self.events
+                    .schedule(self.now, Event::Arrival { source, generation });
+            }
+            Arrivals::Profile(_) => self.schedule_arrival(source),
+        }
+    }
+
     fn schedule_arrival(&mut self, source: usize) {
         if self.sources[source].off_shift {
             return; // the next shift's start brings the next arrival
         }
-        let gap = self.sources[source]
-            .rng
-            .sample(&self.spec.sources[source].interarrival);
+        let at = match &self.spec.sources[source].arrivals {
+            Arrivals::Interarrival(d) => self.now + duration(self.sources[source].rng.sample(d)),
+            Arrivals::Profile(periods) => {
+                // Thinning: candidates at the highest rate, each kept with
+                // probability rate(t) / highest rate.
+                let max = periods.iter().map(|p| p.2).fold(0.0, f64::max);
+                if max <= 0.0 {
+                    return; // never any arrivals
+                }
+                let candidate = Distribution::Exponential { mean: 1.0 / max };
+                let s = &mut self.sources[source];
+                let mut t = self.now;
+                loop {
+                    t += duration(s.rng.sample(&candidate));
+                    if t >= self.end {
+                        return;
+                    }
+                    let u = 1.0 - s.thinning_rng.open01(); // [0, 1)
+                    if u * max < Arrivals::rate_at(periods, t) {
+                        break t;
+                    }
+                }
+            }
+        };
         let generation = self.sources[source].arrival_generation;
-        self.events.schedule(
-            self.now + duration(gap),
-            Event::Arrival { source, generation },
-        );
+        self.events
+            .schedule(at, Event::Arrival { source, generation });
     }
 
     // --- Schedules ---
@@ -639,11 +669,10 @@ impl<'a, O: Observer> Sim<'a, O> {
             let s = &mut self.sources[source];
             s.off_shift = !on;
             if on {
-                // The first arrival of the shift comes at its start.
+                // The first arrival of the shift comes at its start (or, with
+                // a rate profile, when the rate brings it).
                 if s.held.is_none() {
-                    let generation = s.arrival_generation;
-                    self.events
-                        .schedule(self.now, Event::Arrival { source, generation });
+                    self.first_arrival(source);
                 }
             } else {
                 s.arrival_generation += 1;

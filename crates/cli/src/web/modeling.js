@@ -829,7 +829,7 @@ function panel(tree) {
     case "sources":
       return el("div", {}, header,
         createsField(tree, p),
-        distField("Time between arrivals", `${p}.interarrival`),
+        arrivalsField(tree, p),
         field("When the conveyor is full", `${p}.when_blocked`, "select", ["wait", "drop"]),
         scheduleField(tree, `${p}.schedule`, "Parts arrive"),
         outputRule(tree, p, outputs));
@@ -855,6 +855,58 @@ function panel(tree) {
     default:
       return el("div", {}, header, el("p", { class: "hint" }, say("Sinks take every part; there's nothing to set.")));
   }
+}
+
+/** When parts arrive: a steady time between arrivals, or a rate by time of day. */
+function arrivalsField(tree, p) {
+  const profile = getAt(tree, `${p}.arrivals_per_hour`);
+  const mode = el("div", { class: "field" },
+    el("label", { for: "f-arrivals-mode" }, say("How parts arrive")),
+    el("select", {
+      id: "f-arrivals-mode",
+      onchange: e => batch(() => {
+        if (e.target.value === "profile") {
+          setChange(`${p}.interarrival`, null);
+          setChange(`${p}.arrivals_per_hour`, { "08:00-12:00": 60, "12:00-17:00": 40 });
+        } else {
+          setChange(`${p}.arrivals_per_hour`, null);
+          setChange(`${p}.interarrival`, "exponential(1 min)");
+        }
+      }),
+    },
+    el("option", { value: "steady", selected: profile ? null : true }, "Steadily: a time between arrivals"),
+    el("option", { value: "profile", selected: profile ? true : null }, "By time of day: arrivals per hour")));
+  if (!profile) return el("div", {}, mode, distField("Time between arrivals", `${p}.interarrival`));
+  const path = `${p}.arrivals_per_hour`;
+  const rows = Object.entries(profile);
+  const write = entries => setChange(path, Object.fromEntries(entries));
+  const error = errorFor(path) || errorFor(p);
+  const perDay = rows.reduce((sum, [period, rate]) => {
+    const m = period.match(/^(\d\d):(\d\d)-(\d\d):(\d\d)$/);
+    if (!m) return sum;
+    let hours = (Number(m[3]) * 60 + Number(m[4]) - Number(m[1]) * 60 - Number(m[2])) / 60;
+    if (hours <= 0) hours += 24;
+    return sum + hours * Number(rate);
+  }, 0);
+  return el("div", {}, mode,
+    el("div", { class: `field profile${isChanged(path) ? " changed" : ""}${error ? " error" : ""}`, id: "profile" },
+      el("label", {}, "Arrivals per hour, by time of day (every day)",
+        isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path), title: "Back to the base model's value" }, "reset") : null),
+      ...rows.map(([period, rate], i) => el("div", { class: "row", style: "margin-bottom: 4px; align-items: center" },
+        el("input", { value: period, "aria-label": "Period", "data-period": i,
+          onchange: e => write(rows.map(([k, v], j) => j === i ? [e.target.value.trim(), v] : [k, v])) }),
+        el("input", { value: rate, inputmode: "decimal", "aria-label": "Arrivals per hour", "data-rate": i, style: "max-width: 90px",
+          onchange: e => write(rows.map(([k, v], j) => j === i ? [k, Number(e.target.value)] : [k, v])) }),
+        el("button", { style: "flex: 0", disabled: rows.length < 2 ? true : null, onclick: () => write(rows.filter((_, j) => j !== i)) }, "Remove"))),
+      el("button", { class: "link", id: "add-period", style: "padding: 2px 0",
+        onclick: () => {
+          const last = rows.length ? rows[rows.length - 1][0].split("-")[1] : "08:00";
+          const [h, m] = (last || "08:00").split(":").map(Number);
+          const end = `${String(Math.min(24, (h || 0) + 2)).padStart(2, "0")}:${String(m || 0).padStart(2, "0")}`;
+          write([...rows, [`${last}-${end}`, 30]]);
+        } }, "+ Period"),
+      el("div", { class: "hint", style: "margin-top: 4px" }, say(`About ${Math.round(perDay)} parts a day. Outside these periods, none arrive.`)),
+      error ? el("div", { class: "message" }, error.message) : null));
 }
 
 /** A queue's capacity: a whole number, or empty for no limit. */

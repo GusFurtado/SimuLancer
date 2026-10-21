@@ -319,6 +319,16 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Arrivals by time of day (implemented 2026-10-21, issue #26)
+
+- **`arrivals_per_hour: { "10:00-12:00": 40, "12:00-14:00": 70 }`** on a source, instead of `interarrival`: a Poisson process whose rate changes with the time of day, the same every day, zero outside the periods. Periods are written like shifts and may run past midnight; they can't overlap.
+- **Rates, not times between arrivals**, because that's how arrivals are counted and planned ("70 customers an hour at lunch"), and because a changing rate is a Poisson process with an exact, standard sampling method.
+- **Thinning** (Lewis and Shedler): candidate arrivals at the highest rate from the source's interarrival stream, each kept with probability rate(t)/highest rate, drawn from a new `thinning` stream. Sources with `interarrival` use their streams exactly as before, so their results don't change.
+- **With a schedule**, the source creates parts only while the schedule is on and the rate is above zero; at a shift's start the next arrival is drawn from the rate rather than coming at once.
+- **One profile for every day.** Different profiles per weekday can come later; a schedule already turns days on and off.
+- The bank template has a lunch peak (40, 70 and 45 an hour), which makes the tellers decision matter: at 70 an hour three tellers are nearly saturated. Its "longer hours" option spreads a similar day over 09:00-17:00. The Modeling page edits the periods in a small table and says how many arrive a day.
+- Tested: counts per period match the rates (5 replications × 28 days, within 4 standard deviations), nothing arrives outside the periods or off schedule, and the errors.
+
 ## Words for what flows (implemented 2026-10-21, issue #25)
 
 - **`parts: { one: customer, many: customers }`** at the top of a model. The Modeling page ("Customer types", "Where customers come from"), the report ("of 15 customers on average", "mean customers") and `validate` ("holds 15 customers") use it. Without it, "part"/"parts".
@@ -376,7 +386,7 @@ What building them showed is missing, in the order I'd add it:
 | **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. Done: see Results over working time. | #23 |
 | **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". Done: see Waiting time and service levels. | #24 |
 | **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. Done: see Words for what flows. | #25 |
-| **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. | #26 |
+| **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. Done: see Arrivals by time of day. | #26 |
 | **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. | #27 |
 | **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. | #28 |
 | **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. | #29 |

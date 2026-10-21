@@ -112,13 +112,38 @@ pub struct Source {
     /// The part types it creates, as (index into [`Spec::entities`], share),
     /// shares summing to 1. One type has a share of 1.
     pub creates: Vec<(usize, f64)>,
-    pub interarrival: Distribution,
+    pub arrivals: Arrivals,
     pub when_blocked: WhenBlocked,
     /// Indices into [`Spec::conveyors`], in file order.
     pub outputs: Vec<usize>,
     pub routing: Routing,
     /// Index into [`Spec::schedules`]: parts only arrive while it's on.
     pub schedule: Option<usize>,
+}
+
+/// When a source's parts arrive.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Arrivals {
+    /// A time between arrivals. The first part arrives at time 0, and at
+    /// the start of each shift.
+    Interarrival(Distribution),
+    /// A rate that changes with the time of day, the same every day: a
+    /// Poisson process with this rate. Periods are (start, end, parts per
+    /// second), in seconds from midnight, sorted and not overlapping; the
+    /// rate is zero outside them.
+    Profile(Vec<(f64, f64, f64)>),
+}
+
+impl Arrivals {
+    /// Parts per second at `t`, for a profile.
+    pub fn rate_at(periods: &[(f64, f64, f64)], t: SimTime) -> f64 {
+        let day = 24.0 * 3600.0;
+        let clock = t.as_secs_f64().rem_euclid(day);
+        periods
+            .iter()
+            .find(|&&(s, e, _)| s <= clock && clock < e)
+            .map_or(0.0, |&(_, _, rate)| rate)
+    }
 }
 
 /// What a source does with a new part when its output conveyor is full.
