@@ -62,11 +62,13 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
         .map_err(|e| format!("outliers-sim serve needs git to version projects: {e}"))?;
     let projects_dir = args.data.join("projects");
     let runs_dir = args.data.join("runs");
+    // Examples only for a new data folder: deleting them all must not bring them back.
+    let new_folder = !projects_dir.exists();
     for dir in [&projects_dir, &runs_dir] {
         fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     }
     let projects = Projects::new(projects_dir);
-    if projects.ids().is_empty() {
+    if new_folder {
         let created = projects::seed_examples(&projects)?;
         println!("created example projects: {}", created.join(", "));
     }
@@ -121,7 +123,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/simulation.js", get(asset("simulation.js")))
         .route("/api/v1/health", get(health))
         .route("/api/v1/projects", get(list_projects).post(create_project))
-        .route("/api/v1/projects/{id}", get(get_project))
+        .route(
+            "/api/v1/projects/{id}",
+            get(get_project)
+                .patch(update_project)
+                .delete(delete_project),
+        )
+        .route("/api/v1/projects/{id}/archive", post(archive_project))
+        .route("/api/v1/projects/{id}/restore", post(restore_project))
         .route("/api/v1/projects/{id}/check", post(check))
         .route("/api/v1/projects/{id}/save", post(save))
         .route("/api/v1/projects/{id}/publish", post(publish))
@@ -658,7 +667,28 @@ async fn health(State(state): State<Arc<AppState>>) -> Response {
 
 // --- projects --------------------------------------------------------------------
 
-async fn list_projects(State(state): State<Arc<AppState>>) -> Response {
+#[derive(Deserialize)]
+struct ListProjectsQuery {
+    #[serde(default)]
+    archived: bool,
+}
+
+async fn list_projects(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListProjectsQuery>,
+) -> Response {
+    if query.archived {
+        let projects: Vec<Value> = state
+            .projects
+            .archived_ids()
+            .iter()
+            .filter_map(|id| {
+                let file = state.projects.archived_project_file(id).ok()?;
+                Some(json!({ "id": id, "name": file.name, "description": file.description }))
+            })
+            .collect();
+        return Json(json!({ "projects": projects })).into_response();
+    }
     let projects: Vec<Value> = state
         .projects
         .ids()
@@ -675,6 +705,80 @@ async fn list_projects(State(state): State<Arc<AppState>>) -> Response {
         })
         .collect();
     Json(json!({ "projects": projects })).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectDetails {
+    name: Option<String>,
+    /// Empty removes the description.
+    description: Option<String>,
+}
+
+async fn update_project(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<ProjectDetails>,
+) -> Response {
+    match state
+        .projects
+        .set_details(&id, body.name.as_deref(), body.description.as_deref())
+    {
+        Ok(saved) => {
+            let file = match state.projects.project_file(&id, None) {
+                Ok(f) => f,
+                Err(e) => return not_found_or_bad(e),
+            };
+            Json(json!({ "id": id, "name": file.name, "description": file.description, "saved": saved }))
+                .into_response()
+        }
+        Err(e) => not_found_or_bad(e),
+    }
+}
+
+async fn archive_project(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+) -> Response {
+    match state.projects.archive(&id) {
+        Ok(()) => Json(json!({ "id": id, "archived": true })).into_response(),
+        Err(e) if e.contains("already exists") => error(StatusCode::CONFLICT, e),
+        Err(e) => not_found_or_bad(e),
+    }
+}
+
+async fn restore_project(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+) -> Response {
+    match state.projects.restore(&id) {
+        Ok(()) => Json(json!({ "id": id, "archived": false })).into_response(),
+        Err(e) if e.contains("already exists") => error(StatusCode::CONFLICT, e),
+        Err(e) if e.starts_with("no archived project") => error(StatusCode::NOT_FOUND, e),
+        Err(e) => error(StatusCode::BAD_REQUEST, e),
+    }
+}
+
+/// Deletes an archived project and its scenarios. A project on the list
+/// has to be archived first.
+async fn delete_project(
+    State(state): State<Arc<AppState>>,
+    UrlPath(id): UrlPath<String>,
+) -> Response {
+    if state.projects.dir(&id).is_ok() {
+        return error(
+            StatusCode::CONFLICT,
+            format!("project `{id}` isn't archived; archive it before deleting it"),
+        );
+    }
+    match state.projects.delete_archived(&id) {
+        Ok(()) => match state.scenarios.remove_all(&id) {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e),
+        },
+        Err(e) if e.starts_with("no archived project") => error(StatusCode::NOT_FOUND, e),
+        Err(e) => error(StatusCode::BAD_REQUEST, e),
+    }
 }
 
 #[derive(Deserialize)]
@@ -747,10 +851,18 @@ async fn get_project(
         .projects
         .read(&id, resolved.as_deref(), &project.model)
         .unwrap_or_default();
+    // The name and description are the project's, whichever version is shown.
+    let current = match &resolved {
+        Some(_) => state
+            .projects
+            .project_file(&id, None)
+            .unwrap_or_else(|_| project.clone()),
+        None => project.clone(),
+    };
     let mut body = json!({
         "id": id,
-        "name": project.name,
-        "description": project.description,
+        "name": current.name,
+        "description": current.description,
         "version": resolved.clone().unwrap_or_else(|| "working".into()),
         "model_file": project.model,
         "source": source,
@@ -1740,6 +1852,82 @@ mod tests {
             Some(json!({ "project": "two-cells", "version": "v7" })),
         )
         .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn renames_archives_restores_and_deletes_projects() {
+        let (app, root) = app("manage");
+        let ids = |v: &Value| -> Vec<String> {
+            v["projects"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|p| p["id"].as_str().unwrap().to_string())
+                .collect()
+        };
+        let (status, body) = call(
+            &app,
+            "PATCH",
+            "/api/v1/projects/two-cells",
+            Some(json!({ "name": "Two mills", "description": "" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            (body["name"].as_str(), body["saved"].as_bool()),
+            (Some("Two mills"), Some(true))
+        );
+        assert_eq!(body["description"], Value::Null);
+        // A published version shows the project's current name.
+        let (_, v1) = call(&app, "GET", "/api/v1/projects/two-cells?version=v1", None).await;
+        assert_eq!(v1["name"], "Two mills");
+
+        // Delete needs the archive first.
+        let (status, _) = call(&app, "DELETE", "/api/v1/projects/two-cells", None).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        call(
+            &app,
+            "POST",
+            "/api/v1/projects/two-cells/scenarios",
+            Some(json!({ "version": "v1", "name": "More inspectors", "decisions": { "inspectors": 2 } })),
+        )
+        .await;
+        let (status, _) = call(&app, "POST", "/api/v1/projects/two-cells/archive", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let (_, list) = call(&app, "GET", "/api/v1/projects", None).await;
+        assert_eq!(ids(&list), ["bike-assembly", "conveyor-line"]);
+        let (_, archived) = call(&app, "GET", "/api/v1/projects?archived=true", None).await;
+        assert_eq!(ids(&archived), ["two-cells"]);
+        assert_eq!(archived["projects"][0]["name"], "Two mills");
+        let (status, _) = call(&app, "GET", "/api/v1/projects/two-cells", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        let (status, _) = call(&app, "POST", "/api/v1/projects/two-cells/restore", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, _) = call(&app, "POST", "/api/v1/projects/two-cells/restore", None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        let (_, scenarios) = call(
+            &app,
+            "GET",
+            "/api/v1/projects/two-cells/scenarios?version=v1",
+            None,
+        )
+        .await;
+        assert_eq!(
+            scenarios["scenarios"].as_array().unwrap().len(),
+            1,
+            "scenarios survive the archive"
+        );
+
+        call(&app, "POST", "/api/v1/projects/two-cells/archive", None).await;
+        let (status, _) = call(&app, "DELETE", "/api/v1/projects/two-cells", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, archived) = call(&app, "GET", "/api/v1/projects?archived=true", None).await;
+        assert!(ids(&archived).is_empty());
+        assert!(!root.join("scenarios/two-cells.json").exists());
+        let (status, _) = call(&app, "DELETE", "/api/v1/projects/two-cells", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         fs::remove_dir_all(root).unwrap();
     }
