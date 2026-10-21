@@ -279,6 +279,26 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
                 rate(r.conveyors[i].entered, r)
             });
         }
+        for (i, l) in spec.lines.iter().enumerate() {
+            add("line", &l.name, "stopped", Unit::Fraction, &|r| {
+                r.lines[i].stopped
+            });
+            add("line", &l.name, "stops", Unit::Count, &|r| {
+                r.lines[i].stops as f64
+            });
+            add("line", &l.name, "moves", Unit::Count, &|r| {
+                r.lines[i].moves as f64
+            });
+            for (k, &station) in l.stations.iter().enumerate() {
+                add(
+                    "line",
+                    &l.name,
+                    &format!("stops caused by {}", spec.servers[station].name),
+                    Unit::Count,
+                    &|r| r.lines[i].stopped_by[k] as f64,
+                );
+            }
+        }
         for (i, f) in spec.vehicles.iter().enumerate() {
             add("vehicles", &f.name, "busy", Unit::Fraction, &|r| {
                 r.vehicles[i].busy

@@ -141,10 +141,15 @@ const SECTIONS: &[&str] = &[
     "sources",
     "servers",
     "conveyors",
+    "queues",
+    "transports",
+    "vehicles",
+    "lines",
     "sinks",
     "resources",
     "schedules",
     "outputs",
+    "parts",
 ];
 
 /// Replaces (or adds, for the last segment of a map) the value at `path`.

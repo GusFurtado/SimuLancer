@@ -58,8 +58,8 @@ use std::collections::VecDeque;
 use crate::SimTime;
 use crate::events::{Event, EventList};
 use crate::results::{
-    ConveyorResult, FleetResult, Histogram, ReplicationResult, ResourceResult, ServerResult,
-    SinkResult, SourceResult, Tally, TimeAverage, Totals, TypeResult,
+    ConveyorResult, FleetResult, Histogram, LineResult, ReplicationResult, ResourceResult,
+    ServerResult, SinkResult, SourceResult, Tally, TimeAverage, Totals, TypeResult,
 };
 use crate::rng::Rng;
 use crate::spec::{
@@ -367,6 +367,20 @@ struct FleetState {
     empty: TimeAverage,
 }
 
+struct LineState {
+    generation: u64,
+    /// The takt is up and it's waiting for a station, since then.
+    waiting_since: Option<SimTime>,
+    /// Moving on now: its stations may release their parts.
+    moving: bool,
+    moves: u64,
+    stops: u64,
+    stopped: TimeAverage,
+    /// Whether every station is on shift: the line's working time.
+    on: TimeAverage,
+    stopped_by: Vec<u64>,
+}
+
 struct ResourceState {
     in_use: u32,
     off_shift: bool,
@@ -396,6 +410,9 @@ struct Sim<'a, O: Observer> {
     /// Some server or resource is finishing work after its shift.
     closing: bool,
     fleets: Vec<FleetState>,
+    lines: Vec<LineState>,
+    /// Per server: the paced line it's a station of.
+    line_of: Vec<Option<usize>>,
     sink_exited: Vec<u64>,
     sink_times: Vec<Tally>,
     /// Per sink, per part type: parts that exited and their times in system.
@@ -534,6 +551,23 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .collect(),
             resource_queue: VecDeque::new(),
             closing: false,
+            lines: spec
+                .lines
+                .iter()
+                .map(|l| LineState {
+                    generation: 0,
+                    waiting_since: None,
+                    moving: false,
+                    moves: 0,
+                    stops: 0,
+                    stopped: TimeAverage::default(),
+                    on: TimeAverage::default(),
+                    stopped_by: vec![0; l.stations.len()],
+                })
+                .collect(),
+            line_of: (0..spec.servers.len())
+                .map(|s| spec.lines.iter().position(|l| l.stations.contains(&s)))
+                .collect(),
             fleets: spec
                 .vehicles
                 .iter()
@@ -615,6 +649,15 @@ impl<'a, O: Observer> Sim<'a, O> {
         for server in 0..self.spec.servers.len() {
             self.update_failure_clocks(server);
         }
+        for (line, l) in self.spec.lines.iter().enumerate() {
+            self.events.schedule(
+                l.takt,
+                Event::Index {
+                    line,
+                    generation: 0,
+                },
+            );
+        }
 
         while let Some((time, event)) = self.events.pop() {
             debug_assert!(time >= self.now);
@@ -668,6 +711,11 @@ impl<'a, O: Observer> Sim<'a, O> {
                 Event::Pull { server } => self.pull(server),
                 Event::Delivery { source, parts } => self.delivery(source, parts),
                 Event::Vehicle { fleet, vehicle } => self.vehicle_step(fleet, vehicle),
+                Event::Index { line, generation } => {
+                    if self.lines[line].generation == generation {
+                        self.takt_up(line);
+                    }
+                }
                 Event::Review { source } => {
                     self.review(source);
                     if let Arrivals::Restock(Restock {
@@ -1327,6 +1375,83 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
     }
 
+    // --- Paced lines ---
+
+    /// Whether a station is still working on its part (or paused mid-part).
+    fn station_busy(&self, server: usize) -> bool {
+        self.servers[server]
+            .slots
+            .iter()
+            .any(|s| matches!(s, Slot::Busy { .. } | Slot::Suspended { .. }))
+    }
+
+    /// Whether any of a line's stations is off shift: then the line isn't
+    /// stopped, it's off.
+    fn line_off(&self, line: usize) -> bool {
+        self.spec.lines[line]
+            .stations
+            .iter()
+            .any(|&s| self.servers[s].off_shift)
+    }
+
+    /// The takt is up: the line moves on if every station is done, or waits.
+    fn takt_up(&mut self, line: usize) {
+        let stations = &self.spec.lines[line].stations;
+        if stations.iter().any(|&s| self.station_busy(s)) {
+            let off = self.line_off(line);
+            let l = &mut self.lines[line];
+            l.waiting_since = Some(self.now);
+            if !off {
+                l.stops += 1;
+            }
+        } else {
+            self.move_line(line);
+        }
+    }
+
+    /// A station of a waiting line finished: if it was the last, the line moves.
+    fn station_done(&mut self, server: usize) {
+        let Some(line) = self.line_of[server] else {
+            return;
+        };
+        if self.lines[line].waiting_since.is_none() {
+            return;
+        }
+        let stations = &self.spec.lines[line].stations;
+        if stations.iter().any(|&s| self.station_busy(s)) {
+            return;
+        }
+        let k = stations
+            .iter()
+            .position(|&s| s == server)
+            .expect("a station");
+        if !self.line_off(line) {
+            self.lines[line].stopped_by[k] += 1;
+        }
+        self.move_line(line);
+    }
+
+    /// Every station lets its part go, the last first so each has room
+    /// before the one before it hands over; the next takt starts now.
+    fn move_line(&mut self, line: usize) {
+        let l = &mut self.lines[line];
+        l.waiting_since = None;
+        l.moves += 1;
+        l.moving = true;
+        for i in (0..self.spec.lines[line].stations.len()).rev() {
+            let station = self.spec.lines[line].stations[i];
+            self.release_blocked(station);
+        }
+        let l = &mut self.lines[line];
+        l.moving = false;
+        l.generation += 1;
+        let generation = l.generation;
+        self.events.schedule(
+            self.now + self.spec.lines[line].takt,
+            Event::Index { line, generation },
+        );
+    }
+
     // --- Vehicles ---
 
     /// How far apart two objects are for a vehicle: along a transport
@@ -1853,6 +1978,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         );
         s.slots[slot] = Slot::Blocked { part, target };
         s.blocked_order.push_back(slot);
+        self.station_done(server);
         self.update_failure_clocks(server);
         self.release_blocked(server);
         if !self.spec.servers[server].needs.is_empty() {
@@ -1864,6 +1990,12 @@ impl<'a, O: Observer> Sim<'a, O> {
     /// room, then takes new parts into the freed slots.
     fn release_blocked(&mut self, server: usize) {
         if !self.servers[server].is_up() {
+            return;
+        }
+        // A paced line's stations only let parts go when the line moves.
+        if let Some(line) = self.line_of[server]
+            && !self.lines[line].moving
+        {
             return;
         }
         let spec = &self.spec.servers[server];
@@ -2054,6 +2186,14 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.waiting.set(now, u64::from(s.waiting_for_resources));
             s.overtime.set(now, u64::from(s.closing));
         }
+        for (i, spec) in self.spec.lines.iter().enumerate() {
+            // Waiting for a station counts as stopped only while on shift.
+            let off = spec.stations.iter().any(|&s| self.servers[s].off_shift);
+            let l = &mut self.lines[i];
+            l.stopped
+                .set(now, u64::from(l.waiting_since.is_some() && !off));
+            l.on.set(now, u64::from(!off));
+        }
         for f in &mut self.fleets {
             let count =
                 |phase: Phase| f.vehicles.iter().filter(|v| v.phase == phase).count() as u64;
@@ -2095,6 +2235,13 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.waiting.reset(now);
             s.off.reset(now);
             s.overtime.reset(now);
+        }
+        for l in &mut self.lines {
+            l.moves = 0;
+            l.stops = 0;
+            l.stopped.reset(now);
+            l.on.reset(now);
+            l.stopped_by.iter_mut().for_each(|n| *n = 0);
         }
         for f in &mut self.fleets {
             f.trips = 0;
@@ -2231,6 +2378,16 @@ impl<'a, O: Observer> Sim<'a, O> {
                             time_in_system: times.clone(),
                         })
                         .collect(),
+                })
+                .collect(),
+            lines: self
+                .lines
+                .iter()
+                .map(|l| LineResult {
+                    moves: l.moves,
+                    stops: l.stops,
+                    stopped: l.stopped.mean() / working_share(1.0 - l.on.mean()),
+                    stopped_by: l.stopped_by.clone(),
                 })
                 .collect(),
             vehicles: self

@@ -20,6 +20,8 @@ pub struct Spec {
     pub schedules: Vec<Schedule>,
     /// Vehicles that carry parts along transports.
     pub vehicles: Vec<Fleet>,
+    /// Paced lines: stations that move their parts on together.
+    pub lines: Vec<PacedLine>,
     pub experiment: Experiment,
 }
 
@@ -468,6 +470,17 @@ pub enum ConnectionKind {
         fleet: usize,
         distance: f64,
     },
+}
+
+/// Stations (servers, in flow order, one part each) that move their parts
+/// on together every `takt`; a station that isn't done stops the line until
+/// it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PacedLine {
+    pub name: String,
+    /// Indices into [`Spec::servers`].
+    pub stations: Vec<usize>,
+    pub takt: SimTime,
 }
 
 /// Vehicles that carry parts along transports, one at a time.

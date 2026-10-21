@@ -226,6 +226,17 @@ queues:
 
 Use a queue when the time to get from one object to the next doesn't matter, or for any line of people or store of goods. Use a conveyor when travel time and room along the way matter.
 
+## Paced lines
+
+```yaml
+lines:
+  front: { stations: [frame, drum], takt: "2.5 min" }
+```
+
+- **Stations move on together:** the stations of a paced line (servers in flow order, each holding one part) let their finished parts go only when the line moves: every `takt`. If a station isn't done when the takt is up, the whole line waits for it, and the next takt counts from when it moves. A failure at one station stops the whole line.
+- **Between stations**, use a queue or a short conveyor with room for one part, so the line has no buffers.
+- **Results:** the line reports *moves*, *stops* (takts that had to wait), *stopped* (the share of its working time it waited) and *stops caused by* each station (the last one to finish).
+
 ## Vehicles and transports
 
 ```yaml

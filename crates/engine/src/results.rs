@@ -13,6 +13,7 @@ pub struct ReplicationResult {
     pub sinks: Vec<SinkResult>,
     pub resources: Vec<ResourceResult>,
     pub vehicles: Vec<FleetResult>,
+    pub lines: Vec<LineResult>,
     /// Counts over the whole run, warm-up included, for conservation checks.
     pub totals: Totals,
 }
@@ -68,6 +69,20 @@ pub struct ResourceResult {
     pub off_shift: f64,
     /// Share of all time worked after a shift ended (`finish_work`).
     pub overtime: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LineResult {
+    /// Times the line moved on.
+    pub moves: u64,
+    /// Times a takt was up but a station wasn't done.
+    pub stops: u64,
+    /// Share of working time (all its stations on shift) stopped, waiting
+    /// for a station past the takt.
+    pub stopped: f64,
+    /// Per station (in the line's order): stops it caused, as the last one
+    /// to finish.
+    pub stopped_by: Vec<u64>,
 }
 
 /// Shares are of the fleet's vehicle-time.

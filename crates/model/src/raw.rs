@@ -32,6 +32,8 @@ pub struct RawModel {
     #[serde(default)]
     pub vehicles: OrderedMap<RawFleet>,
     #[serde(default)]
+    pub lines: OrderedMap<RawLine>,
+    #[serde(default)]
     pub sinks: OrderedMap<RawSink>,
     #[serde(default)]
     pub resources: OrderedMap<RawResource>,
@@ -359,6 +361,15 @@ pub struct RawTransport {
     pub distance: Spanned<Scalar>,
     /// Parts waiting, carried and delivered at once; unlimited when absent.
     pub capacity: Option<Spanned<u32>>,
+}
+
+/// A paced line: stations that move their parts on together every takt.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawLine {
+    /// Servers, in the order parts go through them.
+    pub stations: Spanned<Vec<String>>,
+    pub takt: Spanned<Scalar>,
 }
 
 /// Vehicles: forklifts, carts, AGVs.

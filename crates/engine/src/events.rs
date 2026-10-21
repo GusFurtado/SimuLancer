@@ -54,6 +54,12 @@ pub(crate) enum Event {
         source: usize,
         parts: u32,
     },
+    /// A paced line's takt is up: it moves on, or waits for its stations.
+    /// Stale if `generation` no longer matches the line's.
+    Index {
+        line: usize,
+        generation: u64,
+    },
     /// A vehicle finishes its current step (a trip, loading or unloading).
     Vehicle {
         fleet: usize,
