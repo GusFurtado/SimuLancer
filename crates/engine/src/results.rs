@@ -49,6 +49,9 @@ pub struct ServerResult {
     /// Share of working time a part was ready but resource units weren't
     /// (part of `idle`).
     pub waiting_for_resources: f64,
+    /// Share of all time worked after a shift ended, finishing the work in
+    /// hand (`finish_work`).
+    pub overtime: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,6 +61,8 @@ pub struct ResourceResult {
     pub busy: f64,
     /// Share of time off shift.
     pub off_shift: f64,
+    /// Share of all time worked after a shift ended (`finish_work`).
+    pub overtime: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

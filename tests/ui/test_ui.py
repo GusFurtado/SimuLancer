@@ -423,6 +423,10 @@ b.wait("return document.querySelector('[data-connection=teller_line]') !== null"
 # The bank's model calls what flows "customers".
 check(b.js("return document.querySelector('#part-types .group-title').textContent") == "Customer types", "the model's words")
 check(b.js("return document.getElementById('add-source').title") == "Where customers come from", "the model's words in tooltips")
+# The staff finish serving after closing.
+b.js("document.querySelector('.diagram svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+b.wait("return document.querySelector('[data-finish=staff_hours]') !== null")
+check(b.js("return document.querySelector('[data-finish=staff_hours]').checked") is True, "finish work")
 # Customers arrive by time of day: the door's panel shows the periods.
 click_obj("door")
 b.wait("return document.getElementById('f-arrivals-mode')?.value === 'profile'")

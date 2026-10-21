@@ -255,6 +255,8 @@ sources:
   arrivals: { creates: part, interarrival: "10 min", schedule: two_shifts }
 ```
 
+- **Finishing the work in hand:** with `finish_work: true` on a schedule, servers and resources that follow it keep working after a shift ends while there's still work for them: parts in the server, on their way in, or still being worked on upstream. They stop once there's none left, and report *overtime per week*. Sources stop on time, so nobody new comes in: a bank closes its doors at 16:00 and its staff serve everyone inside, then go home.
+
 Schedules repeat every week, and the simulation starts on **Monday at 00:00**. Shifts are written in 24-hour clock time, from `00:00` to `24:00`; a night shift is written `22:00-06:00`. Overlapping shifts merge.
 
 Off shift:

@@ -25,9 +25,10 @@ schedules:
   doors_open:
     shifts: ["10:00-16:00"]
     days: [mon, tue, wed, thu, fri]
-  staff_hours:                               # staff stay after closing to serve who's inside
-    shifts: ["09:45-17:00"]
+  staff_hours:
+    shifts: ["09:45-16:00"]
     days: [mon, tue, wed, thu, fri]
+    finish_work: true                        # after closing, serve everyone inside, then go home
 
 resources:
   teller: { capacity: 3, schedule: staff_hours }

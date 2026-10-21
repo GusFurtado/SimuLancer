@@ -399,6 +399,9 @@ pub struct RawSchedule {
     pub shifts: Spanned<Vec<String>>,
     /// mon, tue, ...; every day if absent.
     pub days: Option<Spanned<Vec<String>>>,
+    /// Servers and resources on it finish the work in hand after a shift.
+    #[serde(default)]
+    pub finish_work: bool,
 }
 
 #[derive(Debug, Deserialize)]
