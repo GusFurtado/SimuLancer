@@ -303,7 +303,7 @@ class Replay {
     this.servers = {};
     // waiting: parts collected into a batch or kit, not yet processing.
     for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], waiting: [], failed: "", off: false };
-    this.created = this.lost = this.exited = this.assembled = this.consumed = 0;
+    this.created = this.lost = this.exited = this.assembled = this.consumed = this.split = 0;
     this.types = new Map();   // part -> index into header.entities, while it's in the system
     this.time = 0;
     this.cursor = 0;
@@ -342,8 +342,10 @@ class Replay {
         this.servers[e.server].waiting.push(e.part);
         break;
       case "consumed": {
+        // A kit's component (collected), or a finished part that was split.
         const s = this.servers[e.server];
         s.waiting = s.waiting.filter(p => p !== e.part);
+        s.blocked = s.blocked.filter(p => p !== e.part);
         this.types.delete(e.part);
         this.consumed++;
         break;
@@ -352,6 +354,11 @@ class Replay {
         this.assembled++;
         this.types.set(e.part, Math.max(0, (this.header.entities || []).indexOf(e.entity)));
         this.servers[e.server].waiting.push(e.part);
+        break;
+      case "split":
+        this.split++;
+        this.types.set(e.part, Math.max(0, (this.header.entities || []).indexOf(e.entity)));
+        this.servers[e.server].blocked.push(e.part);
         break;
       case "finished_process": {
         const s = this.servers[e.server];
@@ -594,7 +601,7 @@ async function startAnimation(container, run) {
 
     clockText.textContent = clock(replay.time);
     phase.textContent = replay.time < replay.warmup ? `warm-up (statistics start at ${clock(replay.warmup)})` : `measuring · replication ${header.replication}`;
-    const inSystem = replay.created + replay.assembled - replay.consumed - replay.lost - replay.exited;
+    const inSystem = replay.created + replay.assembled + replay.split - replay.consumed - replay.lost - replay.exited;
     counts.textContent = `${replay.created} created · ${inSystem} in system · ${replay.exited} exited` + (replay.lost ? ` · ${replay.lost} lost` : "") + (replay.assembled ? ` · ${replay.assembled} assembled` : "");
     play.textContent = a.playing ? "Pause" : "Play";
     if (document.activeElement !== slider) slider.value = replay.time;

@@ -1,21 +1,23 @@
-# Distribution warehouse: cartons come in at the receiving docks on the
-# morning shift and forklifts put them away; customer orders come in all day,
-# and pickers fill each order with two cartons from storage, then it's packed
-# and dispatched.
+# Distribution warehouse: trucks of 20 to 30 pallets come in on the morning
+# shift; forklifts put the pallets away in the racks. Pallets are broken into
+# cartons onto the pick shelves as they have room. Customer orders come in
+# all day; pickers fill each order with two cartons, then it's packed and
+# dispatched.
 #
-#   inbound ─ dock ─> unload ─> putaway ─ storage ──┐
-#            (docks)          (forklifts)          ├──> pick ─> pack ─> dispatch
-#   orders ─────────── backlog ────────────────────┘  (pickers)
+#   trucks ─ dock ─> unload ─> putaway ─ racks ─> break_pallet ─ shelves ─┐
+#   (20-30 pallets) (2 doors) (forklifts)        (1 pallet: 10 cartons)  ├─> pick ─> pack ─> dispatch
+#   orders ─────────────────────────── backlog ──────────────────────────┘  (pickers)
 #
-# Storage is a queue of up to 2,000 cartons, first in, first out; the order
-# backlog has no limit. Forklift trips are part of putaway's time, 8 cartons
-# a trip.
+# The racks, the shelves and the order backlog are queues. Pallets come off
+# the racks only when the shelves have room, so the shelves restock
+# themselves. Forklift trips are part of putaway's time, one pallet a trip.
 
 format: outliers-sim/0.1
 name: warehouse
-description: Cartons received and put away by forklifts; orders picked from storage, packed and dispatched.
+description: Trucks of pallets put away by forklifts, broken into cartons on the pick shelves; orders picked, packed and dispatched.
 
 entities:
+  pallet: {}
   carton: {}
   order: {}
   shipment: {}     # an order with its cartons
@@ -29,13 +31,14 @@ schedules:
     days: [mon, tue, wed, thu, fri]
 
 resources:
-  forklift: { capacity: 3, schedule: receiving }
+  forklift: { capacity: 3, schedule: operations }
   picker: { capacity: 5, schedule: operations }
 
 sources:
-  inbound:
-    creates: carton
-    interarrival: "exponential(21 s)"
+  trucks:
+    creates: pallet
+    interarrival: "exponential(90 min)"
+    group: { min: 20, max: 30 }              # pallets a truck
     schedule: receiving
   orders:
     creates: order
@@ -45,12 +48,15 @@ sources:
 servers:
   unload:
     capacity: 2                              # two dock doors
-    process_time: "uniform(10 s, 20 s)"
+    process_time: "uniform(1 min, 2 min)"    # a pallet
   putaway:
-    batch: 8                                 # a pallet: 8 cartons per forklift trip
-    capacity: 24                             # up to 3 trips at once; forklifts are the limit
+    capacity: 3                              # forklifts are the limit
     process_time: "triangular(2 min, 3 min, 6 min)"   # to the racks and back
     needs: { forklift: 1 }
+  break_pallet:
+    process_time: "4 min"
+    splits_into: { carton: 10 }
+    schedule: operations
   pick:
     capacity: 8                              # pick stations; pickers are the limit
     assembles: { order: 1, carton: 2 }
@@ -64,14 +70,15 @@ servers:
     schedule: operations
 
 conveyors:
-  dock:        { from: inbound, to: unload,   length: "6.6 m",  speed: "0.5 m/s", spacing: "1 m" }
-  to_putaway:  { from: unload,  to: putaway,  length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
-  to_pack:     { from: pick,    to: pack,     length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
-  to_dispatch: { from: pack,    to: dispatch, length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
+  dock:        { from: trucks,  to: unload,   length: "6.6 m", speed: "0.5 m/s", spacing: "1 m" }
+  to_putaway:  { from: unload,  to: putaway,  length: "6.6 m", speed: "0.5 m/s", spacing: "1 m" }
+  to_pack:     { from: pick,    to: pack,     length: "6.6 m", speed: "0.5 m/s", spacing: "1 m" }
+  to_dispatch: { from: pack,    to: dispatch, length: "6.6 m", speed: "0.5 m/s", spacing: "1 m" }
 
 queues:
-  storage: { from: putaway, to: pick, capacity: 2000 }
-  backlog: { from: orders,  to: pick }
+  racks:   { from: putaway,      to: break_pallet, capacity: 300 }   # pallet positions
+  shelves: { from: break_pallet, to: pick,         capacity: 400 }   # cartons on the pick face
+  backlog: { from: orders,       to: pick }
 
 sinks:
   dispatch: {}

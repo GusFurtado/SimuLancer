@@ -113,12 +113,34 @@ pub struct Source {
     /// shares summing to 1. One type has a share of 1.
     pub creates: Vec<(usize, f64)>,
     pub arrivals: Arrivals,
+    /// Parts per arrival; `None` is one.
+    pub group: Option<Count>,
     pub when_blocked: WhenBlocked,
     /// Indices into [`Spec::conveyors`], in file order.
     pub outputs: Vec<usize>,
     pub routing: Routing,
     /// Index into [`Spec::schedules`]: parts only arrive while it's on.
     pub schedule: Option<usize>,
+}
+
+/// A whole number of parts: always the same, or drawn uniformly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Count {
+    Fixed(u32),
+    /// Each value from `min` to `max` (both included) equally likely.
+    Uniform {
+        min: u32,
+        max: u32,
+    },
+}
+
+impl Count {
+    pub fn mean(&self) -> f64 {
+        match *self {
+            Count::Fixed(n) => f64::from(n),
+            Count::Uniform { min, max } => (f64::from(min) + f64::from(max)) / 2.0,
+        }
+    }
 }
 
 /// When a source's parts arrive.
@@ -167,6 +189,9 @@ pub struct Server {
     pub schedule: Option<usize>,
     /// One part at a time, batches, or assembly.
     pub kind: ServerKind,
+    /// After processing, each part becomes this many parts of this type
+    /// (an index into [`Spec::entities`]); they leave one by one.
+    pub splits_into: Option<(usize, Count)>,
     pub failures: Vec<Failure>,
     /// Indices into [`Spec::conveyors`]. In priority order for
     /// [`InputRule::Priority`], otherwise in file order.
@@ -210,9 +235,11 @@ impl Spec {
                 Node::Source(i) => (&self.sources[i].outputs, &self.sources[i].routing, e),
                 Node::Server(i) => {
                     let s = &self.servers[i];
-                    // An assembly sends out what it makes, whatever came in.
-                    let out = match s.kind {
-                        ServerKind::Assembly { makes, .. } => makes,
+                    // An assembly sends out what it makes, whatever came in;
+                    // a split, what it splits into.
+                    let out = match (s.splits_into, &s.kind) {
+                        (Some((into, _)), _) => into,
+                        (None, ServerKind::Assembly { makes, .. }) => *makes,
                         _ => e,
                     };
                     (&s.outputs, &s.routing, out)

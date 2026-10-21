@@ -7,6 +7,12 @@ pub type PartId = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceEvent {
+    /// Made by splitting a part (which is `Consumed`) at a server.
+    Split {
+        part: PartId,
+        server: usize,
+        entity: usize,
+    },
     Created {
         part: PartId,
         source: usize,

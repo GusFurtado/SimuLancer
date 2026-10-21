@@ -96,6 +96,7 @@ sources:
 
   Arrivals are random (a Poisson process) at each period's rate, the same every day, and none outside the periods. A period can run past midnight (`"22:00-02:00"`). With a `schedule` too, the source only creates parts while both say so (e.g. the rate by time of day, on weekdays only).
 - **A mix of types:** each arrival's type is drawn with the given shares, which must add up to 1.
+- **Arrivals in groups:** `group: 20` (or `group: { min: 20, max: 30 }`, each size equally likely) makes each arrival bring that many parts at once, like a truck of pallets. They get on in order; once one has to wait, the rest wait behind it, and the next arrival time starts when the last has got on. With `when_blocked: drop`, each part that finds no room is lost. All of a group arrive at the same instant, so a queue with room for one takes one of them before the next object takes anything.
 - **`when_blocked`:** what happens when the outgoing conveyor is full.
   - `wait` stops the source until there's room. The next interarrival time starts when the part gets on.
   - `drop` discards the part and counts it as lost.
@@ -122,6 +123,7 @@ servers:
 - **Blocking:** a finished part stays in its slot until its outgoing conveyor has room. The server shows as *blocked* during that time.
 - **Process time per part type:** every type that can reach the server must have a time.
 - **`needs`:** resource units the server holds while it processes a part (see below).
+- **Splitting:** `splits_into: { carton: 10 }` (or `{ carton: { min: 8, max: 12 } }`) turns each part the server finishes into that many parts of another type, like a pallet broken into cartons. They leave one by one, and keep the time the original part arrived, so time in system counts from then.
 - **Batches and kits:** see [Batches and assembly](#batches-and-assembly).
 
 ## Batches and assembly

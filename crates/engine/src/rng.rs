@@ -9,7 +9,7 @@
 
 use std::f64::consts::TAU;
 
-use crate::spec::Distribution;
+use crate::spec::{Count, Distribution};
 
 #[derive(Debug, Clone)]
 pub struct Rng {
@@ -70,6 +70,18 @@ impl Rng {
 
     /// Draws a value in seconds. Inverse-transform sampling wherever there's a
     /// closed form, so each draw uses exactly one number from the stream.
+    /// A whole number of parts.
+    pub fn count(&mut self, count: &Count) -> u32 {
+        match *count {
+            Count::Fixed(n) => n,
+            Count::Uniform { min, max } => {
+                let span = f64::from(max - min + 1);
+                let k = ((1.0 - self.open01()) * span).floor() as u32; // [0, span)
+                min + k.min(max - min)
+            }
+        }
+    }
+
     pub fn sample(&mut self, distribution: &Distribution) -> f64 {
         match *distribution {
             Distribution::Constant(value) => value,

@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    Arrivals, ConnectionKind, Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule,
-    Node, OnFailure, PerType, Resource, Routing, Schedule, Server, ServerKind, Sink, Source, Spec,
-    WhenBlocked,
+    Arrivals, ConnectionKind, Conveyor, Count, Distribution, Experiment, Failure, FailureClock,
+    InputRule, Node, OnFailure, PerType, Resource, Routing, Schedule, Server, ServerKind, Sink,
+    Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -257,6 +257,10 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 None
             }
         };
+        let group = match &s.group {
+            None => Some(None),
+            Some(g) => b.count(g, "`group`").map(Some),
+        };
         let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
         let output = endpoints_ok
             .then(|| {
@@ -270,13 +274,19 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 )
             })
             .flatten();
-        if let (Some(creates), Some(interarrival), Some((outputs, routing)), Some(schedule)) =
-            (creates, interarrival, output, schedule)
+        if let (
+            Some(creates),
+            Some(interarrival),
+            Some(group),
+            Some((outputs, routing)),
+            Some(schedule),
+        ) = (creates, interarrival, group, output, schedule)
         {
             sources.push(Source {
                 name: name.value.clone(),
                 creates,
                 arrivals: interarrival,
+                group,
                 when_blocked: match s.when_blocked {
                     raw::WhenBlocked::Wait => WhenBlocked::Wait,
                     raw::WhenBlocked::Drop => WhenBlocked::Drop,
@@ -430,6 +440,34 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 _ => failures_ok = false,
             }
         }
+        let splits_into = match &s.splits_into {
+            None => Some(None),
+            Some(split) => match split.value.0.as_slice() {
+                [(entity, count)] => {
+                    let entity = b.part_type(entity, &entity.value, &types, "`splits_into` names");
+                    let count = b.count(
+                        &Spanned {
+                            value: *count,
+                            referenced: split.referenced,
+                            defined: split.defined,
+                        },
+                        "the number of parts in `splits_into`",
+                    );
+                    match (entity, count) {
+                        (Some(e), Some(c)) => Some(Some((e, c))),
+                        _ => None,
+                    }
+                }
+                _ => {
+                    b.error(
+                        split,
+                        "`splits_into` names one part type and how many, like `{ carton: 12 }`"
+                            .to_string(),
+                    );
+                    None
+                }
+            },
+        };
         let input = endpoints_ok
             .then(|| b.input_rule(name, &s.input, &server_inputs[i], &conveyor_names))
             .flatten();
@@ -454,6 +492,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some((outputs, routing)),
             Some(schedule),
             Some(kind),
+            Some(splits_into),
         ) = (
             capacity,
             process_time,
@@ -463,10 +502,12 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             output,
             schedule,
             kind,
+            splits_into,
         ) {
             servers.push(Server {
                 name: name.value.clone(),
                 capacity,
+                splits_into,
                 process_time,
                 needs,
                 schedule,
@@ -1197,6 +1238,28 @@ impl Builder {
                 .map(|(s, e)| (SimTime::from_micros(s), SimTime::from_micros(e)))
                 .collect(),
         )
+    }
+
+    /// A whole number of parts (at least 1), fixed or a uniform range.
+    fn count(&mut self, at: &Spanned<raw::RawCount>, what: &str) -> Option<Count> {
+        const MOST: u64 = 100_000;
+        let ok = |n: u64| (1..=MOST).contains(&n);
+        match at.value {
+            raw::RawCount::Fixed(n) if ok(n) => Some(Count::Fixed(n as u32)),
+            raw::RawCount::Range { min, max } if ok(min) && ok(max) && min <= max => {
+                Some(Count::Uniform {
+                    min: min as u32,
+                    max: max as u32,
+                })
+            }
+            _ => {
+                self.error(
+                    at,
+                    format!("{what} is a whole number from 1 to {MOST}, or `{{ min, max }}` with min ≤ max"),
+                );
+                None
+            }
+        }
     }
 
     /// A part type by name, or an error (at `at`) naming the known ones.
