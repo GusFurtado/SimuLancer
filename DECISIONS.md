@@ -335,19 +335,19 @@ How they ship:
 
 What building them showed is missing, in the order I'd add it:
 
-| Gap | Where it showed | Workaround in the example |
-|---|---|---|
-| **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). |
-| **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. |
-| **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". |
-| **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. |
-| **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. |
-| **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. |
-| **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. |
-| **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. |
-| **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. |
-| **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. |
-| **Changeovers between models, paced lines** | Assembly line | Not modeled. |
+| Gap | Where it showed | Workaround in the example | Issue |
+|---|---|---|---|
+| **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). | #22 |
+| **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. | #23 |
+| **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". | #24 |
+| **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. | #25 |
+| **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. | #26 |
+| **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. | #27 |
+| **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. | #28 |
+| **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. | #29 |
+| **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. | #30 |
+| **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. | #31 |
+| **Changeovers between models, paced lines** | Assembly line | Not modeled. | #32, #33 |
 
 Also fixed while drawing them: conveyor labels go on the longest segment, beside vertical ones on the right of the travel direction and 40% of the way along, so loops (test → rework → test) and bends near objects keep their labels readable.
 
