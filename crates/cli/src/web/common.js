@@ -92,24 +92,49 @@ const related = (a, b) => a === b || a.startsWith(b + ".") || b.startsWith(a + "
 
 // --- layout ----------------------------------------------------------------------
 
-/** The model's graph: object names by kind, and conveyors. */
+/** The model's graph: object names by kind, and connections: conveyors and
+ *  queues (`queue: true`, with `section` saying which part of the model). */
 function graphOf(tree) {
+  const connections = section => Object.entries(tree[section] || {})
+    .map(([name, c]) => ({ name, from: c.from, to: c.to, queue: section === "queues", section }));
   return {
     sources: Object.keys(tree.sources || {}),
     servers: Object.keys(tree.servers || {}),
     sinks: Object.keys(tree.sinks || {}),
-    conveyors: Object.entries(tree.conveyors || {}).map(([name, c]) => ({ name, from: c.from, to: c.to })),
+    conveyors: [...connections("conveyors"), ...connections("queues")],
   };
+}
+
+/** A queue's path: straight between its objects' edges, moved 0.3 m to the
+ *  right of the way parts go when a queue runs the other way (same as the
+ *  server's layout). */
+function queuePath(a, b, reverse) {
+  const edge = OBJECT_SIZE / 2 + 0.1;
+  const [dx, dz] = [b[0] - a[0], b[1] - a[1]];
+  const len = Math.hypot(dx, dz);
+  if (len <= 2 * edge) return [a, [a[0] + 0.01, a[1]]];
+  const [ux, uz] = [dx / len, dz / len];
+  const [ox, oz] = reverse ? [-uz * 0.3, ux * 0.3] : [0, 0];
+  return [[a[0] + ux * edge + ox, a[1] + uz * edge + oz], [b[0] - ux * edge + ox, b[1] - uz * edge + oz]];
+}
+
+/** Draws every queue between its objects' current positions. */
+function placeQueues(graph, positions, paths) {
+  for (const c of graph.conveyors.filter(c => c.queue)) {
+    const reverse = graph.conveyors.some(o => o.queue && o.from === c.to && o.to === c.from);
+    if (positions[c.from] && positions[c.to]) paths[c.name] = queuePath(positions[c.from], positions[c.to], reverse);
+  }
 }
 
 /** Positions (x, z in meters) and conveyor paths, from layout.json or computed. */
 function layoutOf(graph, layout) {
-  if (layout && graph.conveyors.every(c => layout.conveyors[c.name]) &&
+  if (layout && graph.conveyors.every(c => c.queue || layout.conveyors[c.name]) &&
       [...graph.sources, ...graph.servers, ...graph.sinks].every(n => layout.objects[n])) {
     const positions = {};
     for (const [name, o] of Object.entries(layout.objects)) positions[name] = [o.position[0], o.position[2]];
     const paths = {};
     for (const [name, c] of Object.entries(layout.conveyors)) paths[name] = c.path.map(p => [p[0], p[2]]);
+    placeQueues(graph, positions, paths);
     return { positions, paths };
   }
   return autoLayout(graph);
@@ -140,7 +165,7 @@ function autoLayout(graph) {
   const gap = OBJECT_SIZE / 2 + 0.2;
   const paths = {};
   let loops = 0;
-  for (const c of graph.conveyors) {
+  for (const c of graph.conveyors.filter(c => !c.queue)) {
     const [a, b] = [positions[c.from], positions[c.to]];
     if ((depth[c.to] ?? 0) > (depth[c.from] ?? 0)) {
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
@@ -154,6 +179,7 @@ function autoLayout(graph) {
       paths[c.name] = [out, [out[0], lane], [into[0], lane], into];
     }
   }
+  placeQueues(graph, positions, paths);
   return { positions, paths };
 }
 
@@ -398,7 +424,7 @@ async function startAnimation(container, run) {
   const replay = new Replay(header, lines);
   const graph = {
     sources: header.sources, servers: header.servers.map(s => s.name), sinks: header.sinks,
-    conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to })),
+    conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to, queue: Boolean(c.queue) })),
   };
   const layout = layoutOf(graph, layoutFile);
   const paths = {};
@@ -408,7 +434,9 @@ async function startAnimation(container, run) {
     for (let i = 1; i < points.length; i++) {
       cumulative.push(cumulative[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
     }
-    paths[c.name] = { points, cumulative, scale: cumulative[cumulative.length - 1] / c.length };
+    const drawn = cumulative[cumulative.length - 1];
+    // Queues have no length: their parts line up back from the end, drawn.
+    paths[c.name] = { points, cumulative, queue: Boolean(c.queue), drawn, scale: c.queue ? 1 : drawn / c.length };
   }
 
   const canvas = el("canvas", { "aria-label": "Animation of the run" });
@@ -520,10 +548,13 @@ async function startAnimation(container, run) {
     ctx.strokeStyle = colors.belt;
     ctx.lineWidth = Math.max(3, 0.6 * scale);
     for (const path of Object.values(paths)) {
+      ctx.setLineDash(path.queue ? [0.3 * scale, 0.3 * scale] : []);
+      ctx.lineWidth = path.queue ? Math.max(1.5, 0.15 * scale) : Math.max(3, 0.6 * scale);
       ctx.beginPath();
       path.points.forEach(([x, z], i) => (i ? ctx.lineTo(X(x), Y(z)) : ctx.moveTo(X(x), Y(z))));
       ctx.stroke();
     }
+    ctx.setLineDash([]);
     const s = OBJECT_SIZE * scale;
     ctx.font = "12px system-ui, sans-serif";
     ctx.textAlign = "center";
@@ -542,8 +573,11 @@ async function startAnimation(container, run) {
     ctx.lineWidth = 1;
     for (const [name, path] of Object.entries(paths)) {
       const items = replay.conveyors[name].belt;
+      const step = 0.45;
       replay.belt(name).forEach((meters, i) => {
-        const [x, z] = pointOn(path, meters);
+        // A queue's parts stand one behind the other from its end; those that
+        // don't fit the drawing pile up at its start.
+        const [x, z] = path.queue ? pointOn(path, Math.max(0, path.drawn - i * step)) : pointOn(path, meters);
         ctx.fillStyle = partColor(items[i].part);
         ctx.fillRect(X(x) - p / 2, Y(z) - p / 2, p, p);
         ctx.strokeRect(X(x) - p / 2, Y(z) - p / 2, p, p);

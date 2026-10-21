@@ -1,18 +1,18 @@
 # Bank branch: customers come in on weekdays while the doors are open, take a
 # ticket at the kiosk, and wait in line for a teller (quick transactions) or
-# an account advisor (longer appointments). When a line is full, newcomers
-# turn around and leave.
+# an account advisor (longer appointments). When the line at the kiosk is
+# full, newcomers turn around and leave.
 #
 #                                ┌─ teller_line ──> tellers ──┐
-#   door ─ entrance ─> kiosk ────┤                            ├──> exit
+#   door ── entrance ──> kiosk ──┤                            ├──> exit
 #                                └─ advisor_line ─> advisors ─┘
 #
-# Customers are "parts" in the model; the lines are conveyors people walk
-# along (spacing = room each person takes in the line).
+# The lines are queues: customers wait in them, first come first served.
+# Customers are "parts" in the model.
 
 format: outliers-sim/0.1
 name: bank-branch
-description: Customers take a ticket and wait for a teller or an account advisor; when a line is full, newcomers leave.
+description: Customers take a ticket and wait in line for a teller or an account advisor; when the line at the kiosk is full, newcomers leave.
 
 entities:
   quick: {}       # deposits, withdrawals, payments
@@ -34,7 +34,7 @@ sources:
   door:
     creates: { quick: 0.85, advice: 0.15 }
     interarrival: "exponential(1.2 min)"
-    when_blocked: drop                       # the entrance is packed: they leave
+    when_blocked: drop                       # the line at the kiosk is full: they leave
     schedule: doors_open
 
 servers:
@@ -50,12 +50,12 @@ servers:
     process_time: "lognormal(mean: 12 min, sd: 5 min)"
     needs: { advisor: 1 }
 
-conveyors:
-  entrance:     { from: door,     to: kiosk,    length: "4 m",  speed: "1 m/s", spacing: "0.8 m" }
-  teller_line:  { from: kiosk,    to: tellers,  length: "12 m", speed: "1 m/s", spacing: "0.8 m" }
-  advisor_line: { from: kiosk,    to: advisors, length: "6 m",  speed: "1 m/s", spacing: "0.8 m" }
-  teller_out:   { from: tellers,  to: exit,     length: "8.3 m",  speed: "1 m/s", spacing: "0.8 m" }
-  advisor_out:  { from: advisors, to: exit,     length: "14.3 m",  speed: "1 m/s", spacing: "0.8 m" }
+queues:
+  entrance:     { from: door,     to: kiosk,    capacity: 5 }
+  teller_line:  { from: kiosk,    to: tellers,  capacity: 15 }
+  advisor_line: { from: kiosk,    to: advisors, capacity: 7 }
+  teller_out:   { from: tellers,  to: exit }
+  advisor_out:  { from: advisors, to: exit }
 
 sinks:
   exit: {}

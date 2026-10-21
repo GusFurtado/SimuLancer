@@ -654,3 +654,61 @@ experiment: { replications: 1, run_length: "1 h", seed: 1 }
         "{found:?}"
     );
 }
+
+/// MINIMAL with its first conveyor replaced by a queue.
+fn with_queue(queue: &str) -> String {
+    replace(
+        MINIMAL,
+        "conveyors:\n  c_in:  { from: arrivals, to: machine, length: \"2 m\", speed: \"1 m/s\", spacing: \"0.5 m\" }\n",
+        &format!("queues:\n  line: {queue}\nconveyors:\n"),
+    )
+}
+
+#[test]
+fn queues_connect_objects_with_no_travel() {
+    let model = load_str(&with_queue("{ from: arrivals, to: machine, capacity: 5 }")).unwrap();
+    let spec = &model.spec;
+    // Queues come after the conveyors.
+    let line = &spec.conveyors[1];
+    assert!(line.is_queue() && !spec.conveyors[0].is_queue());
+    assert_eq!(
+        (line.from, line.to, line.capacity),
+        (Node::Source(0), Node::Server(0), 5)
+    );
+    assert_eq!(line.transit_time(), 0.0);
+    assert_eq!(spec.sources[0].outputs, [1]);
+    assert_eq!(spec.servers[0].inputs, [1]);
+
+    let unlimited = load_str(&with_queue("{ from: arrivals, to: machine }")).unwrap();
+    assert_eq!(unlimited.spec.conveyors[1].capacity, u32::MAX);
+}
+
+#[test]
+fn queue_errors() {
+    assert_one_error(
+        &with_queue("{ from: arrivals, to: machine, capacity: 0 }"),
+        "capacity: 0",
+        "queue `line` needs room for at least one part",
+    );
+    assert_one_error(
+        &with_queue("{ from: done, to: machine }"),
+        "from: done",
+        "queue `line` can't have `from: done`: nothing comes out of a sink",
+    );
+    assert_one_error(
+        &with_queue("{ from: arrivals, to: c_out }"),
+        "to: c_out",
+        "conveyors and queues connect objects, not other conveyors or queues",
+    );
+    let duplicate = errors(&replace(
+        &with_queue("{ from: arrivals, to: machine }"),
+        "  done: {}",
+        "  done: {}\n  line: {}",
+    ));
+    assert!(
+        duplicate
+            .iter()
+            .any(|(_, m)| m.contains("`line` is already used by a queue")),
+        "{duplicate:#?}"
+    );
+}

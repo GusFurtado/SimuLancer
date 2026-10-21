@@ -299,11 +299,16 @@ pub enum OnFailure {
     Restart,
 }
 
-/// An accumulating conveyor: parts queue up at the end when the next object
-/// can't take them.
+/// A connection between two objects: an accumulating conveyor (parts queue
+/// up at the end when the next object can't take them), or a queue.
+///
+/// A queue is a conveyor with no length and no spacing: parts are at its end
+/// as soon as they get on and leave first in, first out, so the conveyor
+/// rules (blocking, merging) apply unchanged.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Conveyor {
     pub name: String,
+    pub kind: ConnectionKind,
     pub from: Node,
     pub to: Node,
     /// Meters.
@@ -313,7 +318,34 @@ pub struct Conveyor {
     /// Minimum distance between parts, in meters.
     pub spacing: f64,
     /// Maximum number of parts on the conveyor: `floor(length / spacing)`.
+    /// For a queue, its capacity (`u32::MAX` when unlimited).
     pub capacity: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionKind {
+    Conveyor,
+    Queue,
+}
+
+impl Conveyor {
+    /// A queue between two objects; `None` capacity is unlimited.
+    pub fn queue(name: String, from: Node, to: Node, capacity: Option<u32>) -> Conveyor {
+        Conveyor {
+            name,
+            kind: ConnectionKind::Queue,
+            from,
+            to,
+            length: 0.0,
+            speed: 1.0,
+            spacing: 0.0,
+            capacity: capacity.unwrap_or(u32::MAX),
+        }
+    }
+
+    pub fn is_queue(&self) -> bool {
+        self.kind == ConnectionKind::Queue
+    }
 }
 
 impl Conveyor {

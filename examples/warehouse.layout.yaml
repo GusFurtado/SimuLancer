@@ -1,6 +1,6 @@
 # Visual layout for warehouse.yaml (meters, Y up). Receiving on the top
-# side, orders on the bottom; storage and the order queue are drawn short
-# (their lengths in the model stand for the racks and the order backlog).
+# side, orders on the bottom. Storage and the order backlog are queues,
+# drawn straight between their objects.
 model: warehouse.yaml
 units: m
 
@@ -16,7 +16,5 @@ objects:
 conveyors:
   dock:        { path: [[0.7, 0, -5], [7.3, 0, -5]] }                     # 6.6
   to_putaway:  { path: [[8.7, 0, -5], [15.3, 0, -5]] }                    # 6.6
-  storage:     { path: [[16.7, 0, -5], [24, 0, -5], [24, 0, -0.7]] }      # drawn short
-  order_queue: { path: [[0.7, 0, 5], [24, 0, 5], [24, 0, 0.7]] }          # drawn short
   to_pack:     { path: [[24.7, 0, 0], [31.3, 0, 0]] }                     # 6.6
   to_dispatch: { path: [[32.7, 0, 0], [39.3, 0, 0]] }                     # 6.6

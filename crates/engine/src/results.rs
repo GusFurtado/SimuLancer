@@ -63,6 +63,9 @@ pub struct ConveyorResult {
     pub full: f64,
     /// Parts that got on the conveyor.
     pub entered: u64,
+    /// Seconds from getting on to leaving, for parts that left. For a
+    /// queue, the time waiting in it.
+    pub time: Tally,
 }
 
 #[derive(Debug, Clone, PartialEq)]

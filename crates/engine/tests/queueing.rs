@@ -497,3 +497,77 @@ experiment:
         |r| r.servers[0].busy,
     );
 }
+
+/// A single-server line built with queues instead of conveyors: no transit
+/// time at all, so the results are the textbook ones exactly.
+fn queue_line(
+    interarrival: &str,
+    process: &str,
+    capacity: Option<u32>,
+    when_blocked: &str,
+) -> String {
+    let capacity = capacity.map_or(String::new(), |c| format!(", capacity: {c}"));
+    format!(
+        r#"
+format: outliers-sim/0.1
+name: queues
+entities:
+  part: {{}}
+sources:
+  arrivals: {{ creates: part, interarrival: "{interarrival}", when_blocked: {when_blocked} }}
+servers:
+  server: {{ process_time: "{process}" }}
+queues:
+  line: {{ from: arrivals, to: server{capacity} }}
+  out: {{ from: server, to: done }}
+sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261021
+"#
+    )
+}
+
+#[test]
+fn mm1_with_a_queue_waits_as_the_formula_says() {
+    // λ = 1/min, μ = 1.25/min: ρ = 0.8, Wq = ρ / (μ − λ) = 3.2 min, W = 4 min.
+    let results = replications(&spec(&queue_line(
+        "exponential(1 min)",
+        "exponential(0.8 min)",
+        None,
+        "wait",
+    )));
+    check(&results, "M/M/1 wait in queue (s)", 192.0, 0.03, |r| {
+        r.conveyors[0].time.mean()
+    });
+    check(
+        &results,
+        "M/M/1 time in system (s)",
+        240.0,
+        0.03,
+        time_in_system,
+    );
+    // The outgoing queue is never waited in: the sink takes parts at once.
+    assert!(results.iter().all(|r| r.conveyors[1].time.max == 0.0));
+}
+
+#[test]
+fn mm1k_with_a_finite_queue_loses_as_the_formula_says() {
+    // Room for 2 in the queue plus 1 in service: K = 3. With ρ = 0.8 an
+    // arrival is lost with probability (1 − ρ) ρ^K / (1 − ρ^(K+1)).
+    let (rho, k) = (0.8_f64, 3);
+    let exact = (1.0 - rho) * rho.powi(k) / (1.0 - rho.powi(k + 1));
+    let results = replications(&spec(&queue_line(
+        "exponential(1 min)",
+        "exponential(0.8 min)",
+        Some(2),
+        "drop",
+    )));
+    check(&results, "M/M/1/3 loss probability", exact, 0.02, |r| {
+        r.sources[0].lost as f64 / r.sources[0].created as f64
+    });
+    assert!(results.iter().all(|r| r.conveyors[0].max_parts <= 2));
+}

@@ -319,6 +319,16 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Queues (implemented 2026-10-21, issue #22)
+
+- **A queue is a connection, like a conveyor, with no travel.** `queues: { line: { from: kiosk, to: tellers, capacity: 15 } }`. Parts are at its end as soon as they get on and leave first in, first out. Without `capacity`, there's no limit, which also covers "a link without a conveyor".
+- **Why a connection and not an object:** in this model language parts always wait *between* objects, at the end of what feeds the next one. Making the queue that connection keeps every existing rule (blocking, `when_blocked`, routing and merging by name, priorities) working unchanged, and needs no new "link" concept.
+- **In the engine it's a conveyor with no length and no spacing**, so the conveyor code runs it as is: queues and conveyors share `Spec::conveyors` (queues after conveyors), with a kind. Validated against queueing theory: M/M/1 waiting time and M/M/1/K losses with queues (no transit time to subtract).
+- **Drawn straight between their objects**, dashed, with the capacity (`teller_line · 15`, `∞` for none). They aren't in layout files, so dragging an object can't change the model. The warehouse's 1,000 m storage conveyor, which a drag would have shrunk to 23 cartons, is now a queue of 2,000. Two queues between the same objects in opposite directions are drawn side by side.
+- **Every connection now records the time parts spend on it.** For queues it's reported as *waiting time*, next to mean and most parts waiting, time full and throughput. The report has a Queues section.
+- The bank and warehouse templates use queues: the bank's lines (with "Wait for a teller" as a result) and the warehouse's storage and order backlog.
+- The Modeling page connects objects with "→ Conveyor" or "→ Queue"; a queue's panel has its capacity (empty for no limit).
+
 ## Templates, and examples from different industries (implemented 2026-10-21)
 
 Three examples, one per kind of system, built only with what the model language has today, to find what's missing:
@@ -340,7 +350,7 @@ What building them showed is missing, in the order I'd add it:
 
 | Gap | Where it showed | Workaround in the example | Issue |
 |---|---|---|---|
-| **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). | #22 |
+| **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). Done: see Queues. | #22 |
 | **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. | #23 |
 | **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". | #24 |
 | **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. | #25 |

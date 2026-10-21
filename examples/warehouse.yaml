@@ -5,10 +5,11 @@
 #
 #   inbound ─ dock ─> unload ─> putaway ─ storage ──┐
 #            (docks)          (forklifts)          ├──> pick ─> pack ─> dispatch
-#   orders ─────────── order_queue ────────────────┘  (pickers)
+#   orders ─────────── backlog ────────────────────┘  (pickers)
 #
-# Storage is a long, fast conveyor: it holds up to 2,000 cartons, first in,
-# first out. Forklift trips are part of putaway's time, 8 cartons a trip.
+# Storage is a queue of up to 2,000 cartons, first in, first out; the order
+# backlog has no limit. Forklift trips are part of putaway's time, 8 cartons
+# a trip.
 
 format: outliers-sim/0.1
 name: warehouse
@@ -65,10 +66,12 @@ servers:
 conveyors:
   dock:        { from: inbound, to: unload,   length: "6.6 m",  speed: "0.5 m/s", spacing: "1 m" }
   to_putaway:  { from: unload,  to: putaway,  length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
-  storage:     { from: putaway, to: pick,     length: "1000 m", speed: "5 m/s",   spacing: "0.5 m" }
-  order_queue: { from: orders,  to: pick,     length: "200 m", speed: "5 m/s",   spacing: "0.5 m" }
   to_pack:     { from: pick,    to: pack,     length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
   to_dispatch: { from: pack,    to: dispatch, length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
+
+queues:
+  storage: { from: putaway, to: pick, capacity: 2000 }
+  backlog: { from: orders,  to: pick }
 
 sinks:
   dispatch: {}

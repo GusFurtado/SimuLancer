@@ -1,4 +1,5 @@
 //! Layout files (`*.layout.yaml`): where objects and conveyors are drawn.
+//! Queues aren't in the file: they're drawn straight between their objects.
 //!
 //! Only viewers use layouts; the engine never reads them. They're checked
 //! against the model so a viewer can trust every name and path.
@@ -10,13 +11,46 @@ use crate::diagnostic::{Diagnostic, LoadError, Position};
 use crate::raw::OrderedMap;
 use crate::units::{DefaultUnits, Dimension, parse_quantity};
 use crate::{Model, parse_yaml};
+use outliers_sim_engine::spec::Node;
+
+/// Half an object's size plus a gap: where connections start and end.
+const OBJECT_EDGE: f64 = 0.7;
+
+/// A queue's path: straight from one object's edge to the other's, moved
+/// 0.3 m to the right of the way parts go when a queue runs the other way.
+pub fn queue_path(a: [f64; 3], b: [f64; 3], reverse: bool) -> Vec<[f64; 3]> {
+    let (dx, dz) = (b[0] - a[0], b[2] - a[2]);
+    let len = dx.hypot(dz);
+    if len <= 2.0 * OBJECT_EDGE {
+        // Objects (nearly) on top of each other: a short stub.
+        return vec![a, [a[0] + 0.01, a[1], a[2]]];
+    }
+    let (ux, uz) = (dx / len, dz / len);
+    let (ox, oz) = if reverse {
+        (-uz * 0.3, ux * 0.3)
+    } else {
+        (0.0, 0.0)
+    };
+    vec![
+        [
+            a[0] + ux * OBJECT_EDGE + ox,
+            a[1],
+            a[2] + uz * OBJECT_EDGE + oz,
+        ],
+        [
+            b[0] - ux * OBJECT_EDGE + ox,
+            b[1],
+            b[2] - uz * OBJECT_EDGE + oz,
+        ],
+    ]
+}
 
 /// A validated layout, in meters. Y is up; the floor is the X-Z plane.
 #[derive(Debug, Clone)]
 pub struct Layout {
     /// Sources, servers and sinks, in model order.
     pub objects: Vec<PlacedObject>,
-    /// In model order.
+    /// In model order, queues included (with their computed paths).
     pub conveyors: Vec<PlacedConveyor>,
 }
 
@@ -166,8 +200,42 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
     }
 
     // Conveyors: a path for each, which should be about as long as the model says.
+    // Queues: a straight line between their objects.
     let mut conveyors = Vec::new();
     for c in &spec.conveyors {
+        if c.is_queue() {
+            if let Some((name, _)) = raw.conveyors.0.iter().find(|(n, _)| n.value == c.name) {
+                error(
+                    &mut errors,
+                    pos(&name.referenced),
+                    format!(
+                        "`{}` is a queue; queues are drawn straight between their objects, so remove it from `conveyors`",
+                        c.name
+                    ),
+                );
+            }
+            let at = |node: Node| {
+                let name = match node {
+                    Node::Source(i) => &spec.sources[i].name,
+                    Node::Server(i) => &spec.servers[i].name,
+                    Node::Sink(i) => &spec.sinks[i].name,
+                };
+                objects.iter().find(|o| &o.name == name).map(|o| o.position)
+            };
+            if let (Some(a), Some(b)) = (at(c.from), at(c.to)) {
+                // Two queues between the same objects in opposite directions
+                // (a loop) are drawn side by side.
+                let reverse = spec
+                    .conveyors
+                    .iter()
+                    .any(|o| o.is_queue() && o.from == c.to && o.to == c.from);
+                conveyors.push(PlacedConveyor {
+                    name: c.name.clone(),
+                    path: queue_path(a, b, reverse),
+                });
+            }
+            continue;
+        }
         let Some((name, raw_path)) = raw.conveyors.0.iter().find(|(n, _)| n.value == c.name) else {
             error(
                 &mut errors,

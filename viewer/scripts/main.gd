@@ -32,6 +32,8 @@ const FLOOR_COLOR := Color("#2a2a28")
 const OBJECT_COLOR := Color("#8a8984")
 
 const OBJECT_SIZE := 1.2
+## Distance between parts waiting in a queue, as drawn (queues have no length).
+const QUEUE_STEP := 0.45
 const BELT_WIDTH := 0.6
 const BELT_TOP := 0.3
 const PART_SIZE := 0.32
@@ -221,8 +223,11 @@ func _make_path(raw_points: Array[Vector3], model_length: float) -> Dictionary:
 	var cumulative: Array[float] = [0.0]
 	for i in range(1, points.size()):
 		cumulative.append(cumulative[-1] + points[i - 1].distance_to(points[i]))
+	# A queue has no length: its parts line up back from the end of the drawing.
+	if model_length <= 0.0:
+		return {"points": points, "cumulative": cumulative, "scale": 1.0, "queue": true}
 	# Stretch the animation if the drawn path differs from the model's length.
-	return {"points": points, "cumulative": cumulative, "scale": cumulative[-1] / model_length}
+	return {"points": points, "cumulative": cumulative, "scale": cumulative[-1] / model_length, "queue": false}
 
 
 ## Where a part `meters` from the entrance (model length) is drawn.
@@ -339,9 +344,15 @@ func _material(color: Color) -> StandardMaterial3D:
 func _refresh() -> void:
 	var placed := 0
 	for name: String in _paths:
+		var path: Dictionary = _paths[name]
+		var i := 0
 		for item: Array in replay.belt(name):
-			_place_part(placed, _point_on(_paths[name], item[1]) + Vector3(0, BELT_TOP + PART_SIZE / 2.0, 0))
+			var meters: float = item[1]
+			if path["queue"]:
+				meters = maxf(0.0, (path["cumulative"] as Array[float])[-1] - i * QUEUE_STEP)
+			_place_part(placed, _point_on(path, meters) + Vector3(0, BELT_TOP + PART_SIZE / 2.0, 0))
 			placed += 1
+			i += 1
 	for name: String in replay.servers:
 		var state := replay.server_state(name)
 		(_server_materials[name] as StandardMaterial3D).albedo_color = STATE_COLORS[state]

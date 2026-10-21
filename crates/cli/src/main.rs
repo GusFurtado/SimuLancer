@@ -400,8 +400,23 @@ fn describe(path: &Path, model: &Model) -> String {
             );
         }
     }
-    out += "\nconveyors\n";
-    for c in &spec.conveyors {
+    let queues: Vec<_> = spec.conveyors.iter().filter(|c| c.is_queue()).collect();
+    if !queues.is_empty() {
+        out += "\nqueues\n";
+        for c in queues {
+            let route = format!("{} -> {}", node_name(spec, c.from), node_name(spec, c.to));
+            let holds = if c.capacity == u32::MAX {
+                "no limit".to_string()
+            } else {
+                format!("holds {} parts", c.capacity)
+            };
+            out += &format!("  {:<12} {:<20} {holds}\n", c.name, route);
+        }
+    }
+    if spec.conveyors.iter().any(|c| !c.is_queue()) {
+        out += "\nconveyors\n";
+    }
+    for c in spec.conveyors.iter().filter(|c| !c.is_queue()) {
         let route = format!("{} -> {}", node_name(spec, c.from), node_name(spec, c.to));
         out += &format!(
             "  {:<12} {:<20} {} m at {} m/s, holds {} parts, transit {}\n",

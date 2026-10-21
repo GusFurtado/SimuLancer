@@ -4,7 +4,7 @@
 
 format: outliers-sim-project/0.1
 name: Bank branch
-description: Customers take a ticket and wait for a teller or an account advisor; when the lines are full, newcomers leave.
+description: Customers take a ticket and wait in line for a teller or an account advisor; when the line at the kiosk is full, newcomers leave.
 model: model.yaml
 
 # What can be changed on the Simulation page.
@@ -33,6 +33,7 @@ decisions:
 
 # What the Simulation page shows, and which way is better.
 results:
+  - { label: Wait for a teller, object: teller_line, measure: waiting time, better: lower }
   - { label: Time in the branch (quick transactions), object: exit, measure: time in system of quick, better: lower }
   - { label: Time in the branch (advice), object: exit, measure: time in system of advice, better: lower }
   - { label: Customers who left without being served, object: door, measure: lost, better: lower }

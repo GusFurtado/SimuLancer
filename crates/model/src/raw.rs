@@ -24,6 +24,8 @@ pub struct RawModel {
     #[serde(default)]
     pub conveyors: OrderedMap<RawConveyor>,
     #[serde(default)]
+    pub queues: OrderedMap<RawQueue>,
+    #[serde(default)]
     pub sinks: OrderedMap<RawSink>,
     #[serde(default)]
     pub resources: OrderedMap<RawResource>,
@@ -243,6 +245,16 @@ pub struct RawConveyor {
 pub enum ConveyorKind {
     #[default]
     Accumulating,
+}
+
+/// Parts wait here in order, with no travel time.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawQueue {
+    pub from: Spanned<String>,
+    pub to: Spanned<String>,
+    /// Parts it can hold; unlimited when absent.
+    pub capacity: Option<Spanned<u32>>,
 }
 
 #[derive(Debug, Deserialize)]
