@@ -44,7 +44,7 @@ pub struct Measure {
 }
 
 /// Extracts the measures selected in the model's `outputs.summary`, grouped
-/// by object in the order sources, servers, conveyors, sinks.
+/// by object in the order sources, servers, resources, queues, conveyors, sinks.
 pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]) -> Vec<Measure> {
     let wants = |item| items.contains(&item);
     let types_at = spec.types_at();
@@ -120,7 +120,36 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
         }
     }
     if wants(SummaryItem::ConveyorOccupancy) {
-        for (i, c) in spec.conveyors.iter().enumerate() {
+        for (i, c) in spec
+            .conveyors
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.is_queue())
+        {
+            add("queue", &c.name, "mean parts", Unit::Parts, &|r| {
+                r.conveyors[i].mean_parts
+            });
+            add("queue", &c.name, "max parts", Unit::Parts, &|r| {
+                r.conveyors[i].max_parts as f64
+            });
+            add("queue", &c.name, "waiting time", Unit::Seconds, &|r| {
+                r.conveyors[i].time.mean()
+            });
+            if c.capacity != u32::MAX {
+                add("queue", &c.name, "full", Unit::Fraction, &|r| {
+                    r.conveyors[i].full
+                });
+            }
+            add("queue", &c.name, "throughput", Unit::PartsPerHour, &|r| {
+                r.conveyors[i].entered as f64 / r.measured * 3600.0
+            });
+        }
+        for (i, c) in spec
+            .conveyors
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !c.is_queue())
+        {
             add("conveyor", &c.name, "mean parts", Unit::Parts, &|r| {
                 r.conveyors[i].mean_parts
             });

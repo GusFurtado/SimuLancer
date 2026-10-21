@@ -86,9 +86,10 @@ pub fn write_report(
         })).collect::<Vec<_>>(),
         "conveyors": spec.conveyors.iter().map(|c| json!({
             "name": c.name,
+            "queue": c.is_queue(),
             "from": node(c.from),
             "to": node(c.to),
-            "capacity": c.capacity,
+            "capacity": (c.capacity != u32::MAX).then_some(c.capacity),
         })).collect::<Vec<_>>(),
         "sinks": spec.sinks.iter().map(|s| &s.name).collect::<Vec<_>>(),
         "measures": measures.iter().map(|(m, s)| json!({
@@ -273,6 +274,7 @@ impl<'a, W: Write> EventLog<'a, W> {
             })).collect::<Vec<_>>(),
             "conveyors": spec.conveyors.iter().map(|c| json!({
                 "name": c.name,
+                "queue": c.is_queue(),
                 "from": node(c.from),
                 "to": node(c.to),
                 "length": c.length,

@@ -5,8 +5,9 @@ use std::collections::HashMap;
 
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node, OnFailure, PerType,
-    Resource, Routing, Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
+    ConnectionKind, Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node,
+    OnFailure, PerType, Resource, Routing, Schedule, Server, ServerKind, Sink, Source, Spec,
+    WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -35,7 +36,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     }
 
     // Names. Entity types have their own namespace; sources, servers,
-    // conveyors and sinks share one, since conveyors refer to them by name.
+    // conveyors, queues and sinks share one, since connections refer to them
+    // by name.
     let mut entity_index = HashMap::new();
     for (i, (name, _)) in raw.entities.0.iter().enumerate() {
         b.check_name(name);
@@ -80,6 +82,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             raw.conveyors.0.iter().map(|(n, _)| n).collect(),
             Kind::Conveyor,
         ),
+        (raw.queues.0.iter().map(|(n, _)| n).collect(), Kind::Queue),
         (raw.sinks.0.iter().map(|(n, _)| n).collect(), Kind::Sink),
         (
             raw.resources.0.iter().map(|(n, _)| n).collect(),
@@ -93,7 +96,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 Some(existing) => b.error(
                     name,
                     format!(
-                        "`{}` is already used by a {}; names must be unique across sources, servers, conveyors, sinks and resources",
+                        "`{}` is already used by a {}; names must be unique across sources, servers, conveyors, queues, sinks and resources",
                         name.value,
                         existing.kind.describe()
                     ),
@@ -117,8 +120,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     for (i, (name, c)) in raw.conveyors.0.iter().enumerate() {
         // Accumulating is the only kind so far; a new kind makes this fail to compile.
         let raw::ConveyorKind::Accumulating = c.kind;
-        let from = b.endpoint(&objects, name, &c.from, End::From);
-        let to = b.endpoint(&objects, name, &c.to, End::To);
+        let from = b.endpoint(&objects, "conveyor", name, &c.from, End::From);
+        let to = b.endpoint(&objects, "conveyor", name, &c.to, End::To);
         endpoints_ok &= from.is_some() && to.is_some();
         match from {
             Some(Node::Source(s)) => source_outputs[s].push(i),
@@ -157,6 +160,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         {
             conveyors.push(Conveyor {
                 name: name.value.clone(),
+                kind: ConnectionKind::Conveyor,
                 from,
                 to,
                 length,
@@ -167,11 +171,47 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         }
     }
 
+    // Queues come after the conveyors in `Spec::conveyors`.
+    for (j, (name, q)) in raw.queues.0.iter().enumerate() {
+        let i = raw.conveyors.0.len() + j;
+        let from = b.endpoint(&objects, "queue", name, &q.from, End::From);
+        let to = b.endpoint(&objects, "queue", name, &q.to, End::To);
+        endpoints_ok &= from.is_some() && to.is_some();
+        match from {
+            Some(Node::Source(s)) => source_outputs[s].push(i),
+            Some(Node::Server(s)) => server_outputs[s].push(i),
+            _ => {}
+        }
+        match to {
+            Some(Node::Server(s)) => server_inputs[s].push(i),
+            Some(Node::Sink(s)) => sink_inputs[s].push(i),
+            _ => {}
+        }
+        let capacity = match &q.capacity {
+            Some(c) if c.value == 0 => {
+                b.error(
+                    c,
+                    format!(
+                        "queue `{}` needs room for at least one part; leave `capacity` out for no limit",
+                        name.value
+                    ),
+                );
+                None
+            }
+            Some(c) => Some(Some(c.value)),
+            None => Some(None),
+        };
+        if let (Some(from), Some(to), Some(capacity)) = (from, to, capacity) {
+            conveyors.push(Conveyor::queue(name.value.clone(), from, to, capacity));
+        }
+    }
+
     let conveyor_names: Vec<&str> = raw
         .conveyors
         .0
         .iter()
         .map(|(n, _)| n.value.as_str())
+        .chain(raw.queues.0.iter().map(|(n, _)| n.value.as_str()))
         .collect();
 
     let mut sources = Vec::new();
@@ -406,7 +446,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         if endpoints_ok && sink_inputs[i].is_empty() {
             b.error(
                 name,
-                format!("sink `{}` has no incoming conveyor", name.value),
+                format!("sink `{}` has no incoming conveyor or queue", name.value),
             );
         }
         sinks.push(Sink {
@@ -663,6 +703,7 @@ enum Kind {
     Source,
     Server,
     Conveyor,
+    Queue,
     Sink,
     Resource,
 }
@@ -673,6 +714,7 @@ impl Kind {
             Kind::Source => "source",
             Kind::Server => "server",
             Kind::Conveyor => "conveyor",
+            Kind::Queue => "queue",
             Kind::Sink => "sink",
             Kind::Resource => "resource",
         }
@@ -1126,6 +1168,7 @@ impl Builder {
     fn endpoint(
         &mut self,
         objects: &HashMap<&str, Object>,
+        what: &str,
         conveyor: &Spanned<String>,
         target: &Spanned<String>,
         end: End,
@@ -1138,7 +1181,7 @@ impl Builder {
             self.error(
                 target,
                 format!(
-                    "conveyor `{}` {verb} `{}`, which doesn't exist",
+                    "{what} `{}` {verb} `{}`, which doesn't exist",
                     conveyor.value, target.value
                 ),
             );
@@ -1153,12 +1196,12 @@ impl Builder {
                     Kind::Source => "nothing can go into a source",
                     Kind::Sink => "nothing comes out of a sink",
                     Kind::Resource => "it's a resource, which servers use, not a place parts go",
-                    _ => "conveyors can't connect directly to other conveyors",
+                    _ => "conveyors and queues connect objects, not other conveyors or queues",
                 };
                 self.error(
                     target,
                     format!(
-                        "conveyor `{}` can't have `{word}: {}`: {reason}",
+                        "{what} `{}` can't have `{word}: {}`: {reason}",
                         conveyor.value, target.value
                     ),
                 );

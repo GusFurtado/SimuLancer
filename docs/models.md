@@ -16,6 +16,7 @@ entities:          # part types
 sources:   { ... } # where parts come from
 servers:   { ... } # machines and stations that work on parts
 conveyors: { ... } # how parts move between them
+queues:    { ... } # where parts wait in line between them, with no travel time
 sinks:     { ... } # where parts leave
 resources: { ... } # operators and tools servers share (optional)
 schedules: { ... } # weekly working times (optional)
@@ -27,7 +28,7 @@ outputs:    { ... }   # optional
 ## Names
 
 - **Allowed characters:** names use letters, digits, `_` and `-`, and start with a letter or `_`.
-- **Uniqueness:** sources, servers, conveyors, sinks and resources share one namespace. Part types have their own.
+- **Uniqueness:** sources, servers, conveyors, queues, sinks and resources share one namespace. Part types have their own.
 
 ## Units
 
@@ -135,7 +136,7 @@ servers:
 
 ## Routing and merging
 
-Several outgoing conveyors need an `output` rule; several incoming ones need an `input` rule. There are no hidden defaults.
+Objects connect with conveyors and queues (together, *connections*). Several outgoing connections need an `output` rule; several incoming ones need an `input` rule. There are no hidden defaults. Rules name connections, whether conveyors or queues.
 
 | `output` rule | Parts go to |
 |---|---|
@@ -163,6 +164,21 @@ conveyors:
 
 - **Accumulating:** parts queue up at the end when the next object can't take them.
 - **Capacity:** a conveyor holds `floor(length / spacing)` parts.
+
+## Queues
+
+```yaml
+queues:
+  teller_line: { from: kiosk, to: tellers, capacity: 15 }
+  backlog:     { from: orders, to: pick }        # no capacity: no limit
+```
+
+- **Waiting in line:** a queue connects two objects like a conveyor, but parts don't travel: they're at its end as soon as they get on, and leave first in, first out.
+- **Capacity:** how many parts can wait. Without it, there's no limit. When it's full, the object feeding it is blocked (or a source drops the part, with `when_blocked: drop`), as with a full conveyor.
+- **Drawing:** queues aren't in the layout file; they're drawn straight between their objects, so moving an object never changes a queue.
+- **Results:** mean and most parts waiting, the time each part waited (*waiting time*), the share of time full (for a limited queue) and throughput.
+
+Use a queue when the time to get from one object to the next doesn't matter, or for any line of people or store of goods. Use a conveyor when travel time and room along the way matter.
 
 ## Resources
 

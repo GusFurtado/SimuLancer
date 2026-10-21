@@ -408,4 +408,26 @@ for template in ["assembly-line", "bank-branch", "warehouse"]:
     b.go(url + f"/modeling?project={template}")
     b.wait("return document.querySelector('.diagram svg') !== null && document.querySelector('.versions') !== null", 10)
     b.screenshot(f"{out}/13-{template}.png")
+
+# --- Queues: a capacity, no length; dragging redraws them without changing the model.
+b.go(url + "/modeling?project=bank-branch")
+b.wait("return document.querySelector('[data-connection=teller_line]') !== null", 10)
+b.js("document.querySelector('[data-connection=teller_line]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+b.wait("return document.querySelector('.panel .kind')?.textContent === 'Queue'")
+check(b.js("return document.getElementById('f-capacity').value") == "15", "queue capacity shown")
+check("teller_line · 15" in b.js("return document.querySelector('.diagram svg').textContent"), "capacity on the diagram")
+b.js(f"""
+  const r = {obj('tellers')}, box = r.getBoundingClientRect(), px = box.width / 1.2;
+  const at = (dx) => ({{ clientX: box.x + box.width / 2 + dx, clientY: box.y + box.height / 2, bubbles: true, button: 0 }});
+  r.dispatchEvent(new PointerEvent('pointerdown', at(0)));
+  window.dispatchEvent(new PointerEvent('pointermove', at(3 * px)));
+  window.dispatchEvent(new PointerEvent('pointerup', at(3 * px)));
+""")
+# Only the layout changed: no model change (the queue has no length to follow the drawing).
+b.wait("return document.getElementById('pending')?.textContent === 'unsaved layout'", 10)
+b.js("document.querySelector('[data-connection=teller_line]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+b.wait("return document.getElementById('f-capacity') !== null")
+set_value("f-capacity", "")
+b.wait("return document.querySelector('.diagram svg').textContent.includes('teller_line · ∞')", 10)
+b.screenshot(f"{out}/14-queues.png")
 print("web UI sessions (Modeling and Simulation): all checks passed")

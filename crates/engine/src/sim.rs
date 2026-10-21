@@ -184,6 +184,8 @@ struct OnBelt {
     /// the part ahead; see `ConveyorState::positions`.
     pos: f64,
     since: SimTime,
+    /// When it got on.
+    entered: SimTime,
 }
 
 struct ConveyorState {
@@ -196,6 +198,8 @@ struct ConveyorState {
     /// When the current head reached the end (for `first_come` merging).
     head_arrived: Option<SimTime>,
     entered: u64,
+    /// Time from getting on to leaving.
+    time: Tally,
     parts: TimeAverage,
     full: TimeAverage,
 }
@@ -386,6 +390,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 upstream_waiting: false,
                 head_arrived: None,
                 entered: 0,
+                time: Tally::default(),
                 parts: TimeAverage::default(),
                 full: TimeAverage::default(),
             })
@@ -781,6 +786,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             part,
             pos: 0.0,
             since: self.now,
+            entered: self.now,
         });
         state.entered += 1;
         self.observer.record(
@@ -844,9 +850,10 @@ impl<'a, O: Observer> Sim<'a, O> {
             p.pos = pos;
             p.since = now;
         }
-        let part = state.belt.pop_front().expect("head exists").part;
+        let head = state.belt.pop_front().expect("head exists");
+        state.time.add((now - head.entered).as_secs_f64());
         self.schedule_reach_end(conveyor);
-        part
+        head.part
     }
 
     /// A part left the conveyor: the object feeding it may now have room.
@@ -1416,6 +1423,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
         for c in &mut self.conveyors {
             c.entered = 0;
+            c.time = Tally::default();
             c.parts.reset(now);
             c.full.reset(now);
         }
@@ -1480,6 +1488,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     max_parts: c.parts.max(),
                     full: c.full.mean(),
                     entered: c.entered,
+                    time: c.time.clone(),
                 })
                 .collect(),
             resources: self

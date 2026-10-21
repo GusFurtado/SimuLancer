@@ -380,6 +380,49 @@ function conveyors(container) {
   addEventListener("resize", draw);
 }
 
+function queues(container) {
+  const list = data.conveyors.filter(c => measure("queue", c.name, "mean parts"));
+  if (!list.length) return;
+  const rows = el("div", { class: "rows" });
+  container.append(el("section", {},
+    el("h2", {}, "Queues"),
+    el("p", { class: "note" }, "How many wait in each queue on average, the most at once, and how long each one waits. The bar is the average against the most."),
+    el("div", { class: "card" }, rows)));
+
+  const draw = () => {
+    rows.replaceChildren();
+    const width = rows.clientWidth;
+    for (const c of list) {
+      const mean = measure("queue", c.name, "mean parts");
+      const max = measure("queue", c.name, "max parts");
+      const wait = measure("queue", c.name, "waiting time");
+      const full = measure("queue", c.name, "full");
+      const label = el("div", { class: "row-label" },
+        el("span", {}, el("strong", {}, c.name), ` ${c.from} → ${c.to}`),
+        el("span", {}, `${fmt(mean, mean.mean)} waiting on average, at most ${fmt(max, max.max)}` +
+          (wait && wait.mean !== null ? ` · each waits ${fmt(wait, wait.mean)}` : "") +
+          (full ? ` · full ${fmt(full, full.mean)} of the time` : "")));
+      const h = 12;
+      const top = Math.max(1, max.max);
+      const chart = svg("svg", { height: h, viewBox: `0 0 ${width} ${h}`, role: "img",
+        "aria-label": `${c.name}: ${fmt(mean, mean.mean)} waiting on average, at most ${fmt(max, max.max)}` });
+      chart.append(svg("rect", { x: 0, y: 0, width, height: h, rx: 4, fill: "var(--track)" }));
+      const w = Math.max(0, Math.min(1, mean.mean / top)) * width;
+      if (w > 0) {
+        const bar = svg("rect", { x: 0, y: 0, width: Math.max(w, 8), height: h, rx: 4, fill: "var(--accent)" });
+        hoverable(bar, () => [
+          [`${fmt(mean, mean.mean)} ${ci(mean)}`, `${c.name} · mean waiting`, "var(--accent)"],
+          ...(wait && wait.mean !== null ? [[`${fmt(wait, wait.mean)} ${ci(wait)}`, "waiting time"]] : []),
+        ]);
+        chart.append(bar);
+      }
+      rows.append(el("div", {}, label, chart));
+    }
+  };
+  draw();
+  addEventListener("resize", draw);
+}
+
 function variation(container) {
   const picks = [];
   for (const sink of data.sinks) {
@@ -477,6 +520,7 @@ function footer() {
 header();
 headlineTiles();
 serverStates(app);
+queues(app);
 conveyors(app);
 variation(app);
 fullTable(app);

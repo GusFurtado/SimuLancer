@@ -1,18 +1,12 @@
 # Visual layout for bank-branch.yaml (meters, Y up). The kiosk is by the
-# door; tellers' counters on one side, advisors' desks on the other.
+# door; tellers' counters on one side, advisors' desks on the other. The
+# queues are drawn straight between them.
 model: bank-branch.yaml
 units: m
 
 objects:
   door:     { position: [0, 0, 0] }
-  kiosk:    { position: [5.4, 0, 0], model: machine_small }
-  tellers:  { position: [14.8, 0, -4], model: machine_small }
-  advisors: { position: [8.8, 0, 4], model: machine_small }
-  exit:     { position: [20.5, 0, 0] }
-
-conveyors:
-  entrance:     { path: [[0.7, 0, 0], [4.7, 0, 0]] }                       # 4
-  teller_line:  { path: [[5.4, 0, -0.7], [5.4, 0, -4], [14.1, 0, -4]] }    # 3.3 + 8.7
-  advisor_line: { path: [[5.4, 0, 0.7], [5.4, 0, 4], [8.1, 0, 4]] }        # 3.3 + 2.7
-  teller_out:   { path: [[15.5, 0, -4], [20.5, 0, -4], [20.5, 0, -0.7]] }  # 5 + 3.3
-  advisor_out:  { path: [[9.5, 0, 4], [20.5, 0, 4], [20.5, 0, 0.7]] }      # 11 + 3.3
+  kiosk:    { position: [5, 0, 0], model: machine_small }
+  tellers:  { position: [12, 0, -4], model: machine_small }
+  advisors: { position: [12, 0, 4], model: machine_small }
+  exit:     { position: [18, 0, 0] }
