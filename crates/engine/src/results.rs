@@ -69,6 +69,12 @@ pub struct ConveyorResult {
     /// Seconds from getting on to leaving, for parts that left. For a
     /// queue, the time waiting in it.
     pub time: Tally,
+    /// The same, per part type (indexed like [`crate::Spec::entities`]).
+    pub time_by_type: Vec<Tally>,
+    /// Queues only: the times, for percentiles.
+    pub times: Option<Histogram>,
+    /// Queues with a target wait: parts that left within it.
+    pub within_target: u64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +146,59 @@ impl Tally {
     }
 }
 
+/// Durations in log-scale bins, for percentiles in bounded memory: each bin
+/// is 1% wider than the one before, from 1 ms, so a percentile is within
+/// about 0.5% of the exact value. Zero (no wait at all) is counted exactly.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Histogram {
+    zeros: u64,
+    /// Bin i holds values in [FIRST × RATIO^i, FIRST × RATIO^(i+1)); values
+    /// under FIRST go to bin 0. Grows as needed.
+    bins: Vec<u64>,
+    count: u64,
+}
+
+impl Histogram {
+    const FIRST: f64 = 1e-3;
+    const RATIO: f64 = 1.01;
+
+    pub fn add(&mut self, seconds: f64) {
+        self.count += 1;
+        if seconds <= 0.0 {
+            self.zeros += 1;
+            return;
+        }
+        let i = ((seconds / Self::FIRST).ln() / Self::RATIO.ln())
+            .floor()
+            .max(0.0) as usize;
+        if i >= self.bins.len() {
+            self.bins.resize(i + 1, 0);
+        }
+        self.bins[i] += 1;
+    }
+
+    /// The `q` quantile (0 to 1); NaN without observations.
+    pub fn quantile(&self, q: f64) -> f64 {
+        if self.count == 0 {
+            return f64::NAN;
+        }
+        // The smallest value with at least q of the observations at or below it.
+        let rank = ((q * self.count as f64).ceil() as u64).max(1);
+        if rank <= self.zeros {
+            return 0.0;
+        }
+        let mut seen = self.zeros;
+        for (i, &n) in self.bins.iter().enumerate() {
+            seen += n;
+            if seen >= rank {
+                // The bin's geometric middle.
+                return Self::FIRST * Self::RATIO.powf(i as f64 + 0.5);
+            }
+        }
+        unreachable!("rank is at most count")
+    }
+}
+
 /// Time-weighted average of a value that changes at event times. Exact:
 /// integer value × integer microseconds.
 #[derive(Debug, Clone, Default)]
@@ -186,6 +245,24 @@ impl TimeAverage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn histogram_quantiles_are_within_half_a_percent() {
+        let mut h = Histogram::default();
+        assert!(h.quantile(0.5).is_nan());
+        for _ in 0..20 {
+            h.add(0.0);
+        }
+        for i in 1..=80 {
+            h.add(f64::from(i)); // 1 s .. 80 s
+        }
+        assert_eq!(h.quantile(0.1), 0.0);
+        assert_eq!(h.quantile(0.2), 0.0);
+        for (q, exact) in [(0.21, 1.0), (0.6, 40.0), (0.9, 70.0), (1.0, 80.0)] {
+            let got = h.quantile(q);
+            assert!((got / exact - 1.0).abs() < 0.006, "q {q}: {got} vs {exact}");
+        }
+    }
 
     #[test]
     fn time_average_weights_by_duration() {

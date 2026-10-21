@@ -255,6 +255,8 @@ pub struct RawQueue {
     pub to: Spanned<String>,
     /// Parts it can hold; unlimited when absent.
     pub capacity: Option<Spanned<u32>>,
+    /// A service level: the share of parts that waited at most this long.
+    pub target_wait: Option<Spanned<Scalar>>,
 }
 
 #[derive(Debug, Deserialize)]

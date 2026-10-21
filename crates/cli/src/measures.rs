@@ -161,6 +161,49 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
             add("queue", &c.name, "waiting time", Unit::Seconds, &|r| {
                 r.conveyors[i].time.mean()
             });
+            add(
+                "queue",
+                &c.name,
+                "waiting time (90th percentile)",
+                Unit::Seconds,
+                &|r| {
+                    r.conveyors[i]
+                        .times
+                        .as_ref()
+                        .map_or(f64::NAN, |h| h.quantile(0.9))
+                },
+            );
+            add("queue", &c.name, "longest wait", Unit::Seconds, &|r| {
+                let t = &r.conveyors[i].time;
+                if t.count == 0 { f64::NAN } else { t.max }
+            });
+            if c.target_wait.is_some() {
+                add(
+                    "queue",
+                    &c.name,
+                    "within target wait",
+                    Unit::Fraction,
+                    &|r| {
+                        let c = &r.conveyors[i];
+                        c.within_target as f64 / c.time.count as f64
+                    },
+                );
+            }
+            // With several part types waiting here, the wait of each.
+            let waiting: Vec<usize> = (0..spec.entities.len())
+                .filter(|&e| types_at.conveyors[i][e])
+                .collect();
+            if waiting.len() > 1 {
+                for &e in &waiting {
+                    add(
+                        "queue",
+                        &c.name,
+                        &format!("waiting time of {}", spec.entities[e]),
+                        Unit::Seconds,
+                        &|r| r.conveyors[i].time_by_type[e].mean(),
+                    );
+                }
+            }
             if c.capacity != u32::MAX {
                 add("queue", &c.name, "full", Unit::Fraction, &|r| {
                     r.conveyors[i].full

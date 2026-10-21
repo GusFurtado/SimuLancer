@@ -58,8 +58,8 @@ use std::collections::VecDeque;
 use crate::SimTime;
 use crate::events::{Event, EventList};
 use crate::results::{
-    ConveyorResult, ReplicationResult, ResourceResult, ServerResult, SinkResult, SourceResult,
-    Tally, TimeAverage, Totals, TypeResult,
+    ConveyorResult, Histogram, ReplicationResult, ResourceResult, ServerResult, SinkResult,
+    SourceResult, Tally, TimeAverage, Totals, TypeResult,
 };
 use crate::rng::Rng;
 use crate::spec::{
@@ -200,6 +200,10 @@ struct ConveyorState {
     entered: u64,
     /// Time from getting on to leaving.
     time: Tally,
+    time_by_type: Vec<Tally>,
+    /// Queues only.
+    times: Option<Histogram>,
+    within_target: u64,
     parts: TimeAverage,
     full: TimeAverage,
 }
@@ -391,13 +395,16 @@ impl<'a, O: Observer> Sim<'a, O> {
         let conveyors = spec
             .conveyors
             .iter()
-            .map(|_| ConveyorState {
+            .map(|c| ConveyorState {
                 belt: VecDeque::new(),
                 generation: 0,
                 upstream_waiting: false,
                 head_arrived: None,
                 entered: 0,
                 time: Tally::default(),
+                time_by_type: vec![Tally::default(); spec.entities.len()],
+                times: c.is_queue().then(Histogram::default),
+                within_target: 0,
                 parts: TimeAverage::default(),
                 full: TimeAverage::default(),
             })
@@ -858,7 +865,15 @@ impl<'a, O: Observer> Sim<'a, O> {
             p.since = now;
         }
         let head = state.belt.pop_front().expect("head exists");
-        state.time.add((now - head.entered).as_secs_f64());
+        let time = (now - head.entered).as_secs_f64();
+        state.time.add(time);
+        state.time_by_type[head.part.entity].add(time);
+        if let Some(times) = &mut state.times {
+            times.add(time);
+        }
+        if c.target_wait.is_some_and(|target| time <= target + 1e-9) {
+            state.within_target += 1;
+        }
         self.schedule_reach_end(conveyor);
         head.part
     }
@@ -1431,6 +1446,13 @@ impl<'a, O: Observer> Sim<'a, O> {
         for c in &mut self.conveyors {
             c.entered = 0;
             c.time = Tally::default();
+            c.time_by_type
+                .iter_mut()
+                .for_each(|t| *t = Tally::default());
+            if let Some(times) = &mut c.times {
+                *times = Histogram::default();
+            }
+            c.within_target = 0;
             c.parts.reset(now);
             c.full.reset(now);
         }
@@ -1499,6 +1521,9 @@ impl<'a, O: Observer> Sim<'a, O> {
                     full: c.full.mean(),
                     entered: c.entered,
                     time: c.time.clone(),
+                    time_by_type: c.time_by_type.clone(),
+                    times: c.times.clone(),
+                    within_target: c.within_target,
                 })
                 .collect(),
             resources: self

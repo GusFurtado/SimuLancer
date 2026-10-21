@@ -836,7 +836,8 @@ function panel(tree) {
     case "queues":
       return el("div", {}, header,
         el("p", { class: "hint", style: "margin: 0 0 12px" }, `${node.from} → ${node.to}. Parts wait here in line, first in first out, with no travel time.`),
-        capacityField(`${p}.capacity`));
+        capacityField(`${p}.capacity`),
+        field("Target wait (for a service level)", `${p}.target_wait`, "text", [], "none, e.g. 5 min"));
     default:
       return el("div", {}, header, el("p", { class: "hint" }, "Sinks take every part; there's nothing to set."));
   }

@@ -160,6 +160,8 @@ pub struct TypesAt {
     pub sources: Vec<Vec<bool>>,
     pub servers: Vec<Vec<bool>>,
     pub sinks: Vec<Vec<bool>>,
+    /// Which part types travel on each conveyor or queue.
+    pub conveyors: Vec<Vec<bool>>,
 }
 
 impl Spec {
@@ -169,6 +171,7 @@ impl Spec {
             sources: vec![vec![false; n]; self.sources.len()],
             servers: vec![vec![false; n]; self.servers.len()],
             sinks: vec![vec![false; n]; self.sinks.len()],
+            conveyors: vec![vec![false; n]; self.conveyors.len()],
         };
         let mut stack: Vec<(Node, usize)> = Vec::new();
         for (i, s) in self.sources.iter().enumerate() {
@@ -196,6 +199,7 @@ impl Spec {
                 _ => outputs.clone(),
             };
             for c in next {
+                at.conveyors[c][e] = true;
                 let seen = match self.conveyors[c].to {
                     Node::Server(s) => &mut at.servers[s][e],
                     Node::Sink(s) => &mut at.sinks[s][e],
@@ -337,6 +341,8 @@ pub struct Conveyor {
     /// Maximum number of parts on the conveyor: `floor(length / spacing)`.
     /// For a queue, its capacity (`u32::MAX` when unlimited).
     pub capacity: u32,
+    /// Queues only: the wait a service level is measured against, in seconds.
+    pub target_wait: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -347,7 +353,13 @@ pub enum ConnectionKind {
 
 impl Conveyor {
     /// A queue between two objects; `None` capacity is unlimited.
-    pub fn queue(name: String, from: Node, to: Node, capacity: Option<u32>) -> Conveyor {
+    pub fn queue(
+        name: String,
+        from: Node,
+        to: Node,
+        capacity: Option<u32>,
+        target_wait: Option<f64>,
+    ) -> Conveyor {
         Conveyor {
             name,
             kind: ConnectionKind::Queue,
@@ -357,6 +369,7 @@ impl Conveyor {
             speed: 1.0,
             spacing: 0.0,
             capacity: capacity.unwrap_or(u32::MAX),
+            target_wait,
         }
     }
 

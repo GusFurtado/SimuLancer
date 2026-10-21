@@ -319,6 +319,14 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Waiting time and service levels (implemented 2026-10-21, issue #24)
+
+- **Queues report the wait people talk about:** the mean, the 90th percentile, the longest wait, and the mean per part type when several types wait in the same queue (which types travel on each connection is now worked out with the other "types at" checks).
+- **Service level: `target_wait` on a queue** adds *within target wait*, the share of parts that waited at most that long. It's on the queue, in the model, rather than a threshold chosen on the Simulation page, because every measure is computed per replication when the model runs; the target is part of what the model measures. Counted exactly by the engine.
+- **Percentiles from a histogram**, not from every observation: bins 1% apart from 1 ms (no wait at all counted exactly), so memory doesn't grow with the run, and a percentile is within about 0.5% of the exact one. Only queues keep one.
+- Validated against M/M/1: the share waiting at most 5 minutes (1 − ρe^−(μ−λ)t) and the 90th percentile (ln(ρ/0.1)/(μ−λ)).
+- The bank template sets targets of 5 minutes for tellers and 15 for advisors, and its Simulation page shows "Served by a teller within 5 minutes".
+
 ## Results over working time (implemented 2026-10-21, issue #23)
 
 - **States are shares of working time.** For a server with a schedule, busy, blocked, failed and idle (and waiting for resources) are shares of its shifts, and add up to 1 without off shift; off shift is still reported, as the share of the whole week. A resource's busy is the share of its units in use while on shift. Before, everything was a share of the calendar week: the bank's tellers read 12.5% busy instead of about 54% of their shift. Servers and resources without a schedule are unchanged.
@@ -359,7 +367,7 @@ What building them showed is missing, in the order I'd add it:
 |---|---|---|---|
 | **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). Done: see Queues. | #22 |
 | **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. Done: see Results over working time. | #23 |
-| **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". | #24 |
+| **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". Done: see Waiting time and service levels. | #24 |
 | **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. | #25 |
 | **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. | #26 |
 | **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. | #27 |

@@ -55,8 +55,8 @@ servers:
 
 queues:
   entrance:     { from: door,     to: kiosk,    capacity: 5 }
-  teller_line:  { from: kiosk,    to: tellers,  capacity: 15 }
-  advisor_line: { from: kiosk,    to: advisors, capacity: 7 }
+  teller_line:  { from: kiosk,    to: tellers,  capacity: 15, target_wait: "5 min" }
+  advisor_line: { from: kiosk,    to: advisors, capacity: 7, target_wait: "15 min" }
   teller_out:   { from: tellers,  to: exit }
   advisor_out:  { from: advisors, to: exit }
 
