@@ -166,6 +166,10 @@ func _apply(e: Dictionary) -> void:
 			servers[e["server"]]["waiting"].erase(int(e["part"]))
 			servers[e["server"]]["blocked"].erase(int(e["part"]))
 			consumed += 1
+		"stocked":
+			# In a queue when the run starts.
+			created += 1
+			conveyors[e["conveyor"]]["belt"].append({"part": int(e["part"]), "pos": 0.0, "since": t})
 		"split":
 			split += 1
 			servers[e["server"]]["blocked"].append(int(e["part"]))

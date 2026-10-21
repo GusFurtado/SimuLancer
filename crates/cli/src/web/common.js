@@ -323,6 +323,12 @@ class Replay {
         this.types.set(e.part, Math.max(0, (this.header.entities || []).indexOf(e.entity)));
         break;
       case "lost": this.lost++; this.types.delete(e.part); break;
+      case "stocked":
+        // In a queue when the run starts.
+        this.created++;
+        this.types.set(e.part, Math.max(0, (this.header.entities || []).indexOf(e.entity)));
+        this.conveyors[e.conveyor].belt.push({ part: e.part, pos: 0, since: e.t });
+        break;
       case "entered_conveyor": {
         const c = this.conveyors[e.conveyor];
         const from = this.servers[c.from];

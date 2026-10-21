@@ -7,6 +7,12 @@ pub type PartId = u64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TraceEvent {
+    /// In a queue when the run starts (`starts_with`).
+    Stocked {
+        part: PartId,
+        conveyor: usize,
+        entity: usize,
+    },
     /// Made by splitting a part (which is `Consumed`) at a server.
     Split {
         part: PartId,

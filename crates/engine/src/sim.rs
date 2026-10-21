@@ -63,8 +63,8 @@ use crate::results::{
 };
 use crate::rng::Rng;
 use crate::spec::{
-    Arrivals, Conveyor, Distribution, FailureClock, InputRule, Node, OnFailure, Routing,
-    ServerKind, Spec, WhenBlocked,
+    Arrivals, Conveyor, Distribution, FailureClock, InputRule, Node, OnFailure, OrderQuantity,
+    Restock, Routing, ServerKind, Spec, WhenBlocked,
 };
 use crate::trace::{Observer, PartId, TraceEvent};
 
@@ -100,8 +100,18 @@ struct SourceState {
     /// Bumped at each shift end, to cancel the pending arrival.
     arrival_generation: u64,
     created: u64,
+    /// Created over the whole run (not reset after the warm-up): restocking
+    /// counts it in the stock position.
+    created_total: u64,
     lost: u64,
     blocked: TimeAverage,
+    /// Restocking: parts ordered and not yet delivered.
+    on_order: u64,
+    on_order_avg: TimeAverage,
+    orders: u64,
+    lead_rng: Rng,
+    /// Deliveries that came while off shift, delivered at the next shift.
+    pending: VecDeque<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -214,8 +224,11 @@ struct ConveyorState {
     /// Queues only.
     times: Option<Histogram>,
     within_target: u64,
+    /// Parts that left over the whole run (not reset after the warm-up).
+    departed_total: u64,
     parts: TimeAverage,
     full: TimeAverage,
+    empty: TimeAverage,
 }
 
 impl ConveyorState {
@@ -328,6 +341,8 @@ struct Sim<'a, O: Observer> {
     resources: Vec<ResourceState>,
     /// Servers waiting for resource units, in the order they started waiting.
     resource_queue: VecDeque<usize>,
+    /// Per conveyor: restocking sources that check after each part leaves it.
+    restockers: Vec<Vec<usize>>,
     sink_exited: Vec<u64>,
     sink_times: Vec<Tally>,
     /// Per sink, per part type: parts that exited and their times in system.
@@ -353,8 +368,14 @@ impl<'a, O: Observer> Sim<'a, O> {
                 off_shift: false,
                 arrival_generation: 0,
                 created: 0,
+                created_total: 0,
                 lost: 0,
                 blocked: TimeAverage::default(),
+                on_order: 0,
+                on_order_avg: TimeAverage::default(),
+                orders: 0,
+                lead_rng: stream(format!("source/{}/lead_time", s.name)),
+                pending: VecDeque::new(),
             })
             .collect();
         let servers = spec
@@ -419,8 +440,10 @@ impl<'a, O: Observer> Sim<'a, O> {
                 time_by_type: vec![Tally::default(); spec.entities.len()],
                 times: c.is_queue().then(Histogram::default),
                 within_target: 0,
+                departed_total: 0,
                 parts: TimeAverage::default(),
                 full: TimeAverage::default(),
+                empty: TimeAverage::default(),
             })
             .collect();
         let experiment = &spec.experiment;
@@ -446,6 +469,16 @@ impl<'a, O: Observer> Sim<'a, O> {
                 })
                 .collect(),
             resource_queue: VecDeque::new(),
+            restockers: (0..spec.conveyors.len())
+                .map(|c| {
+                    (0..spec.sources.len())
+                        .filter(|&s| {
+                            matches!(&spec.sources[s].arrivals,
+                                Arrivals::Restock(r) if r.queue == c && r.review_every.is_none())
+                        })
+                        .collect()
+                })
+                .collect(),
             sink_exited: vec![0; spec.sinks.len()],
             sink_times: vec![Tally::default(); spec.sinks.len()],
             sink_by_type: vec![vec![(0, Tally::default()); spec.entities.len()]; spec.sinks.len()],
@@ -482,8 +515,18 @@ impl<'a, O: Observer> Sim<'a, O> {
                     .schedule(at, Event::ScheduleChange { schedule: i });
             }
         }
+        self.stock_queues();
         for source in 0..self.spec.sources.len() {
-            if !self.sources[source].off_shift {
+            if let Arrivals::Restock(r) = &self.spec.sources[source].arrivals {
+                // Restocking sources check their stock at once, and order
+                // whatever the time; deliveries wait for a shift.
+                match r.review_every {
+                    Some(_) => self
+                        .events
+                        .schedule(SimTime::ZERO, Event::Review { source }),
+                    None => self.review(source),
+                }
+            } else if !self.sources[source].off_shift {
                 self.first_arrival(source);
             }
         }
@@ -541,6 +584,18 @@ impl<'a, O: Observer> Sim<'a, O> {
                 }
                 Event::Repair { server, mode } => self.repair(server, mode),
                 Event::Pull { server } => self.pull(server),
+                Event::Delivery { source, parts } => self.delivery(source, parts),
+                Event::Review { source } => {
+                    self.review(source);
+                    if let Arrivals::Restock(Restock {
+                        review_every: Some(every),
+                        ..
+                    }) = &self.spec.sources[source].arrivals
+                    {
+                        self.events
+                            .schedule(self.now + *every, Event::Review { source });
+                    }
+                }
             }
             self.sample_state();
         }
@@ -550,12 +605,19 @@ impl<'a, O: Observer> Sim<'a, O> {
     // --- Sources ---
 
     fn arrival(&mut self, source: usize) {
-        let spec = self.spec;
-        let source_spec = &spec.sources[source];
-        let n = match &source_spec.group {
+        let n = match &self.spec.sources[source].group {
             None => 1,
             Some(count) => self.sources[source].group_rng.count(count),
         };
+        self.deliver(source, n);
+    }
+
+    /// `n` new parts at a source get on in order; once one has to wait, the
+    /// rest wait behind it (or, with `drop`, each that can't is lost). The
+    /// next arrival time starts when the last has got on.
+    fn deliver(&mut self, source: usize, n: u32) {
+        let spec = self.spec;
+        let source_spec = &spec.sources[source];
         for _ in 0..n {
             let part = self.create_part(source);
             let state = &mut self.sources[source];
@@ -566,7 +628,6 @@ impl<'a, O: Observer> Sim<'a, O> {
                 &mut state.routing_rng,
                 &mut state.next_output,
             );
-            // Parts of a group get on in order: once one waits, the rest wait behind it.
             if self.sources[source].held.is_empty()
                 && self.try_send(part, target, &source_spec.outputs, &source_spec.routing)
             {
@@ -590,6 +651,92 @@ impl<'a, O: Observer> Sim<'a, O> {
         match self.sources[source].held.front() {
             None => self.schedule_arrival(source),
             Some(&(_, target)) => self.wait_for(target, &source_spec.outputs),
+        }
+    }
+
+    // --- Restocking ---
+
+    /// Parts a queue starts with, at time 0.
+    fn stock_queues(&mut self) {
+        for conveyor in 0..self.spec.conveyors.len() {
+            let Some((entity, n)) = self.spec.conveyors[conveyor].starts_with else {
+                continue;
+            };
+            for _ in 0..n {
+                let part = Part {
+                    id: self.next_part,
+                    created: self.now,
+                    entity,
+                };
+                self.next_part += 1;
+                self.totals.created += 1;
+                self.observer.record(
+                    self.now,
+                    TraceEvent::Stocked {
+                        part: part.id,
+                        conveyor,
+                        entity,
+                    },
+                );
+                self.conveyors[conveyor].belt.push_back(OnBelt {
+                    part,
+                    pos: 0.0,
+                    since: self.now,
+                    entered: self.now,
+                });
+                self.conveyors[conveyor].entered += 1;
+            }
+            if n > 0 {
+                self.schedule_reach_end(conveyor);
+            }
+        }
+    }
+
+    /// A restocking source checks its stock position and orders if it's at
+    /// or below the reorder point.
+    fn review(&mut self, source: usize) {
+        let Arrivals::Restock(r) = &self.spec.sources[source].arrivals else {
+            return;
+        };
+        let q = r.queue;
+        let initial = self.spec.conveyors[q]
+            .starts_with
+            .map_or(0, |(_, n)| u64::from(n));
+        let s = &self.sources[source];
+        let mut position = (initial + s.created_total + s.on_order) as i64
+            - self.conveyors[q].departed_total as i64;
+        let reorder_point = i64::from(r.reorder_point);
+        while position <= reorder_point {
+            let quantity = match r.quantity {
+                OrderQuantity::Fixed(q) => i64::from(q),
+                OrderQuantity::UpTo(level) => i64::from(level) - position,
+            };
+            if quantity <= 0 {
+                return; // validated: up-to levels are above the reorder point
+            }
+            let s = &mut self.sources[source];
+            s.on_order += quantity as u64;
+            s.orders += 1;
+            let lead = duration(s.lead_rng.sample(&r.lead_time));
+            self.events.schedule(
+                self.now + lead,
+                Event::Delivery {
+                    source,
+                    parts: quantity as u32,
+                },
+            );
+            position += quantity;
+        }
+    }
+
+    /// An order arrives: delivered now, or at the next shift if off shift.
+    fn delivery(&mut self, source: usize, parts: u32) {
+        let s = &mut self.sources[source];
+        s.on_order -= u64::from(parts);
+        if s.off_shift {
+            s.pending.push_back(parts);
+        } else {
+            self.deliver(source, parts);
         }
     }
 
@@ -619,6 +766,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         };
         self.next_part += 1;
         self.sources[source].created += 1;
+        self.sources[source].created_total += 1;
         self.totals.created += 1;
         self.observer.record(
             self.now,
@@ -641,6 +789,12 @@ impl<'a, O: Observer> Sim<'a, O> {
                     .schedule(self.now, Event::Arrival { source, generation });
             }
             Arrivals::Profile(_) => self.schedule_arrival(source),
+            // Deliveries that waited for the shift come now.
+            Arrivals::Restock(_) => {
+                while let Some(parts) = self.sources[source].pending.pop_front() {
+                    self.deliver(source, parts);
+                }
+            }
         }
     }
 
@@ -649,6 +803,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             return; // the next shift's start brings the next arrival
         }
         let at = match &self.spec.sources[source].arrivals {
+            Arrivals::Restock(_) => return, // orders bring parts, not a clock
             Arrivals::Interarrival(d) => self.now + duration(self.sources[source].rng.sample(d)),
             Arrivals::Profile(periods) => {
                 // Thinning: candidates at the highest rate, each kept with
@@ -693,8 +848,11 @@ impl<'a, O: Observer> Sim<'a, O> {
             s.off_shift = !on;
             if on {
                 // The first arrival of the shift comes at its start (or, with
-                // a rate profile, when the rate brings it).
-                if s.held.is_empty() {
+                // a rate profile, when the rate brings it); waiting
+                // deliveries come now.
+                if s.held.is_empty()
+                    || matches!(spec.sources[source].arrivals, Arrivals::Restock(_))
+                {
                     self.first_arrival(source);
                 }
             } else {
@@ -920,6 +1078,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             p.since = now;
         }
         let head = state.belt.pop_front().expect("head exists");
+        state.departed_total += 1;
         let time = (now - head.entered).as_secs_f64();
         state.time.add(time);
         state.time_by_type[head.part.entity].add(time);
@@ -930,6 +1089,10 @@ impl<'a, O: Observer> Sim<'a, O> {
             state.within_target += 1;
         }
         self.schedule_reach_end(conveyor);
+        // Restocking sources watching this queue check their stock.
+        for i in 0..self.restockers[conveyor].len() {
+            self.review(self.restockers[conveyor][i]);
+        }
         head.part
     }
 
@@ -1492,6 +1655,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         let now = self.now;
         for s in &mut self.sources {
             s.blocked.set(now, u64::from(!s.held.is_empty()));
+            s.on_order_avg.set(now, s.on_order);
         }
         for (s, spec) in self.servers.iter_mut().zip(&self.spec.servers) {
             s.off.set(
@@ -1526,6 +1690,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         for (c, spec) in self.conveyors.iter_mut().zip(&self.spec.conveyors) {
             let n = c.belt.len() as u64;
             c.parts.set(now, n);
+            c.empty.set(now, u64::from(n == 0));
             c.full.set(now, u64::from(n >= u64::from(spec.capacity)));
         }
     }
@@ -1536,7 +1701,9 @@ impl<'a, O: Observer> Sim<'a, O> {
         for s in &mut self.sources {
             s.created = 0;
             s.lost = 0;
+            s.orders = 0;
             s.blocked.reset(now);
+            s.on_order_avg.reset(now);
         }
         for s in &mut self.servers {
             s.processed = 0;
@@ -1563,6 +1730,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             c.within_target = 0;
             c.parts.reset(now);
             c.full.reset(now);
+            c.empty.reset(now);
         }
         self.sink_exited.iter_mut().for_each(|n| *n = 0);
         self.sink_times
@@ -1599,6 +1767,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                     created: s.created,
                     lost: s.lost,
                     blocked: s.blocked.mean(),
+                    orders: s.orders,
+                    on_order: s.on_order_avg.mean(),
                 })
                 .collect(),
             servers: self
@@ -1638,6 +1808,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     time_by_type: c.time_by_type.clone(),
                     times: c.times.clone(),
                     within_target: c.within_target,
+                    empty: c.empty.mean(),
                 })
                 .collect(),
             resources: self

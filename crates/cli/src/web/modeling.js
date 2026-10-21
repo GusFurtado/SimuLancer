@@ -853,7 +853,8 @@ function panel(tree) {
       return el("div", {}, header,
         el("p", { class: "hint", style: "margin: 0 0 12px" }, say(`${node.from} → ${node.to}. Parts wait here in line, first in first out, with no travel time.`)),
         capacityField(`${p}.capacity`),
-        field("Target wait (for a service level)", `${p}.target_wait`, "text", [], "none, e.g. 5 min"));
+        field("Target wait (for a service level)", `${p}.target_wait`, "text", [], "none, e.g. 5 min"),
+        countField(say("Starts with (parts in it at the start)"), `${p}.starts_with`, "none", "f-starts-with"));
     default:
       return el("div", {}, header, el("p", { class: "hint" }, say("Sinks take every part; there's nothing to set.")));
   }
@@ -862,22 +863,32 @@ function panel(tree) {
 /** When parts arrive: a steady time between arrivals, or a rate by time of day. */
 function arrivalsField(tree, p) {
   const profile = getAt(tree, `${p}.arrivals_per_hour`);
+  const restocks = getAt(tree, `${p}.restocks`);
+  const current = restocks ? "restock" : profile ? "profile" : "steady";
+  const RESTOCK_FIELDS = ["restocks", "reorder_point", "order", "order_up_to", "lead_time", "review_every"];
   const mode = el("div", { class: "field" },
     el("label", { for: "f-arrivals-mode" }, say("How parts arrive")),
     el("select", {
       id: "f-arrivals-mode",
       onchange: e => batch(() => {
+        for (const f of ["interarrival", "arrivals_per_hour", "group", ...RESTOCK_FIELDS]) setChange(`${p}.${f}`, null);
         if (e.target.value === "profile") {
-          setChange(`${p}.interarrival`, null);
           setChange(`${p}.arrivals_per_hour`, { "08:00-12:00": 60, "12:00-17:00": 40 });
+        } else if (e.target.value === "restock") {
+          const queue = Object.keys(tree.queues || {})[0] || "";
+          setChange(`${p}.restocks`, queue);
+          setChange(`${p}.reorder_point`, 20);
+          setChange(`${p}.order`, 50);
+          setChange(`${p}.lead_time`, "4 h");
         } else {
-          setChange(`${p}.arrivals_per_hour`, null);
           setChange(`${p}.interarrival`, "exponential(1 min)");
         }
       }),
     },
-    el("option", { value: "steady", selected: profile ? null : true }, "Steadily: a time between arrivals"),
-    el("option", { value: "profile", selected: profile ? true : null }, "By time of day: arrivals per hour")));
+    el("option", { value: "steady", selected: current === "steady" ? true : null }, "Steadily: a time between arrivals"),
+    el("option", { value: "profile", selected: current === "profile" ? true : null }, "By time of day: arrivals per hour"),
+    el("option", { value: "restock", selected: current === "restock" ? true : null }, "When ordered: to keep a queue stocked")));
+  if (current === "restock") return el("div", {}, mode, restockFields(tree, p));
   if (!profile) return el("div", {}, mode, distField("Time between arrivals", `${p}.interarrival`));
   const path = `${p}.arrivals_per_hour`;
   const rows = Object.entries(profile);
@@ -911,11 +922,38 @@ function arrivalsField(tree, p) {
       error ? el("div", { class: "message" }, error.message) : null));
 }
 
+/** A restocking source: which queue it keeps stocked, when and how much it
+ *  orders, and how long orders take. */
+function restockFields(tree, p) {
+  const queues = Object.keys(tree.queues || {});
+  const upTo = getAt(tree, `${p}.order_up_to`) !== undefined;
+  return el("div", { class: "group", id: "restock" },
+    field("Keeps this queue stocked", `${p}.restocks`, "select", queues.length ? queues : [""]),
+    field(say("Reorder point (parts in the queue and on the way)"), `${p}.reorder_point`, "int"),
+    el("div", { class: "field" },
+      el("label", { for: "f-order-kind" }, "Orders"),
+      el("select", {
+        id: "f-order-kind",
+        onchange: e => batch(() => {
+          const n = getAt(currentTree(), `${p}.order`) ?? getAt(currentTree(), `${p}.order_up_to`) ?? 50;
+          setChange(`${p}.order`, e.target.value === "fixed" ? n : null);
+          setChange(`${p}.order_up_to`, e.target.value === "up_to" ? Math.max(n, (getAt(currentTree(), `${p}.reorder_point`) ?? 0) + 1) : null);
+        }),
+      },
+      el("option", { value: "fixed", selected: upTo ? null : true }, say("A fixed number of parts")),
+      el("option", { value: "up_to", selected: upTo ? true : null }, "Enough to bring the stock up to a level"))),
+    upTo ? field("Order up to", `${p}.order_up_to`, "int") : field(say("Parts per order"), `${p}.order`, "int"),
+    distField("Lead time (from order to delivery)", `${p}.lead_time`),
+    field("Check the stock every (empty: after every part taken)", `${p}.review_every`, "text", [], "after every part"));
+}
+
 /** A whole number of parts: `20`, or a range written `20-30` (each value
  *  equally likely); empty is the default. */
 function countField(label, path, placeholder, id) {
   const value = getAt(currentTree(), path);
-  const text = value && typeof value === "object" ? `${value.min}-${value.max}` : value ?? "";
+  const text = value && typeof value === "object"
+    ? ("min" in value ? `${value.min}-${value.max}` : Object.values(value)[0] ?? "")
+    : value ?? "";
   const error = errorFor(path);
   return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
     el("label", { for: id }, label,

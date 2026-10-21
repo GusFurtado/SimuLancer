@@ -23,6 +23,9 @@ pub struct SourceResult {
     pub lost: u64,
     /// Fraction of time the source was stopped by a full conveyor (`when_blocked: wait`).
     pub blocked: f64,
+    /// Restocking sources: orders placed, and the mean parts on order.
+    pub orders: u64,
+    pub on_order: f64,
 }
 
 /// State fractions are shares of the server's capacity over its working
@@ -75,6 +78,8 @@ pub struct ConveyorResult {
     pub times: Option<Histogram>,
     /// Queues with a target wait: parts that left within it.
     pub within_target: u64,
+    /// Fraction of time it held nothing (for a stock: out of stock).
+    pub empty: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

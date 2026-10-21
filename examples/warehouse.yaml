@@ -1,16 +1,18 @@
-# Distribution warehouse: trucks of 20 to 30 pallets come in on the morning
-# shift; forklifts put the pallets away in the racks. Pallets are broken into
-# cartons onto the pick shelves as they have room. Customer orders come in
-# all day; pickers fill each order with two cartons, then it's packed and
-# dispatched.
+# Distribution warehouse: when the pallets in the racks (with those on the
+# way) fall to 250, a truck of 25 is ordered; it comes a day or so later, on
+# the morning shift, and forklifts put the pallets away in the racks.
+# Pallets are broken into cartons onto the pick shelves as they have room.
+# Customer orders come in all day; pickers fill each order with two cartons,
+# then it's packed and dispatched.
 #
 #   trucks ─ dock ─> unload ─> putaway ─ racks ─> break_pallet ─ shelves ─┐
-#   (20-30 pallets) (2 doors) (forklifts)        (1 pallet: 10 cartons)  ├─> pick ─> pack ─> dispatch
+#   (25 pallets)   (2 doors) (forklifts)         (1 pallet: 10 cartons)  ├─> pick ─> pack ─> dispatch
 #   orders ─────────────────────────── backlog ──────────────────────────┘  (pickers)
 #
 # The racks, the shelves and the order backlog are queues. Pallets come off
 # the racks only when the shelves have room, so the shelves restock
-# themselves. Forklift trips are part of putaway's time, one pallet a trip.
+# themselves; trucks restock the racks. Forklift trips are part of
+# putaway's time, one pallet a trip.
 
 format: outliers-sim/0.1
 name: warehouse
@@ -37,9 +39,11 @@ resources:
 sources:
   trucks:
     creates: pallet
-    interarrival: "exponential(90 min)"
-    group: { min: 20, max: 30 }              # pallets a truck
-    schedule: receiving
+    restocks: racks                          # keeps the racks stocked:
+    reorder_point: 250                       #   order when they (and what's coming) fall to 250 pallets
+    order: 25                                #   a truck of 25 pallets
+    lead_time: "uniform(18 h, 30 h)"         #   which comes a day or so later
+    schedule: receiving                      #   (deliveries only on the morning shift)
   orders:
     creates: order
     interarrival: "exponential(90 s)"
@@ -76,8 +80,8 @@ conveyors:
   to_dispatch: { from: pack,    to: dispatch, length: "6.6 m", speed: "0.5 m/s", spacing: "1 m" }
 
 queues:
-  racks:   { from: putaway,      to: break_pallet, capacity: 300 }   # pallet positions
-  shelves: { from: break_pallet, to: pick,         capacity: 400 }   # cartons on the pick face
+  racks:   { from: putaway,      to: break_pallet, capacity: 300, starts_with: 150 }   # pallet positions
+  shelves: { from: break_pallet, to: pick,         capacity: 400, starts_with: 200 }   # cartons on the pick face
   backlog: { from: orders,       to: pick }
 
 sinks:

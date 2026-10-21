@@ -319,6 +319,16 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Stock and restocking (implemented 2026-10-21, issue #28)
+
+- **A restocking source keeps a queue stocked**: `restocks: racks`, `reorder_point`, `order` (a fixed quantity, ordered as many times as it takes to get above the reorder point: (s, Q)) or `order_up_to` ((s, S)), a `lead_time`, and optionally `review_every` for periodic review instead of continuous. Deliveries come after the lead time all at once (a group arrival), and wait for the next shift if the source has a schedule.
+- **Why on a source, not on the queue:** what a supplier does (order, wait, deliver) is where parts come from; the queue is just where the stock is. The source's deliveries still travel the model (dock, unloading, putaway) before they're stock.
+- **The stock position counts the pipeline:** the queue's contents, plus everything the source delivered that hasn't reached the queue, plus what's on order. Without the pipeline, a source would reorder while pallets are still on the dock. It's counted as the queue's starting stock + parts the source created + on order − parts that left the queue, over the whole run (not reset after the warm-up).
+- **`starts_with` on a queue**: parts at time 0, a number when one part type travels on the queue, `{ type: n }` otherwise. A new `stocked` event puts them in the animation.
+- **Results:** orders placed and mean on order for the source; *empty* (time out of stock) for queues that are stocked. Fill rates on the demand side come from the waiting queue's service level (#24).
+- Checked: a restocking source's parts must be able to reach its queue; order-up-to levels must be above the reorder point.
+- **The warehouse template now restocks**: a truck of 25 pallets is ordered when the racks (with what's on the dock and on order) fall to 250, delivered 18–30 hours later on the morning shift. The racks never run out and orders wait seconds; the reorder point is a decision on the Simulation page, with "Pallets in the racks" and "Time the racks are empty" as the trade-off. Before, independent supply and demand flows drifted, and some replications ran out for days.
+
 ## Arrivals in groups, and splitting (implemented 2026-10-21, issue #27)
 
 - **`group: 20` or `group: { min: 20, max: 30 }` on a source:** each arrival brings that many parts at once. They get on in order; the first that can't makes the rest wait behind it (or, with `drop`, each that can't is lost), and the next arrival time starts when the last has got on, as for single parts. All of a group arrive at the same instant: a queue with room for one takes one part before the next object can take anything, so the others are lost or wait. Pulling at once instead would have objects calling into each other mid-update; the instant rule is simpler and documented.
@@ -396,7 +406,7 @@ What building them showed is missing, in the order I'd add it:
 | **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. Done: see Words for what flows. | #25 |
 | **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. Done: see Arrivals by time of day. | #26 |
 | **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. Done (except orders of different sizes): see Arrivals in groups, and splitting. | #27 |
-| **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. | #28 |
+| **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. Done: see Stock and restocking. | #28 |
 | **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. | #29 |
 | **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. | #30 |
 | **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. | #31 |

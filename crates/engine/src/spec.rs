@@ -149,11 +149,38 @@ pub enum Arrivals {
     /// A time between arrivals. The first part arrives at time 0, and at
     /// the start of each shift.
     Interarrival(Distribution),
+    /// Ordered to keep a queue stocked (see [`Restock`]).
+    Restock(Restock),
     /// A rate that changes with the time of day, the same every day: a
     /// Poisson process with this rate. Periods are (start, end, parts per
     /// second), in seconds from midnight, sorted and not overlapping; the
     /// rate is zero outside them.
     Profile(Vec<(f64, f64, f64)>),
+}
+
+/// A source that orders parts to keep a queue stocked. Its *stock
+/// position* is what the queue holds, plus what the source has created that
+/// hasn't got to the queue yet, plus what's on order. When the position is
+/// at or below `reorder_point`, it orders: deliveries come after the lead
+/// time, all at once.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Restock {
+    /// Index into [`Spec::conveyors`]: the queue it keeps stocked.
+    pub queue: usize,
+    pub reorder_point: u32,
+    pub quantity: OrderQuantity,
+    pub lead_time: Distribution,
+    /// Check every this long (from time 0) instead of after every part
+    /// that leaves the queue.
+    pub review_every: Option<SimTime>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrderQuantity {
+    /// Order this many, as often as needed to get above the reorder point.
+    Fixed(u32),
+    /// Order enough to bring the position up to this.
+    UpTo(u32),
 }
 
 impl Arrivals {
@@ -395,6 +422,8 @@ pub struct Conveyor {
     pub capacity: u32,
     /// Queues only: the wait a service level is measured against, in seconds.
     pub target_wait: Option<f64>,
+    /// Queues only: parts in it when the run starts, as (type, count).
+    pub starts_with: Option<(usize, u32)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -422,6 +451,7 @@ impl Conveyor {
             spacing: 0.0,
             capacity: capacity.unwrap_or(u32::MAX),
             target_wait,
+            starts_with: None,
         }
     }
 
