@@ -67,6 +67,7 @@ pub fn write_report(
     let data = json!({
         "model": model.name,
         "description": model.description,
+        "words": model.words,
         "version": env!("CARGO_PKG_VERSION"),
         "seed": e.seed,
         "replications": e.replications,

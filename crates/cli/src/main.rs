@@ -408,7 +408,7 @@ fn describe(path: &Path, model: &Model) -> String {
             let holds = if c.capacity == u32::MAX {
                 "no limit".to_string()
             } else {
-                format!("holds {} parts", c.capacity)
+                format!("holds {} {}", c.capacity, model.words.many)
             };
             let target = c
                 .target_wait
@@ -422,12 +422,13 @@ fn describe(path: &Path, model: &Model) -> String {
     for c in spec.conveyors.iter().filter(|c| !c.is_queue()) {
         let route = format!("{} -> {}", node_name(spec, c.from), node_name(spec, c.to));
         out += &format!(
-            "  {:<12} {:<20} {} m at {} m/s, holds {} parts, transit {}\n",
+            "  {:<12} {:<20} {} m at {} m/s, holds {} {}, transit {}\n",
             c.name,
             route,
             c.length,
             c.speed,
             c.capacity,
+            model.words.many,
             duration(c.transit_time())
         );
     }

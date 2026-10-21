@@ -618,10 +618,12 @@ fn read_exposed(project: &ProjectFile, source: &str) -> (Exposed, Vec<String>, V
                     .join("; ")
             })
     };
+    let words = model.as_ref().map(|m| m.words.clone()).unwrap_or_default();
     let target = measures.as_ref().map(|measures| Target {
         source,
         measures,
         try_changes: &try_changes,
+        words: &words,
     });
     let (exposed, problems) =
         decisions::read(&project.decisions, &project.results, target.as_ref());

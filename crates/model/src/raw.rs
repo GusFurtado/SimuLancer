@@ -14,6 +14,8 @@ pub struct RawModel {
     pub format: Spanned<String>,
     pub name: Spanned<String>,
     pub description: Option<String>,
+    /// What flows through the model, in people's words: `{ one: customer, many: customers }`.
+    pub parts: Option<RawWords>,
     pub units: Option<RawUnits>,
     #[serde(default)]
     pub entities: OrderedMap<RawEntity>,
@@ -34,6 +36,13 @@ pub struct RawModel {
     pub experiment: RawExperiment,
     #[serde(default)]
     pub outputs: RawOutputs,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawWords {
+    pub one: Spanned<String>,
+    pub many: Spanned<String>,
 }
 
 #[derive(Debug, Deserialize)]

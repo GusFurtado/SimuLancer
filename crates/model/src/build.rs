@@ -16,7 +16,7 @@ use crate::diagnostic::{Diagnostic, Position};
 use crate::expr::{constant, parse_time_distribution};
 use crate::raw::{self, RawModel, Scalar};
 use crate::units::{DefaultUnits, Dimension, convert_number, parse_quantity};
-use crate::{FORMAT, Model, Outputs};
+use crate::{FORMAT, Model, Outputs, Words};
 
 pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     let mut b = Builder::default();
@@ -477,6 +477,25 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     }
 
     let experiment = b.experiment(&raw.experiment);
+    let words = match &raw.parts {
+        None => Words::default(),
+        Some(w) => {
+            for word in [&w.one, &w.many] {
+                let text = word.value.trim();
+                if text.is_empty() || text.len() > 40 || text.contains(['\n', '{', '}']) {
+                    b.error(
+                        word,
+                        "`parts` words are short names, like `one: customer, many: customers`"
+                            .to_string(),
+                    );
+                }
+            }
+            Words {
+                one: w.one.value.trim().to_string(),
+                many: w.many.value.trim().to_string(),
+            }
+        }
+    };
     let throughput_per = match &raw.outputs.throughput_per {
         None => ThroughputPer::Hour,
         Some(per) => match per.value.as_str() {
@@ -528,6 +547,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     Ok(Model {
         name: raw.name.value,
         description: raw.description,
+        words,
         spec,
         outputs: Outputs {
             event_log: raw.outputs.event_log,

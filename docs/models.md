@@ -9,6 +9,7 @@ A model is one YAML file (format `outliers-sim/0.1`). The Modeling page writes t
 format: outliers-sim/0.1
 name: packing-line
 description: Optional text.
+parts: { one: box, many: boxes }   # optional: what flows, in your words
 
 entities:          # part types
   part: {}
@@ -29,6 +30,14 @@ outputs:    { ... }   # optional
 
 - **Allowed characters:** names use letters, digits, `_` and `-`, and start with a letter or `_`.
 - **Uniqueness:** sources, servers, conveyors, queues, sinks and resources share one namespace. Part types have their own.
+
+## What flows (`parts`)
+
+```yaml
+parts: { one: customer, many: customers }
+```
+
+The model language calls whatever flows through a model a *part*. `parts` tells the pages, the report and `validate` what to call them instead: "customers" in a bank, "orders" in a warehouse, "patients" in a clinic. Measure names in result files stay the same (`mean parts`, `throughput`), so results and scripts don't change.
 
 ## Units
 

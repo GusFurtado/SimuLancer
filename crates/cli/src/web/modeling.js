@@ -270,7 +270,7 @@ function renderEditor() {
       el("div", { class: "stack" },
         el("div", { class: "card diagram" }, diagramToolbar(), diagram(tree),
           el("p", { class: "hint" }, state.connect
-            ? (state.connect.from ? `Now click where parts go from ${state.connect.from}.` : "Click the object parts come from.")
+            ? (state.connect.from ? say(`Now click where parts go from ${state.connect.from}.`) : say("Click the object parts come from."))
             : "Click an object, conveyor or queue to edit it, drag objects to move them; click empty space for the model settings.")),
         versionsCard()),
       el("div", { class: "card panel" }, panel(tree))),
@@ -368,6 +368,20 @@ const meters = text => { const m = typeof text === "string" && text.trim().match
 const lengthText = len => `${Math.max(0.5, Math.round(len * 10) / 10)} m`;
 const sectionOf = (tree, name) => ["sources", "servers", "sinks"].find(s => tree[s] && name in tree[s]);
 const isName = name => /^[A-Za-z][A-Za-z0-9_-]*$/.test(name);
+/** What flows through the model, in its words (`parts: { one, many }`), with capitals kept. */
+function say(text) {
+  // From the saved model and pending changes, without rebuilding the whole tree.
+  const saved = state.baseTree?.parts || {};
+  const changed = state.changes.parts === null ? {} : state.changes.parts || {};
+  const words = { ...saved, ...changed,
+    ...("parts.one" in state.changes ? { one: state.changes["parts.one"] } : {}),
+    ...("parts.many" in state.changes ? { many: state.changes["parts.many"] } : {}) };
+  const one = words.one || "part", many = words.many || "parts";
+  const up = w => w.charAt(0).toUpperCase() + w.slice(1);
+  return text.replace(/\bparts\b/g, many).replace(/\bParts\b/g, up(many))
+    .replace(/\bpart\b/g, one).replace(/\bPart\b/g, up(one));
+}
+
 const allNames = tree => ["sources", "servers", "sinks", "conveyors", "queues", "resources"].flatMap(s => Object.keys(tree[s] || {}));
 /** Conveyors and queues: the two kinds of connection. */
 const CONNECTIONS = ["conveyors", "queues"];
@@ -553,11 +567,11 @@ function rename(section, oldName, newName) {
 function diagramToolbar() {
   const tool = (label, onclick, attrs = {}) => el("button", { onclick, ...attrs }, label);
   return el("div", { class: "toolbar" },
-    tool("+ Source", () => addObject("sources"), { id: "add-source", title: "Where parts come from" }),
-    tool("+ Server", () => addObject("servers"), { id: "add-server", title: "A machine or station that works on parts" }),
-    tool("+ Sink", () => addObject("sinks"), { id: "add-sink", title: "Where parts leave" }),
-    connectTool("conveyors", "Conveyor", "connect", "Click an object, then the next one, to link them with a conveyor (parts travel along it)"),
-    connectTool("queues", "Queue", "connect-queue", "Click an object, then the next one, to link them with a queue (parts wait in line, no travel time)"),
+    tool("+ Source", () => addObject("sources"), { id: "add-source", title: say("Where parts come from") }),
+    tool("+ Server", () => addObject("servers"), { id: "add-server", title: say("A machine or station that works on parts") }),
+    tool("+ Sink", () => addObject("sinks"), { id: "add-sink", title: say("Where parts leave") }),
+    connectTool("conveyors", "Conveyor", "connect", say("Click an object, then the next one, to link them with a conveyor (parts travel along it)")),
+    connectTool("queues", "Queue", "connect-queue", say("Click an object, then the next one, to link them with a queue (parts wait in line, no travel time)")),
     tool("Delete", deleteSelected, { id: "delete", disabled: state.selected ? null : true, title: "Delete the selected object or conveyor" }),
     el("span", { style: "flex: 1" }),
     tool("↶ Undo", undo, { id: "undo", disabled: state.undo.length ? null : true, title: "Undo (Ctrl+Z)" }),
@@ -822,7 +836,7 @@ function panel(tree) {
     case "servers":
       return el("div", {}, header,
         kindField(tree, p),
-        field("Capacity (parts at once)", `${p}.capacity`, "int", [], node.batch ? `${node.batch} (one batch)` : "1 (default)"),
+        field(say("Capacity (parts at once)"), `${p}.capacity`, "int", [], node.batch ? `${node.batch} (one batch)` : "1 (default)"),
         processTime(tree, p),
         needsField(tree, p),
         scheduleField(tree, `${p}.schedule`, "Works"),
@@ -832,14 +846,14 @@ function panel(tree) {
     case "conveyors":
       return el("div", {}, header,
         el("p", { class: "hint", style: "margin: 0 0 12px" }, `${node.from} → ${node.to}`),
-        field("Length", `${p}.length`), field("Speed", `${p}.speed`), field("Spacing between parts", `${p}.spacing`));
+        field("Length", `${p}.length`), field("Speed", `${p}.speed`), field(say("Spacing between parts"), `${p}.spacing`));
     case "queues":
       return el("div", {}, header,
-        el("p", { class: "hint", style: "margin: 0 0 12px" }, `${node.from} → ${node.to}. Parts wait here in line, first in first out, with no travel time.`),
+        el("p", { class: "hint", style: "margin: 0 0 12px" }, say(`${node.from} → ${node.to}. Parts wait here in line, first in first out, with no travel time.`)),
         capacityField(`${p}.capacity`),
         field("Target wait (for a service level)", `${p}.target_wait`, "text", [], "none, e.g. 5 min"));
     default:
-      return el("div", {}, header, el("p", { class: "hint" }, "Sinks take every part; there's nothing to set."));
+      return el("div", {}, header, el("p", { class: "hint" }, say("Sinks take every part; there's nothing to set.")));
   }
 }
 
@@ -848,7 +862,7 @@ function capacityField(path) {
   const value = getAt(currentTree(), path);
   const error = errorFor(path);
   return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
-    el("label", { for: "f-capacity" }, "Capacity (parts that can wait)",
+    el("label", { for: "f-capacity" }, say("Capacity (parts that can wait)"),
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path), title: "Back to the base model's value" }, "reset") : null),
     el("input", {
       id: "f-capacity", value: value ?? "", placeholder: "no limit", inputmode: "numeric",
@@ -988,7 +1002,7 @@ function resourcesPanel(tree) {
   const resources = Object.keys(tree.resources || {});
   return el("div", { class: "group", id: "resources" },
     el("div", { class: "group-title" }, "Resources"),
-    el("p", { class: "hint", style: "margin: 0 0 8px" }, "Operators, tools or fixtures that servers share. A server holds what it needs while it processes a part."),
+    el("p", { class: "hint", style: "margin: 0 0 8px" }, say("Operators, tools or fixtures that servers share. A server holds what it needs while it processes a part.")),
     ...resources.map(r => el("div", { class: "resource" },
       el("div", { class: "row", style: "align-items: center" },
         el("input", { value: r, "aria-label": `resource ${r}`, "data-resource": r, onchange: e => renameResource(r, e.target.value.trim()) }),
@@ -1061,13 +1075,29 @@ const typesOf = tree => Object.keys(tree.entities || {});
 function partTypesPanel(tree) {
   const types = typesOf(tree);
   return el("div", { class: "group", id: "part-types" },
-    el("div", { class: "group-title" }, "Part types"),
+    el("div", { class: "group-title" }, say("Part types")),
     el("p", { class: "hint", style: "margin: 0 0 8px" }, "Sources create these. Process times and routing can differ by type."),
+    wordsField(tree),
     ...types.map(t => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
       el("input", { value: t, "aria-label": `part type ${t}`, "data-type": t, onchange: e => renamePartType(t, e.target.value.trim()) }),
       el("button", { style: "flex: 0", disabled: types.length < 2 ? true : null, onclick: () => setChange(`entities.${t}`, null),
-        title: types.length < 2 ? "A model needs at least one part type" : `Remove ${t}` }, "Remove"))),
-    el("button", { id: "add-part-type", onclick: () => setChange(`entities.${freeTypeName(types)}`, {}) }, "+ Part type"));
+        title: types.length < 2 ? say("A model needs at least one part type") : `Remove ${t}` }, "Remove"))),
+    el("button", { id: "add-part-type", onclick: () => setChange(`entities.${freeTypeName(types)}`, {}) }, say("+ Part type")));
+}
+
+/** What flows through the model, in people's words: customers, orders, boxes. */
+function wordsField(tree) {
+  const words = tree.parts || {};
+  const set = (key, value) => {
+    const next = { one: words.one || "part", many: words.many || "parts", [key]: value.trim() };
+    setChange("parts", next.one === "part" && next.many === "parts" ? null : next);
+  };
+  return el("div", { class: `field${isChanged("parts") ? " changed" : ""}${errorFor("parts") ? " error" : ""}` },
+    el("label", {}, "What flows through the model (one, many)"),
+    el("div", { class: "row" },
+      el("input", { id: "f-words-one", value: words.one || "", placeholder: "part", "aria-label": "One", onchange: e => set("one", e.target.value || "part") }),
+      el("input", { id: "f-words-many", value: words.many || "", placeholder: "parts", "aria-label": "Many", onchange: e => set("many", e.target.value || "parts") })),
+    errorFor("parts") ? el("div", { class: "message" }, errorFor("parts").message) : null);
 }
 
 function freeTypeName(types) {
@@ -1109,7 +1139,7 @@ function createsField(tree, p) {
     body = [
       el("select", { id: "f-creates", onchange: e => setChange(path, e.target.value) },
         types.map(t => el("option", { value: t, selected: t === value }, t))),
-      types.length > 1 ? el("button", { class: "link", id: "mix", style: "padding: 2px 0", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, +(1 / types.length).toFixed(4)]))) }, "A mix of part types…") : null,
+      types.length > 1 ? el("button", { class: "link", id: "mix", style: "padding: 2px 0", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, +(1 / types.length).toFixed(4)]))) }, say("A mix of part types…")) : null,
     ];
   } else {
     body = [
@@ -1125,7 +1155,7 @@ function createsField(tree, p) {
           },
         }))),
       el("div", { class: "hint", style: "margin: 0" }, "Shares of the arrivals; they must add up to 1."),
-      el("button", { class: "link", style: "padding: 2px 0", onclick: () => setChange(path, Object.keys(value)[0] || types[0]) }, "Only one part type"),
+      el("button", { class: "link", style: "padding: 2px 0", onclick: () => setChange(path, Object.keys(value)[0] || types[0]) }, say("Only one part type")),
     ];
   }
   return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
@@ -1154,17 +1184,17 @@ function kindField(tree, p) {
     });
   };
   const select = el("select", { id: "f-kind", onchange: choose },
-    [["single", "One part at a time"], ["batch", "In batches (an oven, a washer)"], ["assembly", "Assembles kits into a new part"]]
+    [["single", say("One part at a time")], ["batch", "In batches (an oven, a washer)"], ["assembly", say("Assembles kits into a new part")]]
       .map(([v, l]) => el("option", { value: v, selected: v === kind ? true : null }, l)));
   const parts = [el("div", { class: "field" }, el("label", { for: "f-kind" }, "Works on"), select)];
   if (kind === "batch") {
-    parts.push(field("Batch size (parts processed together)", `${p}.batch`, "int"));
+    parts.push(field(say("Batch size (parts processed together)"), `${p}.batch`, "int"));
   }
   if (kind === "assembly") {
     const path = `${p}.assembles`;
     const error = errorFor(path);
     parts.push(el("div", { class: `group field${error ? " error" : ""}` },
-      el("div", { class: "group-title" }, "Kit: parts it takes"),
+      el("div", { class: "group-title" }, say("Kit: parts it takes")),
       ...types.map(t => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
         el("span", {}, t),
         el("input", {
@@ -1189,14 +1219,14 @@ function processTime(tree, p) {
   const value = getAt(tree, path);
   if (value && typeof value === "object") {
     return el("div", { class: "group" },
-      el("div", { class: "group-title" }, "Process time by part type"),
+      el("div", { class: "group-title" }, say("Process time by part type")),
       ...Object.keys(value).map(t => distField(t, `${path}.${t}`)),
       ...types.filter(t => !(t in value)).map(t => el("button", { class: "link", onclick: () => setChange(`${path}.${t}`, Object.values(value)[0]) }, `+ A time for ${t}`)),
-      el("button", { class: "link", style: "display: block; padding: 2px 0", onclick: () => setChange(path, Object.values(value)[0]) }, "The same for every part type"));
+      el("button", { class: "link", style: "display: block; padding: 2px 0", onclick: () => setChange(path, Object.values(value)[0]) }, say("The same for every part type")));
   }
   return el("div", {},
     distField("Process time", path),
-    types.length > 1 && !getAt(tree, p).batch && !getAt(tree, p).assembles ? el("button", { class: "link", id: "per-type", style: "padding: 0 0 10px", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, value]))) }, "Different times per part type…") : null);
+    types.length > 1 && !getAt(tree, p).batch && !getAt(tree, p).assembles ? el("button", { class: "link", id: "per-type", style: "padding: 0 0 10px", onclick: () => setChange(path, Object.fromEntries(types.map(t => [t, value]))) }, say("Different times per part type…")) : null);
 }
 
 function outputRule(tree, p, outputs) {
@@ -1233,7 +1263,7 @@ function outputRule(tree, p, outputs) {
       },
     }))) : [];
   return el("div", { class: `group field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
-    el("label", { for: `f-${path}-rule` }, "Sends parts to " + outputs.join(", "),
+    el("label", { for: `f-${path}-rule` }, say("Sends parts to ") + outputs.join(", "),
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
     rule, ...routes, ...weights,
     error ? el("div", { class: "message" }, error.message) : null);
@@ -1259,7 +1289,7 @@ function inputRule(tree, p, inputs) {
       },
     }, "↑"))) : [];
   return el("div", { class: `group field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
-    el("label", { for: `f-${path}-rule` }, "Takes parts from " + inputs.join(", "),
+    el("label", { for: `f-${path}-rule` }, say("Takes parts from ") + inputs.join(", "),
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
     rule, ...order,
     error ? el("div", { class: "message" }, error.message) : null);
@@ -1282,7 +1312,7 @@ function failures(tree, p) {
       distField("Downtime (repair)", `${path}.${i}.downtime`),
       el("div", { class: "row" },
         field("Uptime counts", `${path}.${i}.counts`, "select", ["busy_time", "clock_time"]),
-        field("Interrupted part", `${path}.${i}.on_failure`, "select", ["resume", "restart"])))),
+        field(say("Interrupted part"), `${path}.${i}.on_failure`, "select", ["resume", "restart"])))),
     el("button", { onclick: add }, "Add a failure"));
 }
 
