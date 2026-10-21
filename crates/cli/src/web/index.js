@@ -1,6 +1,7 @@
 "use strict";
-// The landing page (/): the projects, each opened on the Build page (edit the
-// model) or the Decide page (run its scenarios), and new projects.
+// The landing page (/): the projects, each opened on the Modeling page
+// (/build, edit the model) or the Simulation page (/decide, run its
+// scenarios), and new projects.
 // Shared code: common.js.
 
 const state = {
@@ -28,10 +29,10 @@ function projectCard(p) {
     el("h2", {}, p.name),
     el("p", {}, p.description || ""),
     el("div", { class: "actions" },
-      el("a", { class: "button", href: `build?project=${enc(p.id)}` }, "Edit the model"),
+      el("a", { class: "button", href: `build?project=${enc(p.id)}` }, icon("build"), PAGES.build),
       p.published
-        ? el("a", { class: "button primary", href: `decide?project=${enc(p.id)}` }, "Run scenarios")
-        : el("span", { class: "hint", style: "margin: 0" }, "Publish a version to run scenarios.")));
+        ? el("a", { class: "button primary", href: `decide?project=${enc(p.id)}` }, icon("decide"), PAGES.decide)
+        : el("span", { class: "hint", style: "margin: 0" }, "Publish a version to simulate scenarios.")));
 }
 
 function newProjectCard() {

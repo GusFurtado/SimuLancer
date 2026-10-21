@@ -179,7 +179,7 @@ b.wait("return document.getElementById('no-animation')?.textContent.includes('Re
 
 # --- Engineer: edit, save a version, publish, run. ----------------------------
 # The bike example: an assembly with its kit, a batch oven.
-# Not published yet: the list says so, and the Decide page explains it.
+# Not published yet: the list says so, and the Simulation page explains it.
 b.go(url + "/")
 b.wait("return document.querySelector('[data-project=packing-line]') !== null")
 check(b.js("return document.querySelector('[data-project=packing-line] a[href^=decide]')") is None, "unpublished projects can't be run yet")
@@ -196,7 +196,7 @@ b.wait("return document.getElementById('f-servers-oven-batch')?.value === '8'")
 b.screenshot(f"{out}/2c-bikes.png")
 b.go(url + "/")
 b.wait("return document.querySelector('[data-project=two-cells]') !== null")
-click_text("[data-project=two-cells] a", "Edit the model")
+click_text("[data-project=two-cells] a", "Modeling")
 b.wait("return document.querySelector('.head h2')?.textContent === 'Two cells' && document.querySelector('.diagram svg') !== null")
 check("published v1" in b.js("return document.querySelector('.versions').textContent"), "v1 in versions")
 b.screenshot(f"{out}/2-build.png")
@@ -275,7 +275,7 @@ b.go(url + "/")
 b.wait("return document.querySelector('[data-project=two-cells]') !== null")
 card = b.js("return document.querySelector('[data-project=two-cells]').textContent")
 check("Published v2" in card, f"the list shows v2: {card}")
-click_text("[data-project=two-cells] a", "Run scenarios")
+click_text("[data-project=two-cells] a", "Simulation")
 b.wait("return document.querySelector('.head h2')?.textContent === 'Two cells'")
 check("Mill A capacity and shipping belt" in b.js("return document.getElementById('version').textContent"), "version message shown")
 check(b.js("return document.querySelector('.diagram, #save, #publish')") is None, "no engineer tools on the manager page")

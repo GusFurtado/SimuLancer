@@ -1,6 +1,6 @@
 # Model files
 
-A model is one YAML file (format `outliers-sim/0.1`). The Build page writes the same files, so everything here can also be done there.
+A model is one YAML file (format `outliers-sim/0.1`). The Modeling page writes the same files, so everything here can also be done there.
 
 - `outliers-sim validate model.yaml` checks a model and prints what it understood.
 - Errors point to the line and say what's wrong.

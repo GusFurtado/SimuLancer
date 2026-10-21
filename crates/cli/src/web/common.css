@@ -191,8 +191,9 @@
   button.door.new p { margin: 0; }
   .door.new-project { box-shadow: 0 0 0 2px var(--accent); }
   .door.new-project .status { margin: 0 0 12px; }
-  .doors > p.api-hint { margin: 28px 0 0; }
-  .api-hint a, .empty a { color: var(--accent); }
+  .empty a { color: var(--accent); }
+  svg.icon { width: 18px; height: 18px; vertical-align: -4px; margin-right: 6px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  svg.icon .dot { fill: currentColor; stroke: none; }
   .versions { font-size: 13px; }
   .versions .item { padding: 6px 8px; border-radius: 6px; }
   .versions .item .sub { display: block; color: var(--muted); font-size: 12px; }

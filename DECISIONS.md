@@ -316,7 +316,8 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 
 - **`/` is the project list.** Each project card says whether and when it was published, with two ways in: *Edit the model* (`/build?project=<id>`) and *Run scenarios* (`/decide?project=<id>`, only once a version is published). New projects are created here too, then open on the Build page.
 - **`/build` and `/decide` show one project.** A top bar has the way back to the projects, the project's name, and a switch between editing and running the same project. The Build page's recent runs are this project's only. Without `?project=` the pages go back to `/`; an unknown or unpublished project gets a sentence and a link back instead of an empty page.
-- The API link moves to a line under the project list.
+- **The pages are called Modeling and Simulation** in the UI (their URLs stay `/build` and `/decide`), each with a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Simulation is where people use the published model to answer questions, even though Modeling can run the model too.
+- **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
 ## Animation needs an event log (fixed 2026-10-10)
 

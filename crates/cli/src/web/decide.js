@@ -1,6 +1,6 @@
 "use strict";
-// The Decide page (/decide): published versions only. The decisions the
-// Build page made available, scenarios built from them, and comparisons with
+// The Simulation page (/decide): published versions only. The decisions the
+// Modeling page made available, scenarios built from them, and comparisons with
 // the current setup in plain language.
 
 const state = {
@@ -22,10 +22,10 @@ async function openProject(id, version = "latest") {
   if (!ok) {
     const { ok: exists, data: working } = await api("GET", `projects/${enc(id)}`);
     return projectMissing(document.getElementById("main"), exists
-      ? `${working.name} isn't published yet. Publish a version from the model editor to run its scenarios here.`
+      ? `${working.name} isn't published yet. Publish a version from its Modeling page to simulate scenarios here.`
       : data.error || `The project ${id} can't be opened.`);
   }
-  showProjectName(data.name || id, "Decide");
+  showProjectName(data.name || id, PAGES.decide);
   stopAnimation();
   Object.assign(state, { project: id, detail: data, editing: null, details: null, message: null, comparison: null });
   state.selected = new Set();
@@ -108,7 +108,7 @@ function currentSetupCard() {
   const d = state.detail;
   return el("div", { class: "card" },
     el("h3", { class: "card-title" }, "What you can change"),
-    el("p", { class: "hint", style: "margin: 0 0 10px" }, "Set in ", el("b", {}, d.version), " on the Build page. Each scenario changes some of these; everything else stays as it is now."),
+    el("p", { class: "hint", style: "margin: 0 0 10px" }, "Set in ", el("b", {}, d.version), " on the Modeling page. Each scenario changes some of these; everything else stays as it is now."),
     el("dl", { class: "decisions" }, ...d.decisions.flatMap(dec => [
       el("dt", {}, dec.label, dec.description ? el("span", { class: "sub" }, dec.description) : null),
       el("dd", {}, el("span", { class: "now" }, "Now: "), valueText(dec, dec.current),
