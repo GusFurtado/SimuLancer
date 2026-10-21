@@ -1,7 +1,7 @@
 "use strict";
 // The landing page (/): the projects, each opened on the Modeling page
-// (/build, edit the model) or the Simulation page (/decide, run its
-// scenarios), and new projects.
+// (/modeling, edit the model) or the Simulation page (/simulation, run
+// its scenarios), and new projects.
 // Shared code: common.js.
 
 const state = {
@@ -29,9 +29,9 @@ function projectCard(p) {
     el("h2", {}, p.name),
     el("p", {}, p.description || ""),
     el("div", { class: "actions" },
-      el("a", { class: "button", href: `build?project=${enc(p.id)}` }, icon("build"), PAGES.build),
+      el("a", { class: "button", href: `modeling?project=${enc(p.id)}` }, icon("modeling"), PAGES.modeling),
       p.published
-        ? el("a", { class: "button primary", href: `decide?project=${enc(p.id)}` }, icon("decide"), PAGES.decide)
+        ? el("a", { class: "button primary", href: `simulation?project=${enc(p.id)}` }, icon("simulation"), PAGES.simulation)
         : el("span", { class: "hint", style: "margin: 0" }, "Publish a version to simulate scenarios.")));
 }
 
@@ -72,7 +72,7 @@ async function createProject() {
   if (c.from) body.from = c.from;
   const { ok, data } = await api("POST", "projects", body);
   if (!ok) { c.error = data.error || "The project couldn't be created."; return render(); }
-  location.href = `build?project=${enc(id)}`;
+  location.href = `modeling?project=${enc(id)}`;
 }
 
 loadProjects();

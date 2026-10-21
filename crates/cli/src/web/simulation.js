@@ -1,5 +1,5 @@
 "use strict";
-// The Simulation page (/decide): published versions only. The decisions the
+// The Simulation page (/simulation): published versions only. The decisions the
 // Modeling page made available, scenarios built from them, and comparisons with
 // the current setup in plain language.
 
@@ -25,7 +25,7 @@ async function openProject(id, version = "latest") {
       ? `${working.name} isn't published yet. Publish a version from its Modeling page to simulate scenarios here.`
       : data.error || `The project ${id} can't be opened.`);
   }
-  showProjectName(data.name || id, PAGES.decide);
+  showProjectName(data.name || id, PAGES.simulation);
   stopAnimation();
   Object.assign(state, { project: id, detail: data, editing: null, details: null, message: null, comparison: null });
   state.selected = new Set();
@@ -90,7 +90,7 @@ function render() {
 
   const details = el("div", { id: "details" });
   main.replaceChildren(head, notLatest || el("div"),
-    el("div", { class: "decide" },
+    el("div", { class: "scenario-grid" },
       currentSetupCard(),
       scenariosCard()),
     statusBox(),

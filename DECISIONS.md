@@ -293,12 +293,12 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 The product has three kinds of users, with completely separate interfaces over one API:
 
 1. **The developer** hosts the app, uses the API, and builds integrations, automations and webhooks, maybe even their own UI.
-2. **The engineer** knows the domain and the math but isn't necessarily tech-savvy. They build the model in the UI (`/build`), and git versions it.
-3. **The manager** wants answers like "how much does throughput go up with a faster machine?". They open a project, build scenarios from the parameters the engineer exposes, and compare reports (`/decide`).
+2. **The engineer** knows the domain and the math but isn't necessarily tech-savvy. They build the model in the UI (`/modeling`), and git versions it.
+3. **The manager** wants answers like "how much does throughput go up with a faster machine?". They open a project, build scenarios from the parameters the engineer exposes, and compare reports (`/simulation`).
 
 Decisions so far:
 
-- **No access control for now:** just separate pages (`/` lists the projects, `/build` and `/decide` open one). Roles come later, likely through the reverse proxy.
+- **No access control for now:** just separate pages (`/` lists the projects, `/modeling` and `/simulation` open one). Roles come later, likely through the reverse proxy.
 - **Git stays local:** one repository per project, no remote.
 - **No review step:** the engineer publishes when they want; in practice they model alone.
 - **Projects** (`<data>/projects/<id>/`): `project.yaml` (format `outliers-sim-project/0.1`, name, description, `model:` file), the model and its `*.layout.yaml`. Git is run as a command with a fixed identity and no user config (hooks, signing). The engineer never sees it.
@@ -314,19 +314,19 @@ Decisions so far:
 
 The landing page (`/`) used to ask which page you wanted, and both pages then listed every project in a sidebar next to the one being worked on. Now:
 
-- **`/` is the project list.** Each project card says whether and when it was published, with two ways in: *Edit the model* (`/build?project=<id>`) and *Run scenarios* (`/decide?project=<id>`, only once a version is published). New projects are created here too, then open on the Build page.
-- **`/build` and `/decide` show one project.** A top bar has the way back to the projects, the project's name, and a switch between editing and running the same project. The Build page's recent runs are this project's only. Without `?project=` the pages go back to `/`; an unknown or unpublished project gets a sentence and a link back instead of an empty page.
-- **The pages are called Modeling and Simulation** in the UI (their URLs stay `/build` and `/decide`), each with a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Simulation is where people use the published model to answer questions, even though Modeling can run the model too.
+- **`/` is the project list.** Each project card says whether and when it was published, with two ways in: *Modeling* (`/modeling?project=<id>`) and *Simulation* (`/simulation?project=<id>`, only once a version is published). New projects are created here too, then open on their Modeling page.
+- **`/modeling` and `/simulation` show one project.** A top bar has the way back to the projects, the project's name, and a switch between editing and running the same project. The Modeling page's recent runs are this project's only. Without `?project=` the pages go back to `/`; an unknown or unpublished project gets a sentence and a link back instead of an empty page.
+- **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
 ## Animation needs an event log (fixed 2026-10-10)
 
-- **The bug:** a model without `outputs.event_log: jsonl` records nothing to replay. The Animation tab used to fall back silently to the report, so on the Decide page the button seemed broken. Projects from the new-project template had no event log.
+- **The bug:** a model without `outputs.event_log: jsonl` records nothing to replay. The Animation tab used to fall back silently to the report, so on the Simulation page the button seemed broken. Projects from the new-project template had no event log.
 - **The fix:**
   - The template records one.
-  - The Build page's model settings have a "Record an animation" switch.
+  - The Modeling page's model settings have a "Record an animation" switch.
   - The Animation tab explains how to turn recording on when a run has nothing to animate.
-  - A new run on the Build page opens on its report, while reopening an old run keeps the last tab.
+  - A new run on the Modeling page opens on its report, while reopening an old run keeps the last tab.
 - **Not on by default:** event logging stays off unless the model asks for it. A four-week run writes about 13 MB, and `run` on the command line shouldn't produce large files nobody asked for.
 
 ## Batches and assembly (implemented 2026-10-10)
@@ -343,7 +343,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **Validation follows types through assemblies,** which send out only what they make. An assembly must be reachable by every type in its kit (or no kit would complete). Every type that reaches it must be in its kit (or it would wait forever). This reachability now lives in the engine (`Spec::types_at`), and sinks use it to report per-type measures only for types that can arrive, and only when more than one can.
 - **Event log:** `collected` (off the conveyor into a batch or kit), `consumed` (a component used up) and `assembled` (a new part, with its type, which then `started_process`). Both replays track collected parts at the server and count assembled/consumed parts for "in system". A Godot test fixture covers kits, a batch oven, a resource and a shift.
 - **Example:** `examples/bike-assembly.yaml` uses all four features (part types, a fitter resource, two weekday shifts, kits and a batch oven). It's the third example project, with decisions on fitters, a night shift and the oven batch size.
-- **Build page:** "Works on" on servers (one part at a time, in batches, assembles kits), with the batch size or the kit and what it makes.
+- **Modeling page:** "Works on" on servers (one part at a time, in batches, assembles kits), with the batch size or the kit and what it makes.
 
 ## Schedules (implemented 2026-10-10)
 
@@ -362,8 +362,8 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **Held while processing,** including while suspended by a failure. Units go back when processing ends, not when the part leaves, so an operator doesn't stand by a blocked machine.
 - **One queue, first come first served:** when units come back, every waiting server tries again in the order it started waiting. Servers that still can't start rejoin the queue in the same order. A server joins only when it's up, has a free slot and a part is waiting at its input.
 - **Results:** `resource <name>: busy`, the time-weighted share of units in use. `server <name>: waiting for resources`, the share of time it was queued for units. That time is part of *idle*, so the server states still add up to 1. Both are reported with `server_states`.
-- **Starting a section with a change:** a change may now create a top-level model section the file doesn't have yet (`resources.operator: { capacity: 1 }` on a model without `resources`). Other unknown top-level names are still reported as typos. Without this, the Build page and API scripts couldn't add the first resource.
-- **Build page:**
+- **Starting a section with a change:** a change may now create a top-level model section the file doesn't have yet (`resources.operator: { capacity: 1 }` on a model without `resources`). Other unknown top-level names are still reported as typos. Without this, the Modeling page and API scripts couldn't add the first resource.
+- **Modeling page:**
   - *Resources* in the model settings (add, rename, remove, units available). "⚑ Make this a decision" works on the number of units, for "hire a second operator".
   - *Needs while processing* on servers.
 
@@ -375,7 +375,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **Results:** with two or more types, each sink also reports `throughput of <type>` and `time in system of <type>`. Measure names became strings for this. Decisions and results can name these measures like any other.
 - **Event log:** the header lists `entities`, and `created` events carry `entity`. The 2D animation colors parts by type (six colors, distinct from the server-state colors, with a legend). The Godot viewer ignores both for now.
 - **Format detail:** per-type values (`creates`, `process_time`) are read by hand-written deserializers, because positions don't survive untagged choices in the YAML library. Their errors point at the field, not at the entry inside it.
-- **Build page:**
+- **Modeling page:**
   - *Part types* in the model settings (add, rename everywhere, remove).
   - A *Creates* field on sources: one type, or "A mix of part types…" with shares.
   - "Different times per part type…" on servers.
@@ -400,7 +400,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 
 ## Decisions, scenarios and plain-language comparisons (implemented 2026-10-10)
 
-- **Wording:** "engineer", "manager" and "developer" describe the roles in these notes only. The product never calls its users that, because the people on each page may have any job. UI and user docs name the pages and what they do: the Build page, the Decide page, decisions, scenarios, the API.
+- **Wording:** "engineer", "manager" and "developer" describe the roles in these notes only. The product never calls its users that, because the people on each page may have any job. UI and user docs name the pages and what they do: the Modeling page, the Simulation page, decisions, scenarios, the API.
 
 - **The engineer exposes `decisions` and `results` in `project.yaml`,** versioned with the model, so each published version carries its own. A decision is either a set of **options** (each a group of model changes; the first option is the current setup and has none) or a **number** at one model path within `min`/`max` (optional `step`, and `unit` for quantities like `8 m`). Results name a measure (`object` + `measure`) with a plain label and `better: higher | lower` (or nothing). Without `results`, managers read every sink's throughput and time in system.
 - **What can't be published:** an option or bound that gives an invalid model; two decisions changing the same path (or one inside the other); a decision touching `experiment` or `outputs` (every scenario must run the same experiment for the pairing to hold); a number path that isn't written in the model, or written in another unit; a result the model doesn't report; and an option the model already matches (it means the first option no longer describes the current setup, e.g. after the engineer changed the routing).
@@ -414,7 +414,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
   - "Offer as an option…" turns the pending model changes into an option of an existing or new decision, and puts the model back as it was. Engineers think in edits to the model, so options are made the same way.
   - The tab edits names, explanations, limits and results, and removes options and decisions. A preview shows what managers will see. Everything is checked live (`check` takes pending `decisions` and `results`) and saved in the same commit as model changes (`save` writes `project.yaml` too). Decision and option ids come from their first name and never change after that, so renaming a decision doesn't break managers' scenarios.
   - Saving from the builder rewrites `project.yaml` in standard formatting, losing its comments, as with the model.
-- **The `/decide` page:** what can be changed (with the current values), scenarios (create, edit, delete, select), "Compare with the current setup", then a headline per result with a direction (the best scenario, or "none clearly improves it"), a table (results x scenarios, with value, change, range, and better/worse as an icon and a word, never color alone), the sentences, and each run's report and animation. Projects without decisions keep the old "Run the published model" button.
+- **The `/simulation` page:** what can be changed (with the current values), scenarios (create, edit, delete, select), "Compare with the current setup", then a headline per result with a direction (the best scenario, or "none clearly improves it"), a table (results x scenarios, with value, change, range, and better/worse as an icon and a word, never color alone), the sentences, and each run's report and animation. Projects without decisions keep the old "Run the published model" button.
 
 ## Open questions
 

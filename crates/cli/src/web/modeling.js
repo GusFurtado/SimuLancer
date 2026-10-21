@@ -1,5 +1,5 @@
 "use strict";
-// The Modeling page (/build): edit a project's model, choose the decisions and
+// The Modeling page (/modeling): edit a project's model, choose the decisions and
 // results the Simulation page offers, save versions, publish them, run and
 // inspect results. Shared code: common.js.
 
@@ -157,7 +157,7 @@ async function loadRuns() {
 async function openProject(id, keepMessage = false) {
   const { ok, data } = await api("GET", `projects/${encodeURIComponent(id)}`);
   if (!ok) return projectMissing(document.getElementById("main"), data.error || `The project ${id} can't be opened.`);
-  showProjectName(data.name || id, PAGES.build);
+  showProjectName(data.name || id, PAGES.modeling);
   Object.assign(state, {
     project: id,
     detail: data,
@@ -1381,7 +1381,7 @@ function renderDecisions(content) {
           el("h3", { class: "card-title" }, "Results shown"),
           resultsEditor,
           el("div", { class: "field", style: "margin: 10px 0 0" }, addResult))),
-      el("div", { class: "card", id: "decide-preview" },
+      el("div", { class: "card", id: "simulation-preview" },
         el("h3", { class: "card-title" }, "Preview of the Simulation page"),
         el("p", { class: "hint", style: "margin: 0 0 10px" }, "On the Simulation page, once you publish."),
         previewDecisions(state.exposed?.decisions || []),

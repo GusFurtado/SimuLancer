@@ -170,7 +170,7 @@
     main { padding: 16px; }
   }
 
-  /* Landing page (the project list) and shared bits for /build and /decide. */
+  /* Landing page (the project list) and shared bits for /modeling and /simulation. */
   .doors { max-width: 980px; margin: 8vh auto 40px; padding: 0 16px; }
   .doors h1 { font-size: 28px; margin: 0 0 6px; }
   .doors > p { color: var(--ink-2); margin: 0 0 28px; }
@@ -201,9 +201,9 @@
   .stack { display: grid; gap: 14px; }
 
 
-  /* /decide: decisions, scenarios and comparisons. */
-  .decide { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
-  @media (max-width: 1100px) { .decide { grid-template-columns: 1fr; } }
+  /* /simulation: decisions, scenarios and comparisons. */
+  .scenario-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @media (max-width: 1100px) { .scenario-grid { grid-template-columns: 1fr; } }
   .card-title { margin: 0 0 4px; font-size: 16px; }
   .sub { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
   dl.decisions { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 16px; }
@@ -245,7 +245,7 @@
   .words ul { margin: 0; padding-left: 18px; color: var(--ink-2); }
   .words li { margin: 3px 0; }
 
-  /* /build: the For managers tab. */
+  /* /modeling: the For managers tab. */
   button.expose { box-shadow: none; background: none; color: var(--accent); font-size: 12px; padding: 2px 0; margin-top: 3px; }
   button.expose.on { color: var(--ink-2); }
   .decision-edit .title-input { font-weight: 600; font-size: 15px; }
@@ -259,7 +259,7 @@
   .result-row > select { flex: 0 0 150px; }
   .offer { margin-top: 12px; max-width: 560px; }
 
-  /* /build: drawing the model. */
+  /* /modeling: drawing the model. */
   .toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
   .toolbar button { padding: 5px 10px; font-size: 13px; }
   .diagram svg .object { cursor: grab; }

@@ -1,5 +1,5 @@
 "use strict";
-// Shared by the outliers-sim pages (/, /build, /decide). Uses only the public
+// Shared by the outliers-sim pages (/, /modeling, /simulation). Uses only the public
 // HTTP API (docs/api.md).
 
 const API = "api/v1";
@@ -163,13 +163,13 @@ function boundsOf(layout) {
   return { minX: Math.min(...xs) - 2, maxX: Math.max(...xs) + 2, minZ: Math.min(...zs) - 2.5, maxZ: Math.max(...zs) + 2 };
 }
 
-// --- the top bar of /build and /decide ---------------------------------------------
+// --- the top bar of /modeling and /simulation -------------------------------------
 
 /** The project the page is open on (`?project=`). Without one, back to the project list. */
 function pageProject() {
   const id = new URLSearchParams(location.search).get("project");
   if (!id) { location.replace("./"); return null; }
-  for (const page of ["build", "decide"]) {
+  for (const page of ["modeling", "simulation"]) {
     const link = document.getElementById(`to-${page}`);
     link.href = `${page}?project=${encodeURIComponent(id)}`;
     link.replaceChildren(icon(page), PAGES[page]);
@@ -179,10 +179,10 @@ function pageProject() {
 }
 
 /** The two ways into a project: their names and small line icons. */
-const PAGES = { build: "Modeling", decide: "Simulation" };
+const PAGES = { modeling: "Modeling", simulation: "Simulation" };
 
 function icon(page) {
-  const shapes = page === "build"
+  const shapes = page === "modeling"
     // Modeling: three connected nodes, a flow drawn as a graph.
     ? [["circle", { cx: 5, cy: 6, r: 2.5 }], ["circle", { cx: 5, cy: 18, r: 2.5 }], ["circle", { cx: 19, cy: 12, r: 2.5 }],
        ["path", { d: "M7.5 6.5 16.6 11.2M7.5 17.5 16.6 12.8" }]]

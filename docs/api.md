@@ -1,6 +1,6 @@
 # HTTP API (v1)
 
-`outliers-sim serve` exposes this API. The web pages use nothing else: the Modeling page (`/build`), the Simulation page (`/decide`), and anything you write yourself, are all clients of this API.
+`outliers-sim serve` exposes this API. The web pages use nothing else: the Modeling page (`/modeling`), the Simulation page (`/simulation`), and anything you write yourself, are all clients of this API.
 
 ```sh
 outliers-sim serve --data ./data --port 8080          # this machine only

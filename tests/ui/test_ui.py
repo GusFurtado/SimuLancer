@@ -1,4 +1,4 @@
-"""Drives the web pages through a Build session and a Decide session in
+"""Drives the web pages through a Modeling session and a Simulation session in
 Firefox (Marionette).
 
 Usage: test_ui.py <server url> <marionette port> <screenshot dir>
@@ -29,7 +29,7 @@ b.call("WebDriver:SetWindowRect", {"width": 1400, "height": 950})
 # --- The landing page: the projects, each opened to edit or to run. -------------
 b.go(url + "/")
 b.wait("return document.querySelectorAll('.door.project').length >= 3")
-check(b.js("return document.querySelector('[data-project=two-cells] a[href=\"decide?project=two-cells\"]')") is not None, "two cells can be run")
+check(b.js("return document.querySelector('[data-project=two-cells] a[href=\"simulation?project=two-cells\"]')") is not None, "two cells can be run")
 b.screenshot(f"{out}/1-landing.png")
 
 # --- Build: a new project, drawn in the browser. ---------------------------------
@@ -182,10 +182,10 @@ b.wait("return document.getElementById('no-animation')?.textContent.includes('Re
 # Not published yet: the list says so, and the Simulation page explains it.
 b.go(url + "/")
 b.wait("return document.querySelector('[data-project=packing-line]') !== null")
-check(b.js("return document.querySelector('[data-project=packing-line] a[href^=decide]')") is None, "unpublished projects can't be run yet")
-b.go(url + "/decide?project=packing-line")
+check(b.js("return document.querySelector('[data-project=packing-line] a[href^=simulation]')") is None, "unpublished projects can't be run yet")
+b.go(url + "/simulation?project=packing-line")
 b.wait("return document.body.textContent.includes(\"Packing line isn't published yet\")")
-b.go(url + "/build?project=bike-assembly")
+b.go(url + "/modeling?project=bike-assembly")
 b.wait("return document.querySelector('.head h2')?.textContent === 'Bike assembly' && document.querySelector('.diagram svg') !== null")
 click_obj("assembly")
 b.wait("return document.querySelector('[data-kit=wheel]') !== null")
@@ -199,7 +199,7 @@ b.wait("return document.querySelector('[data-project=two-cells]') !== null")
 click_text("[data-project=two-cells] a", "Modeling")
 b.wait("return document.querySelector('.head h2')?.textContent === 'Two cells' && document.querySelector('.diagram svg') !== null")
 check("published v1" in b.js("return document.querySelector('.versions').textContent"), "v1 in versions")
-b.screenshot(f"{out}/2-build.png")
+b.screenshot(f"{out}/2-modeling.png")
 
 click_in_diagram("conveyor c_a:")
 b.wait("return document.querySelector('.panel h3')?.textContent === 'c_a'")
@@ -218,7 +218,7 @@ b.wait("return document.querySelector('.panel h3')?.textContent === 'mill_a'")
 b.js("document.querySelector('[data-expose=\"servers.mill_a.capacity\"]').click()")
 b.wait("return document.querySelector('[data-decision-id=mill_a_capacity]') !== null")
 b.js("const i = document.querySelector('[data-bound=\"mill_a_capacity.max\"]'); i.value = '2'; i.dispatchEvent(new Event('change'))")
-b.wait("return document.querySelector('#decide-preview').textContent.includes('can be 1 to 2')", 10)
+b.wait("return document.querySelector('#simulation-preview').textContent.includes('can be 1 to 2')", 10)
 check(b.js("return document.getElementById('decision-problems')") is None, "no problems with the new decision")
 
 # Offer a faster shipping conveyor as an option instead of changing the model.
@@ -236,7 +236,7 @@ b.js("const i = document.getElementById('offer-option-label'); i.value = 'Faster
 b.screenshot(f"{out}/4a-offer.png")
 b.js("document.getElementById('offer-confirm').click()")
 b.wait("return document.querySelector('[data-decision-id=shipping_conveyor]') !== null", 10)
-b.wait("return document.querySelector('#decide-preview').textContent.includes('Faster belt (0.6 m/s)')", 10)
+b.wait("return document.querySelector('#simulation-preview').textContent.includes('Faster belt (0.6 m/s)')", 10)
 pending = b.js("return document.getElementById('pending').textContent")
 check(pending == "1 unsaved change, unsaved decision edits", f"the capacity default stays in the model: {pending}")
 check(b.js("return document.getElementById('publish').disabled") is True, "can't publish with unsaved changes")
@@ -282,7 +282,7 @@ check(b.js("return document.querySelector('.diagram, #save, #publish')") is None
 listed = b.js("return document.querySelector('dl.decisions').textContent")
 check("Inspectors" in listed and "Shipping conveyor" in listed and "mill_a: Capacity" in listed, f"decisions listed: {listed}")
 check(b.js("return document.getElementById('compare').disabled") is True, "nothing to compare yet")
-b.screenshot(f"{out}/7-decide.png")
+b.screenshot(f"{out}/7-simulation.png")
 
 def set_decision(decision, value):
     b.js(f"const c = document.querySelector('[data-decision={decision}]'); c.value = {value!r}; c.dispatchEvent(new Event('change'))")
@@ -317,4 +317,4 @@ click_text("#comparison .actions button", "Faster repairs")
 b.wait("return document.querySelector('#details iframe.report') !== null", 10)
 time.sleep(1.5)
 b.screenshot(f"{out}/10-scenario-report.png")
-print("web UI sessions (Build and Decide): all checks passed")
+print("web UI sessions (Modeling and Simulation): all checks passed")
