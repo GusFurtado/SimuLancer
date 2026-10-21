@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Arrivals, ConnectionKind, Conveyor, Count, Distribution, Experiment, Failure, FailureClock,
-    InputRule, Node, OnFailure, PerType, Resource, Routing, Schedule, Server, ServerKind, Sink,
-    Source, Spec, WhenBlocked,
+    InputRule, Node, OnFailure, OrderQuantity, PerType, Resource, Restock, Routing, Schedule,
+    Server, ServerKind, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -169,6 +169,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 spacing,
                 capacity,
                 target_wait: None,
+                starts_with: None,
             });
         }
     }
@@ -234,6 +235,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     for (i, (name, s)) in raw.sources.0.iter().enumerate() {
         let creates = b.creates(name, &s.creates, &types);
         let interarrival = match (&s.interarrival, &s.arrivals_per_hour) {
+            _ if s.restocks.is_some() => b.restock(name, s, &raw).map(Arrivals::Restock),
             (Some(gap), None) => b.distribution(gap).map(Arrivals::Interarrival),
             (None, Some(profile)) => b.arrival_profile(name, profile).map(Arrivals::Profile),
             (Some(gap), Some(_)) => {
@@ -250,7 +252,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 b.error(
                     name,
                     format!(
-                        "source `{}` needs `interarrival` (time between arrivals) or `arrivals_per_hour` (a rate by time of day)",
+                        "source `{}` needs `interarrival` (time between arrivals), `arrivals_per_hour` (a rate by time of day) or `restocks` (a queue it keeps stocked)",
                         name.value
                     ),
                 );
@@ -590,7 +592,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         return Err(b.diagnostics);
     }
 
-    let spec = Spec {
+    let mut spec = Spec {
         entities: raw
             .entities
             .0
@@ -607,6 +609,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     };
     check_reachability(&spec, &raw)?;
     check_part_types(&spec, &raw)?;
+    check_stock(&mut spec, &raw)?;
 
     Ok(Model {
         name: raw.name.value,
@@ -619,6 +622,112 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             throughput_per,
         },
     })
+}
+
+/// Starting stock in queues (`starts_with`), and that every restocking
+/// source's parts can get to the queue it keeps stocked.
+fn check_stock(spec: &mut Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> {
+    let mut diagnostics = Vec::new();
+    let mut error = |at: &serde_saphyr::Location, message: String| {
+        diagnostics.push(Diagnostic {
+            position: Position::from_location(at),
+            message,
+        })
+    };
+    let types_at = spec.types_at();
+    for (j, (name, q)) in raw.queues.0.iter().enumerate() {
+        let i = raw.conveyors.0.len() + j;
+        let Some(start) = &q.starts_with else {
+            continue;
+        };
+        let here: Vec<usize> = (0..spec.entities.len())
+            .filter(|&e| types_at.conveyors[i][e])
+            .collect();
+        let found = match &start.value {
+            raw::RawStartsWith::Count(n) => match here.as_slice() {
+                [e] => Some((*e, *n)),
+                _ => {
+                    error(
+                        &start.referenced,
+                        format!(
+                            "queue `{}` gets more than one part type; say which it starts with, like `starts_with: {{ {}: {n} }}`",
+                            name.value,
+                            here.first().map_or("part", |&e| spec.entities[e].as_str())
+                        ),
+                    );
+                    None
+                }
+            },
+            raw::RawStartsWith::Typed(map) => match map.0.as_slice() {
+                [(t, n)] => match spec.entities.iter().position(|e| *e == t.value) {
+                    Some(e) => Some((e, *n)),
+                    None => {
+                        error(
+                            &t.referenced,
+                            format!("`{}` isn't listed under `entities`", t.value),
+                        );
+                        None
+                    }
+                },
+                _ => {
+                    error(
+                        &start.referenced,
+                        "`starts_with` names one part type and how many".to_string(),
+                    );
+                    None
+                }
+            },
+        };
+        if let Some((e, n)) = found {
+            if n > u64::from(spec.conveyors[i].capacity) || n > 1_000_000 {
+                error(
+                    &start.referenced,
+                    format!("queue `{}` can't start with more than it holds", name.value),
+                );
+            } else {
+                spec.conveyors[i].starts_with = Some((e, n as u32));
+            }
+        }
+    }
+    for (s, (name, _)) in raw.sources.0.iter().enumerate() {
+        let Arrivals::Restock(r) = &spec.sources[s].arrivals else {
+            continue;
+        };
+        // Its parts must be able to reach the queue.
+        let mut seen = vec![Node::Source(s)];
+        let mut stack = vec![Node::Source(s)];
+        let mut reaches = false;
+        while let Some(n) = stack.pop() {
+            for (c, conveyor) in spec
+                .conveyors
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| c.from == n)
+            {
+                if c == r.queue {
+                    reaches = true;
+                }
+                if !seen.contains(&conveyor.to) {
+                    seen.push(conveyor.to);
+                    stack.push(conveyor.to);
+                }
+            }
+        }
+        if !reaches {
+            error(
+                &name.referenced,
+                format!(
+                    "source `{}` restocks `{}`, but its parts can't get there",
+                    name.value, spec.conveyors[r.queue].name
+                ),
+            );
+        }
+    }
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
 }
 
 /// Every server must be fed by a source, and every part must be able to
@@ -1238,6 +1347,131 @@ impl Builder {
                 .map(|(s, e)| (SimTime::from_micros(s), SimTime::from_micros(e)))
                 .collect(),
         )
+    }
+
+    /// A restocking source: the queue it keeps stocked, when and how much
+    /// it orders, and the lead time.
+    fn restock(
+        &mut self,
+        name: &Spanned<String>,
+        s: &raw::RawSource,
+        raw: &RawModel,
+    ) -> Option<Restock> {
+        let what = format!(
+            "source `{}` restocks a queue, so it can't also have",
+            name.value
+        );
+        for (field, present) in [
+            (
+                "interarrival",
+                s.interarrival.as_ref().map(|v| (v.referenced, v.defined)),
+            ),
+            (
+                "arrivals_per_hour",
+                s.arrivals_per_hour
+                    .as_ref()
+                    .map(|v| (v.referenced, v.defined)),
+            ),
+            ("group", s.group.as_ref().map(|v| (v.referenced, v.defined))),
+        ] {
+            if let Some((referenced, defined)) = present {
+                self.error(
+                    &Spanned {
+                        value: (),
+                        referenced,
+                        defined,
+                    },
+                    format!("{what} `{field}`: its orders bring its parts"),
+                );
+            }
+        }
+        let queue_name = s.restocks.as_ref().expect("caller checked");
+        let queue = match raw
+            .queues
+            .0
+            .iter()
+            .position(|(n, _)| n.value == queue_name.value)
+        {
+            Some(j) => Some(raw.conveyors.0.len() + j),
+            None => {
+                self.error(
+                    queue_name,
+                    format!(
+                        "`restocks` names a queue, and there's no queue `{}`",
+                        queue_name.value
+                    ),
+                );
+                None
+            }
+        };
+        let reorder_point = match &s.reorder_point {
+            Some(p) => Some(p.value),
+            None => {
+                self.error(
+                    name,
+                    format!(
+                        "source `{}` needs a `reorder_point`: order when the stock falls to this",
+                        name.value
+                    ),
+                );
+                None
+            }
+        };
+        let quantity = match (&s.order, &s.order_up_to) {
+            (Some(q), None) if q.value >= 1 => Some(OrderQuantity::Fixed(q.value)),
+            (Some(q), None) => {
+                self.error(q, "`order` is at least 1 part".to_string());
+                None
+            }
+            (None, Some(level)) => match reorder_point {
+                Some(p) if level.value <= p => {
+                    self.error(
+                        level,
+                        format!("`order_up_to` must be above the reorder point ({p})"),
+                    );
+                    None
+                }
+                _ => Some(OrderQuantity::UpTo(level.value)),
+            },
+            (Some(q), Some(_)) => {
+                self.error(
+                    q,
+                    "give `order` (a fixed amount) or `order_up_to` (a level), not both"
+                        .to_string(),
+                );
+                None
+            }
+            (None, None) => {
+                self.error(name, format!("source `{}` needs `order` (parts per order) or `order_up_to` (a stock level)", name.value));
+                None
+            }
+        };
+        let lead_time = match &s.lead_time {
+            Some(t) => self.distribution(t),
+            None => {
+                self.error(
+                    name,
+                    format!(
+                        "source `{}` needs a `lead_time`: how long an order takes to come",
+                        name.value
+                    ),
+                );
+                None
+            }
+        };
+        let review_every = match &s.review_every {
+            None => Some(None),
+            Some(t) => self
+                .positive_quantity(t, Dimension::Time, "review_every")
+                .map(|secs| Some(SimTime::from_secs_f64(secs))),
+        };
+        Some(Restock {
+            queue: queue?,
+            reorder_point: reorder_point?,
+            quantity: quantity?,
+            lead_time: lead_time?,
+            review_every: review_every?,
+        })
     }
 
     /// A whole number of parts (at least 1), fixed or a uniform range.

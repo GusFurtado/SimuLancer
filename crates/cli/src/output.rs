@@ -371,6 +371,15 @@ impl<'a, W: Write> EventLog<'a, W> {
                 r#"{{"t":{t},"type":"assembled","part":{part},"server":"{}","entity":"{}"}}"#,
                 s.servers[server].name, s.entities[entity]
             ),
+            TraceEvent::Stocked {
+                part,
+                conveyor,
+                entity,
+            } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"stocked","part":{part},"conveyor":"{}","entity":"{}"}}"#,
+                s.conveyors[conveyor].name, s.entities[entity]
+            ),
             TraceEvent::Split {
                 part,
                 server,

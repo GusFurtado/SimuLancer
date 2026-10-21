@@ -1,7 +1,7 @@
 //! The measures a run reports, one value per replication, in standard units.
 
 use outliers_sim_engine::ReplicationResult;
-use outliers_sim_engine::spec::{Spec, WhenBlocked};
+use outliers_sim_engine::spec::{Arrivals, Spec, WhenBlocked};
 use outliers_sim_model::{Outputs, SummaryItem, ThroughputPer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +88,14 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
 
     if wants(SummaryItem::SourceBlockedTime) {
         for (i, s) in spec.sources.iter().enumerate() {
+            if matches!(s.arrivals, Arrivals::Restock(_)) {
+                add("source", &s.name, "orders placed", Unit::Count, &|r| {
+                    r.sources[i].orders as f64
+                });
+                add("source", &s.name, "on order", Unit::Parts, &|r| {
+                    r.sources[i].on_order
+                });
+            }
             match s.when_blocked {
                 WhenBlocked::Wait => add("source", &s.name, "blocked", Unit::Fraction, &|r| {
                     r.sources[i].blocked
@@ -207,6 +215,17 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
             if c.capacity != u32::MAX {
                 add("queue", &c.name, "full", Unit::Fraction, &|r| {
                     r.conveyors[i].full
+                });
+            }
+            // A stock: how often it ran out.
+            let stocked = c.starts_with.is_some()
+                || spec
+                    .sources
+                    .iter()
+                    .any(|s| matches!(&s.arrivals, Arrivals::Restock(r) if r.queue == i));
+            if stocked {
+                add("queue", &c.name, "empty", Unit::Fraction, &|r| {
+                    r.conveyors[i].empty
                 });
             }
             add("queue", &c.name, "throughput", per_unit, &|r| {

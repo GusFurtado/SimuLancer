@@ -410,7 +410,8 @@ for template in ["assembly-line", "bank-branch", "warehouse"]:
     b.screenshot(f"{out}/13-{template}.png")
 check(b.js("return document.getElementById('f-throughput-per').value") == "operations", "throughput per working hour of the warehouse's operations")
 click_obj("trucks")
-b.wait("return document.getElementById('f-group')?.value === '20-30'")
+b.wait("return document.getElementById('f-arrivals-mode')?.value === 'restock'")
+check(b.js("return document.getElementById('f-sources-trucks-reorder_point').value") == "250", "reorder point")
 click_obj("break_pallet")
 b.wait("return document.getElementById('f-split-type')?.value === 'carton' && document.getElementById('f-split-count').value === '10'")
 

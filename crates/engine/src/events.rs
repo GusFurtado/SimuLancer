@@ -49,6 +49,15 @@ pub(crate) enum Event {
     Pull {
         server: usize,
     },
+    /// An order placed by a restocking source arrives with `parts` parts.
+    Delivery {
+        source: usize,
+        parts: u32,
+    },
+    /// A restocking source with periodic review checks its stock.
+    Review {
+        source: usize,
+    },
     WarmupEnd,
     RunEnd,
 }

@@ -9,6 +9,13 @@ model: model.yaml
 
 # What can be changed on the Simulation page.
 decisions:
+  reorder_point:
+    label: Reorder point (pallets)
+    description: A truck is ordered when the pallets in the racks, with those on the way, fall to this. Higher holds more stock; lower risks running out.
+    path: sources.trucks.reorder_point
+    min: 100
+    max: 300
+    step: 25
   forklifts:
     label: Forklifts per shift
     path: resources.forklift.capacity
@@ -29,6 +36,7 @@ decisions:
 results:
   - { label: Orders dispatched per working hour, object: dispatch, measure: throughput, better: higher }
   - { label: Wait before an order is picked, object: backlog, measure: waiting time, better: lower }
-  - { label: Pallets in the racks, object: racks, measure: mean parts }
+  - { label: Pallets in the racks, object: racks, measure: mean parts, better: lower }
+  - { label: Time the racks are empty, object: racks, measure: empty, better: lower }
   - { label: Trucks kept waiting at the dock, object: trucks, measure: blocked, better: lower }
   - { label: Pickers busy, object: picker, measure: busy }

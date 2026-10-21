@@ -18,7 +18,8 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{
-    Arrivals, Count, Distribution, InputRule, Node, PerType, Routing, ServerKind, Spec,
+    Arrivals, Count, Distribution, InputRule, Node, OrderQuantity, PerType, Routing, ServerKind,
+    Spec,
 };
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
@@ -295,6 +296,20 @@ fn describe(path: &Path, model: &Model) -> String {
         };
         let when = match &s.arrivals {
             Arrivals::Interarrival(d) => format!("every {}", dist(d)),
+            Arrivals::Restock(r) => format!(
+                "to keep {} stocked: when stock is at or below {}, orders {}, arriving after {}{}",
+                spec.conveyors[r.queue].name,
+                r.reorder_point,
+                match r.quantity {
+                    OrderQuantity::Fixed(q) => format!("{q}"),
+                    OrderQuantity::UpTo(level) => format!("up to {level}"),
+                },
+                dist(&r.lead_time),
+                r.review_every.map_or(String::new(), |t| format!(
+                    ", checked every {}",
+                    duration(t.as_secs_f64())
+                ))
+            ),
             Arrivals::Profile(periods) => {
                 let clock = |t: f64| {
                     format!(

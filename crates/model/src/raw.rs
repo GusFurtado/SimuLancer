@@ -67,6 +67,14 @@ pub struct RawSource {
     pub arrivals_per_hour: Option<Spanned<OrderedMap<f64>>>,
     /// Parts per arrival: `20`, or `{ min: 20, max: 30 }`.
     pub group: Option<Spanned<RawCount>>,
+    /// Restocking instead of arrivals: the queue this source keeps stocked.
+    pub restocks: Option<Spanned<String>>,
+    pub reorder_point: Option<Spanned<u32>>,
+    /// Parts per order; or `order_up_to`.
+    pub order: Option<Spanned<u32>>,
+    pub order_up_to: Option<Spanned<u32>>,
+    pub lead_time: Option<Spanned<Scalar>>,
+    pub review_every: Option<Spanned<Scalar>>,
     #[serde(default)]
     pub when_blocked: WhenBlocked,
     /// Required with two or more outgoing conveyors.
@@ -328,6 +336,46 @@ pub struct RawQueue {
     pub capacity: Option<Spanned<u32>>,
     /// A service level: the share of parts that waited at most this long.
     pub target_wait: Option<Spanned<Scalar>>,
+    /// Parts in it when the run starts: `150`, or `{ pallet: 150 }`.
+    pub starts_with: Option<Spanned<RawStartsWith>>,
+}
+
+/// `150`, or `{ pallet: 150 }` when the part type has to be named.
+#[derive(Debug)]
+pub enum RawStartsWith {
+    Count(u64),
+    Typed(OrderedMap<u64>),
+}
+
+impl<'de> Deserialize<'de> for RawStartsWith {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct StartsWithVisitor;
+
+        impl<'de> Visitor<'de> for StartsWithVisitor {
+            type Value = RawStartsWith;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a whole number, or `{ part_type: count }`")
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, n: u64) -> Result<RawStartsWith, E> {
+                Ok(RawStartsWith::Count(n))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, n: i64) -> Result<RawStartsWith, E> {
+                u64::try_from(n)
+                    .map(RawStartsWith::Count)
+                    .map_err(|_| E::custom("a count can't be negative"))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<RawStartsWith, A::Error> {
+                Deserialize::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+                    .map(RawStartsWith::Typed)
+            }
+        }
+
+        deserializer.deserialize_any(StartsWithVisitor)
+    }
 }
 
 #[derive(Debug, Deserialize)]

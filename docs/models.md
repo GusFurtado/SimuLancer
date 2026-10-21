@@ -101,6 +101,29 @@ sources:
   - `wait` stops the source until there's room. The next interarrival time starts when the part gets on.
   - `drop` discards the part and counts it as lost.
 
+## Restocking
+
+A source can keep a queue stocked instead of creating parts on a clock:
+
+```yaml
+sources:
+  trucks:
+    creates: pallet
+    restocks: racks              # the queue it keeps stocked
+    reorder_point: 250           # order when the stock position falls to this
+    order: 25                    # parts per order; or order_up_to: 300
+    lead_time: "uniform(18 h, 30 h)"
+    review_every: "1 d"          # optional: check periodically instead of all the time
+queues:
+  racks: { from: putaway, to: break_pallet, capacity: 300, starts_with: 150 }
+```
+
+- **The stock position** is what the queue holds, plus what the source has delivered that hasn't got to the queue yet (on the dock, being put away), plus what's on order. When it's at or below `reorder_point`, the source orders: `order` parts at a time, as many orders as it takes to get above the reorder point, or with `order_up_to`, enough to bring the position up to that level.
+- **When it checks:** every time a part leaves the queue, or with `review_every`, at that interval from time 0.
+- **Deliveries** come after the `lead_time`, all at once, like a group arrival. With a `schedule`, a delivery that comes off shift waits for the next shift.
+- **`starts_with`** puts parts in a queue at time 0: `150`, or `{ pallet: 150 }` when more than one part type travels on it.
+- **Results:** the source reports *orders placed* and *on order* (mean parts ordered and not yet delivered); a stocked queue reports *empty*, the share of time it was out of stock.
+
 ## Servers
 
 ```yaml
