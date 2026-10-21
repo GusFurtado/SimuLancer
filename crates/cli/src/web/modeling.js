@@ -1347,7 +1347,12 @@ function kindField(tree, p) {
           },
         }))),
       error ? el("div", { class: "message" }, error.message) : null),
-      field("Makes", `${p}.makes`, "select", types));
+      field("Makes", `${p}.makes`, "select", types),
+      el("div", { class: "field" },
+        el("label", { for: "f-keeps-clock" }, say("Time the new part from")),
+        el("select", { id: "f-keeps-clock", onchange: e => setChange(`${p}.keeps_clock_of`, e.target.value || null) },
+          el("option", { value: "", selected: node.keeps_clock_of ? null : true }, "Its earliest component"),
+          ...Object.keys(node.assembles || {}).map(t => el("option", { value: t, selected: node.keeps_clock_of === t ? true : null }, `Its ${t} (e.g. the order)`)))));
   }
   return el("div", {}, ...parts);
 }

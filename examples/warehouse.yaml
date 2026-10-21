@@ -65,6 +65,7 @@ servers:
     capacity: 8                              # pick stations; pickers are the limit
     assembles: { order: 1, carton: 2 }
     makes: shipment
+    keeps_clock_of: order                    # a shipment's time counts from its order
     process_time: "triangular(2 min, 3 min, 6 min)"
     needs: { picker: 1 }
     input: { rule: first_come }

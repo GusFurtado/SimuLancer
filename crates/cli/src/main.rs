@@ -389,13 +389,20 @@ fn describe(path: &Path, model: &Model) -> String {
             ServerKind::Batch(n) => {
                 out += &format!("  {:<12}   processes batches of {n}\n", "");
             }
-            ServerKind::Assembly { recipe, makes } => {
+            ServerKind::Assembly {
+                recipe,
+                makes,
+                clock_of,
+            } => {
                 let kit: Vec<String> = recipe
                     .iter()
                     .map(|&(e, n)| format!("{n} {}", spec.entities[e]))
                     .collect();
+                let clock = clock_of.map_or(String::new(), |e| {
+                    format!(", timed from its {}", spec.entities[e])
+                });
                 out += &format!(
-                    "  {:<12}   assembles {} into 1 {}\n",
+                    "  {:<12}   assembles {} into 1 {}{clock}\n",
                     "",
                     kit.join(" + "),
                     spec.entities[*makes]

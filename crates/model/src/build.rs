@@ -819,7 +819,7 @@ fn check_part_types(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> 
     };
     for (i, (name, _)) in raw.servers.0.iter().enumerate() {
         let server = &spec.servers[i];
-        if let ServerKind::Assembly { recipe, makes } = &server.kind {
+        if let ServerKind::Assembly { recipe, makes, .. } = &server.kind {
             let foreign = missing(&at_server[i], &|e| recipe.iter().any(|&(r, _)| r == e));
             if !foreign.is_empty() {
                 report(
@@ -1198,14 +1198,42 @@ impl Builder {
                     self.error(name, format!("server `{}` assembles nothing", name.value));
                     ok = false;
                 }
+                let clock_of = match &s.keeps_clock_of {
+                    None => None,
+                    Some(t) => {
+                        let what = format!("server `{}` keeps the clock of", name.value);
+                        match self.part_type(t, &t.value, types, &what) {
+                            Some(e) if out.iter().any(|&(c, _)| c == e) => Some(e),
+                            Some(_) => {
+                                self.error(t, format!("`keeps_clock_of` names a part type in the kit, and `{}` isn't", t.value));
+                                ok = false;
+                                None
+                            }
+                            None => {
+                                ok = false;
+                                None
+                            }
+                        }
+                    }
+                };
                 let makes = made?;
-                ok.then_some(ServerKind::Assembly { recipe: out, makes })
+                ok.then_some(ServerKind::Assembly {
+                    recipe: out,
+                    makes,
+                    clock_of,
+                })
             }
             (None, None, Some(makes)) => {
                 self.error(makes, "`makes` goes with `assembles`".to_string());
                 None
             }
-            (None, None, None) => Some(ServerKind::Single),
+            (None, None, None) => {
+                if let Some(t) = &s.keeps_clock_of {
+                    self.error(t, "`keeps_clock_of` goes with `assembles`".to_string());
+                    return None;
+                }
+                Some(ServerKind::Single)
+            }
         }
     }
 
