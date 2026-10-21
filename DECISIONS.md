@@ -319,6 +319,14 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Arrivals in groups, and splitting (implemented 2026-10-21, issue #27)
+
+- **`group: 20` or `group: { min: 20, max: 30 }` on a source:** each arrival brings that many parts at once. They get on in order; the first that can't makes the rest wait behind it (or, with `drop`, each that can't is lost), and the next arrival time starts when the last has got on, as for single parts. All of a group arrive at the same instant: a queue with room for one takes one part before the next object can take anything, so the others are lost or wait. Pulling at once instead would have objects calling into each other mid-update; the instant rule is simpler and documented.
+- **`splits_into: { carton: 10 }` on a server:** each finished part becomes that many parts of another type, which leave one by one from its slot (the slot stays blocked until the last has gone). They keep the original's arrival time, so a carton's time in system counts from when its pallet arrived. The original counts as consumed; a new `split` total keeps the conservation check (created + assembled + split = exited + lost + consumed + in system).
+- **Counts** are a whole number or a uniform range `{ min, max }`, drawn from the object's own `group` or `split` stream. Variable kit sizes (an order of 1 to 5 cartons) are left for later.
+- The event log has a `split` event; the web and Godot animations show split parts leaving the server.
+- **The warehouse template is now trucks of 20–30 pallets**: forklifts put pallets away into the racks (one pallet a trip, so the "8 cartons a trip" batch is gone), a station breaks pallets into 10 cartons onto the pick shelves, and only when the shelves have room, so they restock themselves. Supply and demand balance only on average, so some replications run out of cartons; restocking by stock level is issue #28.
+
 ## Arrivals by time of day (implemented 2026-10-21, issue #26)
 
 - **`arrivals_per_hour: { "10:00-12:00": 40, "12:00-14:00": 70 }`** on a source, instead of `interarrival`: a Poisson process whose rate changes with the time of day, the same every day, zero outside the periods. Periods are written like shifts and may run past midnight; they can't overlap.
@@ -387,7 +395,7 @@ What building them showed is missing, in the order I'd add it:
 | **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". Done: see Waiting time and service levels. | #24 |
 | **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. Done: see Words for what flows. | #25 |
 | **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. Done: see Arrivals by time of day. | #26 |
-| **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. | #27 |
+| **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. Done (except orders of different sizes): see Arrivals in groups, and splitting. | #27 |
 | **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. | #28 |
 | **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. | #29 |
 | **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. | #30 |

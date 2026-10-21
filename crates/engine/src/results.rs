@@ -98,11 +98,15 @@ pub struct Totals {
     pub created: u64,
     /// Parts made by assembly servers.
     pub assembled: u64,
-    /// Components used up by assembly servers.
+    /// Components used up by assembly servers, and parts split into others.
     pub consumed: u64,
+    /// Parts made by splitting others.
+    pub split: u64,
     pub lost: u64,
     pub exited: u64,
-    /// Parts still on conveyors, in servers or held by sources when the run ended.
+    /// Parts still on conveyors, in servers or held by sources when the run
+    /// ended. Conservation: created + assembled + split = exited + lost +
+    /// consumed + in_system.
     pub in_system: u64,
 }
 

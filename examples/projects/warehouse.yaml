@@ -4,13 +4,13 @@
 
 format: outliers-sim-project/0.1
 name: Distribution warehouse
-description: Cartons received and put away by forklifts; orders picked from storage, packed and dispatched.
+description: Trucks of pallets put away by forklifts, broken into cartons on the pick shelves; orders picked, packed and dispatched.
 model: model.yaml
 
 # What can be changed on the Simulation page.
 decisions:
   forklifts:
-    label: Forklifts on the morning shift
+    label: Forklifts per shift
     path: resources.forklift.capacity
     min: 1
     max: 4
@@ -28,6 +28,7 @@ decisions:
 # What the Simulation page shows, and which way is better.
 results:
   - { label: Orders dispatched per working hour, object: dispatch, measure: throughput, better: higher }
-  - { label: Cartons in storage, object: storage, measure: mean parts }
-  - { label: Receiving held back (storage or docks full), object: inbound, measure: blocked, better: lower }
+  - { label: Wait before an order is picked, object: backlog, measure: waiting time, better: lower }
+  - { label: Pallets in the racks, object: racks, measure: mean parts }
+  - { label: Trucks kept waiting at the dock, object: trucks, measure: blocked, better: lower }
   - { label: Pickers busy, object: picker, measure: busy }

@@ -16,7 +16,7 @@ templates:
   bank-branch:
     tags: [services, bank, customers, queues, opening hours, part types, routing by type, resources]
   warehouse:
-    tags: [logistics, warehouse, forklifts, picking, shifts, batches, kits, resources]
+    tags: [logistics, warehouse, forklifts, picking, shifts, group arrivals, splitting, kits, queues, resources]
   bike-assembly:
     tags: [manufacturing, assembly, kits, batches, shifts, resources]
   conveyor-line:

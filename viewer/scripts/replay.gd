@@ -25,9 +25,11 @@ var sinks: Dictionary = {}
 var created: int = 0
 var lost: int = 0
 var exited: int = 0
-## Parts made by assembly servers, and components they used up.
+## Parts made by assembly servers, components they used up (and parts
+## split into others), and parts made by splitting.
 var assembled: int = 0
 var consumed: int = 0
+var split: int = 0
 
 var _cursor: int = 0
 
@@ -82,6 +84,7 @@ func reset() -> void:
 	exited = 0
 	assembled = 0
 	consumed = 0
+	split = 0
 	time = 0.0
 	_cursor = 0
 
@@ -128,7 +131,7 @@ func server_parts(server: String) -> Array:
 
 
 func in_system() -> int:
-	return created + assembled - consumed - lost - exited
+	return created + assembled + split - consumed - lost - exited
 
 
 func _apply(e: Dictionary) -> void:
@@ -159,8 +162,13 @@ func _apply(e: Dictionary) -> void:
 			_leave_conveyor(part, e["server"], t)
 			servers[e["server"]]["waiting"].append(part)
 		"consumed":
+			# A kit's component (collected), or a finished part that was split.
 			servers[e["server"]]["waiting"].erase(int(e["part"]))
+			servers[e["server"]]["blocked"].erase(int(e["part"]))
 			consumed += 1
+		"split":
+			split += 1
+			servers[e["server"]]["blocked"].append(int(e["part"]))
 		"assembled":
 			assembled += 1
 			servers[e["server"]]["waiting"].append(int(e["part"]))

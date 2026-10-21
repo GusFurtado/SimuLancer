@@ -830,6 +830,7 @@ function panel(tree) {
       return el("div", {}, header,
         createsField(tree, p),
         arrivalsField(tree, p),
+        countField(say("Parts per arrival (e.g. 20, or 20-30)"), `${p}.group`, "1", "f-group"),
         field("When the conveyor is full", `${p}.when_blocked`, "select", ["wait", "drop"]),
         scheduleField(tree, `${p}.schedule`, "Parts arrive"),
         outputRule(tree, p, outputs));
@@ -838,6 +839,7 @@ function panel(tree) {
         kindField(tree, p),
         field(say("Capacity (parts at once)"), `${p}.capacity`, "int", [], node.batch ? `${node.batch} (one batch)` : "1 (default)"),
         processTime(tree, p),
+        splitField(tree, p),
         needsField(tree, p),
         scheduleField(tree, `${p}.schedule`, "Works"),
         inputRule(tree, p, inputs),
@@ -907,6 +909,54 @@ function arrivalsField(tree, p) {
         } }, "+ Period"),
       el("div", { class: "hint", style: "margin-top: 4px" }, say(`About ${Math.round(perDay)} parts a day. Outside these periods, none arrive.`)),
       error ? el("div", { class: "message" }, error.message) : null));
+}
+
+/** A whole number of parts: `20`, or a range written `20-30` (each value
+ *  equally likely); empty is the default. */
+function countField(label, path, placeholder, id) {
+  const value = getAt(currentTree(), path);
+  const text = value && typeof value === "object" ? `${value.min}-${value.max}` : value ?? "";
+  const error = errorFor(path);
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: id }, label,
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path), title: "Back to the base model's value" }, "reset") : null),
+    el("input", {
+      id, value: text, placeholder, inputmode: "numeric",
+      onchange: e => setChange(path, parseCount(e.target.value)),
+    }),
+    error ? el("div", { class: "message" }, error.message) : null);
+}
+
+/** `20` -> 20, `20-30` -> { min: 20, max: 30 }, empty -> null (the default). */
+function parseCount(text) {
+  const t = text.trim();
+  if (t === "") return null;
+  const range = t.match(/^(\d+)\s*(?:-|to)\s*(\d+)$/);
+  if (range) return { min: Number(range[1]), max: Number(range[2]) };
+  return /^\d+$/.test(t) ? Number(t) : t;
+}
+
+/** What each finished part becomes: a part type and how many (or nothing). */
+function splitField(tree, p) {
+  const path = `${p}.splits_into`;
+  const split = getAt(tree, path);
+  const [type, count] = split ? Object.entries(split)[0] || [] : [];
+  const types = typesOf(tree);
+  const error = errorFor(path);
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: "f-split-type" }, say("Splits each finished part into"),
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path), title: "Back to the base model's value" }, "reset") : null),
+    el("div", { class: "row" },
+      el("select", { id: "f-split-type", onchange: e => setChange(path, e.target.value ? { [e.target.value]: count ?? 2 } : null) },
+        el("option", { value: "", selected: split ? null : true }, "— (no split)"),
+        ...types.map(t => el("option", { value: t, selected: t === type ? true : null }, t))),
+      split ? el("input", {
+        id: "f-split-count", style: "max-width: 110px", inputmode: "numeric",
+        value: count && typeof count === "object" ? `${count.min}-${count.max}` : count ?? "",
+        "aria-label": "How many",
+        onchange: e => setChange(path, { [type]: parseCount(e.target.value) ?? 1 }),
+      }) : null),
+    error ? el("div", { class: "message" }, error.message) : null);
 }
 
 /** A queue's capacity: a whole number, or empty for no limit. */

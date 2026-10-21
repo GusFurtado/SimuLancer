@@ -90,9 +90,12 @@ struct SourceState {
     type_rng: Rng,
     /// Accepts or rejects candidate arrivals, for rate profiles (thinning).
     thinning_rng: Rng,
+    /// Draws how many parts arrive together (`group`).
+    group_rng: Rng,
     next_output: usize,
-    /// Part waiting to get on a conveyor (`when_blocked: wait`).
-    held: Option<(Part, Target)>,
+    /// Parts waiting to get on a conveyor (`when_blocked: wait`), in order:
+    /// one, or the rest of a group.
+    held: VecDeque<(Part, Target)>,
     off_shift: bool,
     /// Bumped at each shift end, to cancel the pending arrival.
     arrival_generation: u64,
@@ -147,6 +150,10 @@ struct ServerState {
     slot_generation: Vec<u64>,
     /// Slots holding finished parts, in the order they finished.
     blocked_order: VecDeque<usize>,
+    /// Per slot: the rest of a split part, leaving after the blocked one.
+    split_rest: Vec<VecDeque<Part>>,
+    /// Draws how many parts a split makes.
+    split_rng: Rng,
     /// Waiting in the resource queue: a part is ready, units aren't.
     waiting_for_resources: bool,
     /// The batch or kit being collected.
@@ -340,8 +347,9 @@ impl<'a, O: Observer> Sim<'a, O> {
                 routing_rng: stream(format!("source/{}/routing", s.name)),
                 type_rng: stream(format!("source/{}/type", s.name)),
                 thinning_rng: stream(format!("source/{}/thinning", s.name)),
+                group_rng: stream(format!("source/{}/group", s.name)),
                 next_output: 0,
-                held: None,
+                held: VecDeque::new(),
                 off_shift: false,
                 arrival_generation: 0,
                 created: 0,
@@ -381,6 +389,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                     slots: vec![Slot::Idle; s.capacity as usize],
                     slot_generation: vec![0; s.capacity as usize],
                     blocked_order: VecDeque::new(),
+                    split_rest: vec![VecDeque::new(); s.capacity as usize],
+                    split_rng: stream(format!("server/{}/split", s.name)),
                     waiting_for_resources: false,
                     staging: Vec::new(),
                     waiting: TimeAverage::default(),
@@ -540,6 +550,51 @@ impl<'a, O: Observer> Sim<'a, O> {
     // --- Sources ---
 
     fn arrival(&mut self, source: usize) {
+        let spec = self.spec;
+        let source_spec = &spec.sources[source];
+        let n = match &source_spec.group {
+            None => 1,
+            Some(count) => self.sources[source].group_rng.count(count),
+        };
+        for _ in 0..n {
+            let part = self.create_part(source);
+            let state = &mut self.sources[source];
+            let target = pick_output(
+                &source_spec.routing,
+                &source_spec.outputs,
+                part.entity,
+                &mut state.routing_rng,
+                &mut state.next_output,
+            );
+            // Parts of a group get on in order: once one waits, the rest wait behind it.
+            if self.sources[source].held.is_empty()
+                && self.try_send(part, target, &source_spec.outputs, &source_spec.routing)
+            {
+                continue;
+            }
+            match source_spec.when_blocked {
+                WhenBlocked::Wait => self.sources[source].held.push_back((part, target)),
+                WhenBlocked::Drop => {
+                    self.sources[source].lost += 1;
+                    self.totals.lost += 1;
+                    self.observer.record(
+                        self.now,
+                        TraceEvent::Lost {
+                            part: part.id,
+                            source,
+                        },
+                    );
+                }
+            }
+        }
+        match self.sources[source].held.front() {
+            None => self.schedule_arrival(source),
+            Some(&(_, target)) => self.wait_for(target, &source_spec.outputs),
+        }
+    }
+
+    /// A new part at a source, its type drawn from the source's mix.
+    fn create_part(&mut self, source: usize) -> Part {
         let creates = &self.spec.sources[source].creates;
         let entity = if creates.len() == 1 {
             creates[0].0
@@ -573,39 +628,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 entity,
             },
         );
-
-        let spec = self.spec;
-        let source_spec = &spec.sources[source];
-        let state = &mut self.sources[source];
-        let target = pick_output(
-            &source_spec.routing,
-            &source_spec.outputs,
-            part.entity,
-            &mut state.routing_rng,
-            &mut state.next_output,
-        );
-        if self.try_send(part, target, &source_spec.outputs, &source_spec.routing) {
-            self.schedule_arrival(source);
-            return;
-        }
-        match source_spec.when_blocked {
-            WhenBlocked::Wait => {
-                self.sources[source].held = Some((part, target));
-                self.wait_for(target, &source_spec.outputs);
-            }
-            WhenBlocked::Drop => {
-                self.sources[source].lost += 1;
-                self.totals.lost += 1;
-                self.observer.record(
-                    self.now,
-                    TraceEvent::Lost {
-                        part: part.id,
-                        source,
-                    },
-                );
-                self.schedule_arrival(source);
-            }
-        }
+        part
     }
 
     /// The first arrival of the run or of a shift: at once with a time
@@ -671,7 +694,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             if on {
                 // The first arrival of the shift comes at its start (or, with
                 // a rate profile, when the rate brings it).
-                if s.held.is_none() {
+                if s.held.is_empty() {
                     self.first_arrival(source);
                 }
             } else {
@@ -764,19 +787,22 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
     }
 
-    /// A conveyor the source was waiting for has room.
+    /// A conveyor the source was waiting for has room: held parts get on in
+    /// order, and the next interarrival time starts when the last is on.
     fn release_held(&mut self, source: usize) {
-        let Some((part, target)) = self.sources[source].held else {
+        if self.sources[source].held.is_empty() {
             return; // already left by another conveyor (`first_available`)
-        };
+        }
         let spec = &self.spec.sources[source];
         let outputs = &spec.outputs;
-        if self.try_send(part, target, outputs, &spec.routing) {
-            self.sources[source].held = None;
-            self.schedule_arrival(source);
-        } else {
-            self.wait_for(target, outputs);
+        while let Some(&(part, target)) = self.sources[source].held.front() {
+            if !self.try_send(part, target, outputs, &spec.routing) {
+                self.wait_for(target, outputs);
+                return;
+            }
+            self.sources[source].held.pop_front();
         }
+        self.schedule_arrival(source);
     }
 
     /// Puts a part on its target conveyor or, with no target, on the
@@ -1228,19 +1254,9 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     fn process_done(&mut self, server: usize, slot: usize) {
         let spec = &self.spec.servers[server];
-        let s = &mut self.servers[server];
-        let Slot::Busy { part, holds, .. } = s.slots[slot] else {
+        let Slot::Busy { part, holds, .. } = self.servers[server].slots[slot] else {
             unreachable!("a current ProcessDone event belongs to a busy slot");
         };
-        let target = pick_output(
-            &spec.routing,
-            &spec.outputs,
-            part.entity,
-            &mut s.routing_rng,
-            &mut s.next_output,
-        );
-        s.slots[slot] = Slot::Blocked { part, target };
-        s.blocked_order.push_back(slot);
         if holds {
             for &(r, units) in &spec.needs {
                 self.resources[r].in_use -= units;
@@ -1253,6 +1269,57 @@ impl<'a, O: Observer> Sim<'a, O> {
                 server,
             },
         );
+        // A split part becomes several, which leave one by one, keeping the
+        // time the original arrived.
+        let part = match &spec.splits_into {
+            None => part,
+            Some((entity, count)) => {
+                let n = self.servers[server].split_rng.count(count);
+                self.observer.record(
+                    self.now,
+                    TraceEvent::Consumed {
+                        part: part.id,
+                        server,
+                    },
+                );
+                self.totals.consumed += 1;
+                self.totals.split += u64::from(n);
+                let mut children: VecDeque<Part> = (0..n)
+                    .map(|_| {
+                        let child = Part {
+                            id: self.next_part,
+                            created: part.created,
+                            entity: *entity,
+                        };
+                        self.next_part += 1;
+                        self.observer.record(
+                            self.now,
+                            TraceEvent::Split {
+                                part: child.id,
+                                server,
+                                entity: *entity,
+                            },
+                        );
+                        child
+                    })
+                    .collect();
+                let first = children
+                    .pop_front()
+                    .expect("validated: splits make at least one part");
+                self.servers[server].split_rest[slot] = children;
+                first
+            }
+        };
+        let s = &mut self.servers[server];
+        let target = pick_output(
+            &spec.routing,
+            &spec.outputs,
+            part.entity,
+            &mut s.routing_rng,
+            &mut s.next_output,
+        );
+        s.slots[slot] = Slot::Blocked { part, target };
+        s.blocked_order.push_back(slot);
         self.update_failure_clocks(server);
         self.release_blocked(server);
         if !self.spec.servers[server].needs.is_empty() {
@@ -1278,9 +1345,21 @@ impl<'a, O: Observer> Sim<'a, O> {
             };
             if self.try_send(part, target, outputs, &spec.routing) {
                 let s = &mut self.servers[server];
-                s.blocked_order.remove(i);
-                s.slots[slot] = Slot::Idle;
                 s.processed += 1;
+                if let Some(next) = s.split_rest[slot].pop_front() {
+                    // The next part of a split takes its place and tries at once.
+                    let target = pick_output(
+                        &spec.routing,
+                        outputs,
+                        next.entity,
+                        &mut s.routing_rng,
+                        &mut s.next_output,
+                    );
+                    s.slots[slot] = Slot::Blocked { part: next, target };
+                } else {
+                    s.blocked_order.remove(i);
+                    s.slots[slot] = Slot::Idle;
+                }
             } else {
                 i += 1;
             }
@@ -1412,7 +1491,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     fn sample_state(&mut self) {
         let now = self.now;
         for s in &mut self.sources {
-            s.blocked.set(now, u64::from(s.held.is_some()));
+            s.blocked.set(now, u64::from(!s.held.is_empty()));
         }
         for (s, spec) in self.servers.iter_mut().zip(&self.spec.servers) {
             s.off.set(
@@ -1495,7 +1574,13 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn result(&self) -> ReplicationResult {
-        let in_system = self.sources.iter().filter(|s| s.held.is_some()).count()
+        let in_system = self.sources.iter().map(|s| s.held.len()).sum::<usize>()
+            + self
+                .servers
+                .iter()
+                .flat_map(|s| &s.split_rest)
+                .map(VecDeque::len)
+                .sum::<usize>()
             + self.servers.iter().map(|s| s.staging.len()).sum::<usize>()
             + self
                 .servers

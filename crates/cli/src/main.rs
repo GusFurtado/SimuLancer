@@ -18,7 +18,7 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{
-    Arrivals, Distribution, InputRule, Node, PerType, Routing, ServerKind, Spec,
+    Arrivals, Count, Distribution, InputRule, Node, PerType, Routing, ServerKind, Spec,
 };
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
@@ -320,7 +320,11 @@ fn describe(path: &Path, model: &Model) -> String {
                 )
             }
         };
-        out += &format!("  {:<12} creates {creates}, {when}\n", s.name);
+        let group = s
+            .group
+            .as_ref()
+            .map_or(String::new(), |g| format!(", {} at a time", count_text(g)));
+        out += &format!("  {:<12} creates {creates}, {when}{group}\n", s.name);
         if let Some(text) = routing(spec, &s.outputs, &s.routing) {
             out += &format!("  {:<12}   {text}\n", "");
         }
@@ -355,6 +359,14 @@ fn describe(path: &Path, model: &Model) -> String {
             out += &format!(
                 "  {:<12}   works on schedule {}\n",
                 "", spec.schedules[i].name
+            );
+        }
+        if let Some((e, count)) = &s.splits_into {
+            out += &format!(
+                "  {:<12}   splits each part into {} {}\n",
+                "",
+                count_text(count),
+                spec.entities[*e]
             );
         }
         match &s.kind {
@@ -464,6 +476,14 @@ fn describe(path: &Path, model: &Model) -> String {
         e.seed
     );
     out
+}
+
+/// `12`, or `10 to 14`.
+fn count_text(count: &Count) -> String {
+    match count {
+        Count::Fixed(n) => n.to_string(),
+        Count::Uniform { min, max } => format!("{min} to {max}"),
+    }
 }
 
 fn conveyor_list(spec: &Spec, conveyors: &[usize]) -> String {

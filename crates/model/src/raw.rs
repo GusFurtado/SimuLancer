@@ -65,11 +65,68 @@ pub struct RawSource {
     pub interarrival: Option<Spanned<Scalar>>,
     /// Arrivals per hour by time of day: `"12:00-14:00": 70`.
     pub arrivals_per_hour: Option<Spanned<OrderedMap<f64>>>,
+    /// Parts per arrival: `20`, or `{ min: 20, max: 30 }`.
+    pub group: Option<Spanned<RawCount>>,
     #[serde(default)]
     pub when_blocked: WhenBlocked,
     /// Required with two or more outgoing conveyors.
     pub output: Option<Spanned<RawOutputRule>>,
     pub schedule: Option<Spanned<String>>,
+}
+
+/// A whole number of parts: `20`, or `{ min: 20, max: 30 }` (each value
+/// equally likely). Read by hand: it's a number or a map.
+#[derive(Debug, Clone, Copy)]
+pub enum RawCount {
+    Fixed(u64),
+    Range { min: u64, max: u64 },
+}
+
+impl<'de> Deserialize<'de> for RawCount {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct CountVisitor;
+
+        impl<'de> Visitor<'de> for CountVisitor {
+            type Value = RawCount;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("a whole number, or `{ min: .., max: .. }`")
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, n: u64) -> Result<RawCount, E> {
+                Ok(RawCount::Fixed(n))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, n: i64) -> Result<RawCount, E> {
+                u64::try_from(n)
+                    .map(RawCount::Fixed)
+                    .map_err(|_| E::custom("a count can't be negative"))
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<RawCount, A::Error> {
+                let (mut min, mut max) = (None, None);
+                while let Some(key) = map.next_key::<String>()? {
+                    match key.as_str() {
+                        "min" => min = Some(map.next_value::<u64>()?),
+                        "max" => max = Some(map.next_value::<u64>()?),
+                        other => {
+                            return Err(serde::de::Error::custom(format!(
+                                "unknown field `{other}`, expected `min` and `max`"
+                            )));
+                        }
+                    }
+                }
+                match (min, max) {
+                    (Some(min), Some(max)) => Ok(RawCount::Range { min, max }),
+                    _ => Err(serde::de::Error::custom(
+                        "a range needs both `min` and `max`",
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(CountVisitor)
+    }
 }
 
 /// What a source creates: one part type, or a mix of types with shares.
@@ -204,6 +261,8 @@ pub struct RawServer {
     pub assembles: Option<OrderedMap<Spanned<u32>>>,
     /// The part type an assembly makes.
     pub makes: Option<Spanned<String>>,
+    /// Part type -> count: what each finished part becomes (one entry).
+    pub splits_into: Option<Spanned<OrderedMap<RawCount>>>,
     #[serde(default)]
     pub failures: Vec<RawFailure>,
     /// Required with two or more incoming conveyors.

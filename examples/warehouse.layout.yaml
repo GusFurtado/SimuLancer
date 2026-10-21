@@ -1,20 +1,21 @@
-# Visual layout for warehouse.yaml (meters, Y up). Receiving on the top
-# side, orders on the bottom. Storage and the order backlog are queues,
-# drawn straight between their objects.
+# Visual layout for warehouse.yaml (meters, Y up). Receiving and restocking
+# on the top side, orders on the bottom. The racks, shelves and order backlog
+# are queues, drawn straight between their objects.
 model: warehouse.yaml
 units: m
 
 objects:
-  inbound:  { position: [0, 0, -5] }
-  unload:   { position: [8, 0, -5], model: machine_small }
-  putaway:  { position: [16, 0, -5], model: machine_small }
-  orders:   { position: [0, 0, 5] }
-  pick:     { position: [24, 0, 0], model: machine_small }
-  pack:     { position: [32, 0, 0], model: machine_small }
-  dispatch: { position: [40, 0, 0] }
+  trucks:       { position: [0, 0, -5] }
+  unload:       { position: [8, 0, -5], model: machine_small }
+  putaway:      { position: [16, 0, -5], model: machine_small }
+  break_pallet: { position: [24, 0, -5], model: machine_small }
+  orders:       { position: [0, 0, 5] }
+  pick:         { position: [32, 0, 0], model: machine_small }
+  pack:         { position: [40, 0, 0], model: machine_small }
+  dispatch:     { position: [48, 0, 0] }
 
 conveyors:
-  dock:        { path: [[0.7, 0, -5], [7.3, 0, -5]] }                     # 6.6
-  to_putaway:  { path: [[8.7, 0, -5], [15.3, 0, -5]] }                    # 6.6
-  to_pack:     { path: [[24.7, 0, 0], [31.3, 0, 0]] }                     # 6.6
-  to_dispatch: { path: [[32.7, 0, 0], [39.3, 0, 0]] }                     # 6.6
+  dock:        { path: [[0.7, 0, -5], [7.3, 0, -5]] }      # 6.6
+  to_putaway:  { path: [[8.7, 0, -5], [15.3, 0, -5]] }     # 6.6
+  to_pack:     { path: [[32.7, 0, 0], [39.3, 0, 0]] }      # 6.6
+  to_dispatch: { path: [[40.7, 0, 0], [47.3, 0, 0]] }      # 6.6

@@ -371,6 +371,15 @@ impl<'a, W: Write> EventLog<'a, W> {
                 r#"{{"t":{t},"type":"assembled","part":{part},"server":"{}","entity":"{}"}}"#,
                 s.servers[server].name, s.entities[entity]
             ),
+            TraceEvent::Split {
+                part,
+                server,
+                entity,
+            } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"split","part":{part},"server":"{}","entity":"{}"}}"#,
+                s.servers[server].name, s.entities[entity]
+            ),
             TraceEvent::ShiftEnded { server } => writeln!(
                 self.out,
                 r#"{{"t":{t},"type":"shift_ended","server":"{}"}}"#,
