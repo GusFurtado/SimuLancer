@@ -69,7 +69,7 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
     }
     let projects = Projects::new(projects_dir);
     if new_folder {
-        let created = projects::seed_examples(&projects)?;
+        let created = projects::seed_examples(&projects, false)?;
         println!("created example projects: {}", created.join(", "));
     }
     let scenarios = Scenarios::new(args.data.join("scenarios"));
@@ -123,6 +123,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/simulation.js", get(asset("simulation.js")))
         .route("/api/v1/health", get(health))
         .route("/api/v1/projects", get(list_projects).post(create_project))
+        .route("/api/v1/examples", get(list_examples))
         .route(
             "/api/v1/projects/{id}",
             get(get_project)
@@ -786,15 +787,51 @@ async fn delete_project(
 struct CreateProject {
     id: String,
     name: Option<String>,
-    /// An existing project to start from (its working copy). Without it,
-    /// the project starts as a simple line to build on.
+    /// An existing project to start from (its working copy). Without it
+    /// or `example`, the project starts as a simple line to build on.
     from: Option<String>,
+    /// A built-in example to start from (`GET /api/v1/examples`); the
+    /// project starts with it saved and published as v1.
+    example: Option<String>,
+}
+
+/// The built-in examples a project can start from.
+async fn list_examples() -> Response {
+    let examples: Vec<Value> = projects::EXAMPLES
+        .iter()
+        .map(|e| {
+            let file = e.project_file();
+            json!({ "id": e.id, "name": file.name, "description": file.description })
+        })
+        .collect();
+    Json(json!({ "examples": examples })).into_response()
 }
 
 async fn create_project(
     State(state): State<Arc<AppState>>,
     Json(body): Json<CreateProject>,
 ) -> Response {
+    if let Some(example) = &body.example {
+        if body.from.is_some() {
+            return error(
+                StatusCode::BAD_REQUEST,
+                "give `from` or `example`, not both",
+            );
+        }
+        if !projects::EXAMPLES.iter().any(|e| e.id == example) {
+            return error(StatusCode::NOT_FOUND, format!("no example `{example}`"));
+        }
+        return match projects::create_from_example(
+            &state.projects,
+            &body.id,
+            example,
+            body.name.as_deref(),
+        ) {
+            Ok(()) => (StatusCode::CREATED, Json(json!({ "id": body.id }))).into_response(),
+            Err(e) if e.contains("already exists") => error(StatusCode::CONFLICT, e),
+            Err(e) => error(StatusCode::BAD_REQUEST, e),
+        };
+    }
     let name = body.name.clone().unwrap_or_else(|| body.id.clone());
     let (files, message) = match &body.from {
         None => (
@@ -1656,7 +1693,7 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("projects")).unwrap();
         let projects = Projects::new(root.join("projects"));
-        projects::seed_examples(&projects).unwrap();
+        projects::seed_examples(&projects, true).unwrap();
         let state = AppState::start(
             projects,
             Scenarios::new(root.join("scenarios")),
@@ -1703,10 +1740,79 @@ mod tests {
         let (status, body) = call(&app, "GET", "/api/v1/projects", None).await;
         assert_eq!(status, StatusCode::OK);
         let projects = body["projects"].as_array().unwrap();
-        assert_eq!(projects.len(), 3);
-        assert_eq!(projects[2]["id"], "two-cells");
-        assert_eq!(projects[2]["name"], "Two cells");
-        assert_eq!(projects[2]["published"]["name"], "v1");
+        assert_eq!(projects.len(), 6);
+        assert_eq!(projects[4]["id"], "two-cells");
+        assert_eq!(projects[4]["name"], "Two cells");
+        assert_eq!(projects[4]["published"]["name"], "v1");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Every shipped example loads, with a layout, and its decisions and
+    /// results can be published; and projects can start from it.
+    #[tokio::test]
+    async fn examples_are_valid_and_projects_start_from_them() {
+        let (app, root) = app("examples");
+        let (_, body) = call(&app, "GET", "/api/v1/examples", None).await;
+        let examples = body["examples"].as_array().unwrap();
+        assert_eq!(examples.len(), projects::EXAMPLES.len());
+        assert_eq!(examples[1]["name"], "Bank branch");
+        for example in projects::EXAMPLES {
+            let (_, project) = call(
+                &app,
+                "GET",
+                &format!("/api/v1/projects/{}", example.id),
+                None,
+            )
+            .await;
+            assert_eq!(
+                project["valid"], true,
+                "{}: {}",
+                example.id, project["errors"]
+            );
+            assert!(project["layout"].is_object(), "{} has a layout", example.id);
+            assert_eq!(project["decision_problems"], json!([]), "{}", example.id);
+            assert!(
+                !project["decisions"].as_array().unwrap().is_empty(),
+                "{}",
+                example.id
+            );
+            assert!(
+                !project["results"].as_array().unwrap().is_empty(),
+                "{}",
+                example.id
+            );
+        }
+
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/projects",
+            Some(json!({ "id": "my-bank", "name": "My bank", "example": "bank-branch" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED);
+        let (_, project) = call(&app, "GET", "/api/v1/projects/my-bank?version=latest", None).await;
+        assert_eq!(
+            (project["name"].as_str(), project["version"].as_str()),
+            (Some("My bank"), Some("v1"))
+        );
+        for (body, expected) in [
+            (
+                json!({ "id": "x", "example": "nope" }),
+                StatusCode::NOT_FOUND,
+            ),
+            (
+                json!({ "id": "x", "example": "warehouse", "from": "two-cells" }),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                json!({ "id": "my-bank", "example": "warehouse" }),
+                StatusCode::CONFLICT,
+            ),
+        ] {
+            let (status, _) = call(&app, "POST", "/api/v1/projects", Some(body)).await;
+            assert_eq!(status, expected);
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -1897,7 +2003,7 @@ mod tests {
         let (status, _) = call(&app, "POST", "/api/v1/projects/two-cells/archive", None).await;
         assert_eq!(status, StatusCode::OK);
         let (_, list) = call(&app, "GET", "/api/v1/projects", None).await;
-        assert_eq!(ids(&list), ["bike-assembly", "conveyor-line"]);
+        assert!(!ids(&list).contains(&"two-cells".to_string()));
         let (_, archived) = call(&app, "GET", "/api/v1/projects?archived=true", None).await;
         assert_eq!(ids(&archived), ["two-cells"]);
         assert_eq!(archived["projects"][0]["name"], "Two mills");

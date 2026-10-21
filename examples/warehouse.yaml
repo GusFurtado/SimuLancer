@@ -1,0 +1,83 @@
+# Distribution warehouse: cartons come in at the receiving docks on the
+# morning shift and forklifts put them away; customer orders come in all day,
+# and pickers fill each order with two cartons from storage, then it's packed
+# and dispatched.
+#
+#   inbound ─ dock ─> unload ─> putaway ─ storage ──┐
+#            (docks)          (forklifts)          ├──> pick ─> pack ─> dispatch
+#   orders ─────────── order_queue ────────────────┘  (pickers)
+#
+# Storage is a long, fast conveyor: it holds up to 2,000 cartons, first in,
+# first out. Forklift trips are part of putaway's time, 8 cartons a trip.
+
+format: outliers-sim/0.1
+name: warehouse
+description: Cartons received and put away by forklifts; orders picked from storage, packed and dispatched.
+
+entities:
+  carton: {}
+  order: {}
+  shipment: {}     # an order with its cartons
+
+schedules:
+  receiving:
+    shifts: ["06:00-14:00"]
+    days: [mon, tue, wed, thu, fri]
+  operations:
+    shifts: ["06:00-14:00", "14:00-22:00"]
+    days: [mon, tue, wed, thu, fri]
+
+resources:
+  forklift: { capacity: 3, schedule: receiving }
+  picker: { capacity: 5, schedule: operations }
+
+sources:
+  inbound:
+    creates: carton
+    interarrival: "exponential(21 s)"
+    schedule: receiving
+  orders:
+    creates: order
+    interarrival: "exponential(90 s)"
+    schedule: operations
+
+servers:
+  unload:
+    capacity: 2                              # two dock doors
+    process_time: "uniform(10 s, 20 s)"
+  putaway:
+    batch: 8                                 # a pallet: 8 cartons per forklift trip
+    capacity: 24                             # up to 3 trips at once; forklifts are the limit
+    process_time: "triangular(2 min, 3 min, 6 min)"   # to the racks and back
+    needs: { forklift: 1 }
+  pick:
+    capacity: 8                              # pick stations; pickers are the limit
+    assembles: { order: 1, carton: 2 }
+    makes: shipment
+    process_time: "triangular(2 min, 3 min, 6 min)"
+    needs: { picker: 1 }
+    input: { rule: first_come }
+  pack:
+    capacity: 2
+    process_time: "uniform(1 min, 2 min)"
+    schedule: operations
+
+conveyors:
+  dock:        { from: inbound, to: unload,   length: "6.6 m",  speed: "0.5 m/s", spacing: "1 m" }
+  to_putaway:  { from: unload,  to: putaway,  length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
+  storage:     { from: putaway, to: pick,     length: "1000 m", speed: "5 m/s",   spacing: "0.5 m" }
+  order_queue: { from: orders,  to: pick,     length: "200 m", speed: "5 m/s",   spacing: "0.5 m" }
+  to_pack:     { from: pick,    to: pack,     length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
+  to_dispatch: { from: pack,    to: dispatch, length: "6.6 m",   speed: "0.5 m/s", spacing: "1 m" }
+
+sinks:
+  dispatch: {}
+
+experiment:
+  replications: 20
+  warmup: "7 d"
+  run_length: "28 d"
+  seed: 20261021
+
+outputs:
+  event_log: jsonl

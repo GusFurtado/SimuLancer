@@ -5,7 +5,7 @@ Usage: test_ui.py <server url> <marionette port> <screenshot dir>
 Run by tests/ui/run.sh, which starts the server (with the example projects)
 and Firefox.
 """
-import os, sys, time
+import json, os, sys, time, urllib.request
 from marionette import Browser
 
 url, port, out = sys.argv[1].rstrip("/"), int(sys.argv[2]), sys.argv[3]
@@ -23,12 +23,21 @@ def click_in_diagram(title):
              .find(r => r.querySelector('title')?.textContent.startsWith({title!r}))
              .dispatchEvent(new MouseEvent('click', {{bubbles: true}}))""")
 
+# A new data folder has the featured examples; the sessions below also use
+# two of the others, created from the examples like the New project form does.
+for example in ["two-cells", "bike-assembly"]:
+    request = urllib.request.Request(url + "/api/v1/projects", method="POST",
+        data=json.dumps({"id": example, "example": example}).encode(), headers={"content-type": "application/json"})
+    urllib.request.urlopen(request).close()
+
 b = Browser(port)
 b.call("WebDriver:SetWindowRect", {"width": 1400, "height": 950})
 
 # --- The landing page: the projects, each opened to edit or to run. -------------
 b.go(url + "/")
-b.wait("return document.querySelectorAll('.door.project').length >= 3")
+b.wait("return document.querySelectorAll('.door.project').length === 5")
+listed = b.js("return [...document.querySelectorAll('.door.project h2')].map(h => h.textContent)")
+check(listed[:3] == ["Washing machine assembly line", "Bank branch", "Bike assembly"], f"projects listed: {listed}")
 check(b.js("return document.querySelector('[data-project=two-cells] a[href=\"simulation?project=two-cells\"]')") is not None, "two cells can be run")
 b.screenshot(f"{out}/1-landing.png")
 
@@ -355,4 +364,20 @@ b.screenshot(f"{out}/11-archive.png")
 b.js("document.querySelector('[data-archived=packing-line] [data-action=confirm-delete]').click()")
 b.wait("return document.querySelector('.notice')?.textContent.includes('Packing line 2 was deleted') && document.getElementById('show-archived') === null")
 check(b.js(f"return {card('packing-line')}") is None, "deleted")
+
+# --- New project from an example: published right away, a free address. ---------
+b.js("document.getElementById('new-project').click()")
+b.wait("return document.getElementById('new-from') !== null")
+set_value("new-from", "example:bank-branch")
+b.wait("return document.getElementById('new-name').placeholder === 'Bank branch'")
+b.js("document.getElementById('create-project').click()")
+b.wait("return location.search === '?project=bank-branch-2' && document.querySelector('.diagram svg') !== null", 10)
+check("published v1" in b.js("return document.querySelector('.versions').textContent"), "examples start published")
+b.go(url + "/simulation?project=bank-branch-2")
+b.wait("return document.querySelector('dl.decisions')?.textContent.includes('Tellers on duty')")
+b.screenshot(f"{out}/12-bank-simulation.png")
+for example in ["assembly-line", "bank-branch", "warehouse"]:
+    b.go(url + f"/modeling?project={example}")
+    b.wait("return document.querySelector('.diagram svg') !== null && document.querySelector('.versions') !== null", 10)
+    b.screenshot(f"{out}/13-{example}.png")
 print("web UI sessions (Modeling and Simulation): all checks passed")

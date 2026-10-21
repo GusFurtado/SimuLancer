@@ -1,0 +1,84 @@
+# Washing machine assembly line: two models on one line, six stations on two
+# weekday shifts, a test with rework, and buffers (accumulating conveyors)
+# between stations.
+#
+#   release ─> frame ─> drum ─> wiring ─> test ─────> pack ─> shipping
+#                                          │  ^
+#                                     8%   v  │  back to test
+#                                         rework (one technician)
+
+format: outliers-sim/0.1
+name: assembly-line
+description: Washing machines (two models) assembled on six stations over two shifts, with a final test and rework.
+
+entities:
+  standard: {}
+  premium: {}
+
+schedules:
+  two_shifts:
+    shifts: ["06:00-14:00", "14:00-22:00"]
+    days: [mon, tue, wed, thu, fri]
+
+resources:
+  technician: { capacity: 1, schedule: two_shifts }
+
+sources:
+  release:
+    creates: { standard: 0.7, premium: 0.3 }
+    interarrival: "2.5 min"                  # the planned release rate
+    schedule: two_shifts
+
+servers:
+  frame:
+    process_time: "triangular(1.8 min, 2 min, 2.4 min)"
+    schedule: two_shifts
+  drum:
+    process_time:
+      standard: "triangular(1.8 min, 2 min, 2.3 min)"
+      premium: "triangular(2.2 min, 2.4 min, 2.8 min)"
+    failures:
+      - name: jam
+        uptime: "exponential(4 h)"
+        downtime: "triangular(5 min, 10 min, 30 min)"
+    schedule: two_shifts
+  wiring:
+    capacity: 2                              # two stations side by side
+    process_time:
+      standard: "uniform(3.5 min, 4.5 min)"
+      premium: "uniform(4.5 min, 5.5 min)"
+    schedule: two_shifts
+  test:
+    process_time: "triangular(1.5 min, 1.8 min, 2.2 min)"
+    input: { rule: priority, order: [c_retest, c_to_test] }
+    output: { rule: probability, weights: { c_to_pack: 0.92, c_to_rework: 0.08 } }
+    schedule: two_shifts
+  rework:
+    process_time: "uniform(8 min, 20 min)"
+    needs: { technician: 1 }
+    schedule: two_shifts
+  pack:
+    process_time: "1.5 min"
+    schedule: two_shifts
+
+conveyors:
+  c_to_frame:  { from: release, to: frame,    length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+  c_to_drum:   { from: frame,   to: drum,     length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+  c_to_wiring: { from: drum,    to: wiring,   length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+  c_to_test:   { from: wiring,  to: test,     length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+  c_to_pack:   { from: test,    to: pack,     length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+  c_to_rework: { from: test,    to: rework,   length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+  c_retest:    { from: rework,  to: test,     length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+  c_ship:      { from: pack,    to: shipping, length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
+
+sinks:
+  shipping: {}
+
+experiment:
+  replications: 20
+  warmup: "1 d"
+  run_length: "28 d"
+  seed: 20261021
+
+outputs:
+  event_log: jsonl

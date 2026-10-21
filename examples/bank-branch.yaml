@@ -1,0 +1,69 @@
+# Bank branch: customers come in on weekdays while the doors are open, take a
+# ticket at the kiosk, and wait in line for a teller (quick transactions) or
+# an account advisor (longer appointments). When a line is full, newcomers
+# turn around and leave.
+#
+#                                ┌─ teller_line ──> tellers ──┐
+#   door ─ entrance ─> kiosk ────┤                            ├──> exit
+#                                └─ advisor_line ─> advisors ─┘
+#
+# Customers are "parts" in the model; the lines are conveyors people walk
+# along (spacing = room each person takes in the line).
+
+format: outliers-sim/0.1
+name: bank-branch
+description: Customers take a ticket and wait for a teller or an account advisor; when a line is full, newcomers leave.
+
+entities:
+  quick: {}       # deposits, withdrawals, payments
+  advice: {}      # loans, accounts, investments
+
+schedules:
+  doors_open:
+    shifts: ["10:00-16:00"]
+    days: [mon, tue, wed, thu, fri]
+  staff_hours:                               # staff stay after closing to serve who's inside
+    shifts: ["09:45-17:00"]
+    days: [mon, tue, wed, thu, fri]
+
+resources:
+  teller: { capacity: 3, schedule: staff_hours }
+  advisor: { capacity: 2, schedule: staff_hours }
+
+sources:
+  door:
+    creates: { quick: 0.85, advice: 0.15 }
+    interarrival: "exponential(1.2 min)"
+    when_blocked: drop                       # the entrance is packed: they leave
+    schedule: doors_open
+
+servers:
+  kiosk:
+    process_time: "uniform(10 s, 25 s)"
+    output: { rule: by_type, routes: { quick: teller_line, advice: advisor_line } }
+  tellers:
+    capacity: 5                              # counters; open ones depend on tellers on duty
+    process_time: "lognormal(mean: 3 min, sd: 1.5 min)"
+    needs: { teller: 1 }
+  advisors:
+    capacity: 3                              # desks
+    process_time: "lognormal(mean: 12 min, sd: 5 min)"
+    needs: { advisor: 1 }
+
+conveyors:
+  entrance:     { from: door,     to: kiosk,    length: "4 m",  speed: "1 m/s", spacing: "0.8 m" }
+  teller_line:  { from: kiosk,    to: tellers,  length: "12 m", speed: "1 m/s", spacing: "0.8 m" }
+  advisor_line: { from: kiosk,    to: advisors, length: "6 m",  speed: "1 m/s", spacing: "0.8 m" }
+  teller_out:   { from: tellers,  to: exit,     length: "8.3 m",  speed: "1 m/s", spacing: "0.8 m" }
+  advisor_out:  { from: advisors, to: exit,     length: "14.3 m",  speed: "1 m/s", spacing: "0.8 m" }
+
+sinks:
+  exit: {}
+
+experiment:
+  replications: 20
+  run_length: "28 d"
+  seed: 20261021
+
+outputs:
+  event_log: jsonl

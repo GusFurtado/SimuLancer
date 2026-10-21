@@ -1,0 +1,24 @@
+# Visual layout for assembly-line.yaml (meters, Y up). The line runs left to
+# right; rework sits beside the test station.
+model: assembly-line.yaml
+units: m
+
+objects:
+  release:  { position: [0, 0, 0] }
+  frame:    { position: [6, 0, 0], model: machine_small }
+  drum:     { position: [12, 0, 0], model: machine_small }
+  wiring:   { position: [18, 0, 0], model: machine_small }
+  test:     { position: [24, 0, 0], model: machine_small }
+  pack:     { position: [30, 0, 0], model: machine_small }
+  shipping: { position: [36, 0, 0] }
+  rework:   { position: [24, 0, 6], model: machine_small }
+
+conveyors:
+  c_to_frame:  { path: [[0.7, 0, 0], [5.3, 0, 0]] }   # 4.6
+  c_to_drum:   { path: [[6.7, 0, 0], [11.3, 0, 0]] }   # 4.6
+  c_to_wiring: { path: [[12.7, 0, 0], [17.3, 0, 0]] }   # 4.6
+  c_to_test:   { path: [[18.7, 0, 0], [23.3, 0, 0]] }   # 4.6
+  c_to_pack:   { path: [[24.7, 0, 0], [29.3, 0, 0]] }   # 4.6
+  c_ship:      { path: [[30.7, 0, 0], [35.3, 0, 0]] }   # 4.6
+  c_to_rework: { path: [[23.7, 0, 0.7], [23.7, 0, 5.3]] }   # 4.6
+  c_retest:    { path: [[24.3, 0, 5.3], [24.3, 0, 0.7]] }   # 4.6

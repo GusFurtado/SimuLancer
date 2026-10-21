@@ -1,0 +1,33 @@
+# The project file of the warehouse example, as `outliers-sim serve`
+# creates it: which file is the model, and what the Simulation page lets
+# people change and read.
+
+format: outliers-sim-project/0.1
+name: Distribution warehouse
+description: Cartons received and put away by forklifts; orders picked from storage, packed and dispatched.
+model: model.yaml
+
+# What can be changed on the Simulation page.
+decisions:
+  forklifts:
+    label: Forklifts on the morning shift
+    path: resources.forklift.capacity
+    min: 1
+    max: 4
+  pickers:
+    label: Pickers per shift
+    path: resources.picker.capacity
+    min: 2
+    max: 8
+  pack_stations:
+    label: Packing stations
+    path: servers.pack.capacity
+    min: 1
+    max: 4
+
+# What the Simulation page shows, and which way is better.
+results:
+  - { label: Orders dispatched per hour, object: dispatch, measure: throughput, better: higher }
+  - { label: Cartons in storage, object: storage, measure: mean parts }
+  - { label: Receiving held back (storage or docks full), object: inbound, measure: blocked, better: lower }
+  - { label: Pickers busy, object: picker, measure: busy }

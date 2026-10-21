@@ -7,6 +7,7 @@
 const state = {
   projects: [],
   archived: [],
+  examples: [],
   creating: null,     // the new-project form: { name, from, error }
   menu: null,         // id of the project whose ⋯ menu is open
   editing: null,      // { id, name, description, error }: renaming a project
@@ -18,9 +19,11 @@ const state = {
 const enc = encodeURIComponent;
 
 async function loadProjects() {
-  const [{ data }, { data: archived }] = await Promise.all([api("GET", "projects"), api("GET", "projects?archived=true")]);
+  const [{ data }, { data: archived }, { data: examples }] = await Promise.all([
+    api("GET", "projects"), api("GET", "projects?archived=true"), api("GET", "examples")]);
   state.projects = data.projects || [];
   state.archived = archived.projects || [];
+  state.examples = examples.examples || [];
   if (!state.archived.length) state.showArchived = false;
   render();
 }
@@ -142,7 +145,7 @@ async function remove(p) {
 function newProjectCard() {
   return el("button", { class: "door new", id: "new-project", onclick: () => { Object.assign(state, { creating: { name: "", from: "", error: null }, editing: null }); render(); } },
     el("h2", {}, "+ New project"),
-    el("p", {}, "Start from a simple line or a copy of another project."));
+    el("p", {}, "Start from a simple line, an example, or a copy of another project."));
 }
 
 const idFor = name => name.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
@@ -153,27 +156,40 @@ function newProjectForm() {
     el("h2", {}, "New project"),
     el("div", { class: "field" }, el("label", { for: "new-name" }, "Name"),
       el("input", {
-        id: "new-name", value: c.name, placeholder: "e.g. Packing line 2",
+        id: "new-name", value: c.name, placeholder: exampleNamed(c.from)?.name || "e.g. Packing line 2",
         oninput: e => { c.name = e.target.value; },
         onkeydown: e => { if (e.key === "Enter") createProject(); else if (e.key === "Escape") { state.creating = null; render(); } },
       })),
     el("div", { class: "field" }, el("label", { for: "new-from" }, "Start from"),
-      el("select", { id: "new-from", onchange: e => { c.from = e.target.value; } },
+      el("select", { id: "new-from", onchange: e => { c.from = e.target.value; render(); } },
         el("option", { value: "", selected: c.from === "" ? true : null }, "A simple line (arrivals, one machine, exit)"),
-        ...state.projects.map(p => el("option", { value: p.id, selected: c.from === p.id ? true : null }, `A copy of ${p.name}`)))),
+        el("optgroup", { label: "Examples" },
+          ...state.examples.map(x => el("option", { value: `example:${x.id}`, selected: c.from === `example:${x.id}` ? true : null }, x.name))),
+        state.projects.length ? el("optgroup", { label: "A copy of" },
+          ...state.projects.map(p => el("option", { value: p.id, selected: c.from === p.id ? true : null }, p.name))) : null),
+      exampleNamed(c.from)?.description ? el("p", { class: "hint", style: "margin: 4px 0 0" }, exampleNamed(c.from).description) : null),
     c.error ? el("div", { class: "status" }, c.error) : null,
     el("div", { class: "actions" },
       el("button", { class: "primary", id: "create-project", onclick: createProject }, "Create"),
       el("button", { onclick: () => { state.creating = null; render(); } }, "Cancel")));
 }
 
+/** The example chosen in "Start from", if it's one. */
+const exampleNamed = from => from.startsWith("example:") ? state.examples.find(x => `example:${x.id}` === from) : null;
+
 async function createProject() {
   const c = state.creating;
-  const name = c.name.trim();
-  const id = idFor(name);
-  if (!id) { c.error = "Give the project a name."; return render(); }
+  const example = exampleNamed(c.from);
+  const name = c.name.trim() || example?.name || "";
+  const base = idFor(name);
+  if (!base) { c.error = "Give the project a name."; return render(); }
+  // Two projects may share a name, not an id (its address): "bank-branch-2".
+  const taken = new Set([...state.projects, ...state.archived].map(p => p.id));
+  let id = base;
+  for (let n = 2; taken.has(id); n++) id = `${base.slice(0, 60)}-${n}`;
   const body = { id, name };
-  if (c.from) body.from = c.from;
+  if (example) body.example = example.id;
+  else if (c.from) body.from = c.from;
   const { ok, data } = await api("POST", "projects", body);
   if (!ok) { c.error = data.error || "The project couldn't be created."; return render(); }
   location.href = `modeling?project=${enc(id)}`;

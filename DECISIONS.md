@@ -319,6 +319,38 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Examples from different industries (implemented 2026-10-21)
+
+Three examples, one per kind of system, built only with what the model language has today, to find what's missing:
+
+- **Washing machine assembly line** (`assembly-line`): two models on six stations, two shifts, a jamming drum station, a final test with 8% rework by one technician.
+- **Bank branch** (`bank-branch`): customers take a ticket and wait for tellers (quick) or account advisors (advice); when a line is full, newcomers leave. Customers are "parts" and the lines are conveyors they walk along.
+- **Distribution warehouse** (`warehouse`): cartons received on the morning shift and put away by forklifts, 8 per trip; orders picked from storage (2 cartons each), packed and dispatched.
+
+How they ship:
+
+- **A new data folder gets these three** (featured), so the first screen has one example per kind of system. The older examples (bike assembly, conveyor line, two cells) stay available.
+- **"Start from" in the New project form lists every example.** A project made from an example starts saved and published as v1, so its Simulation page works right away. Existing data folders get the new examples this way, without being seeded again. Two projects may share a name but not an id: the form picks `bank-branch-2` when `bank-branch` is taken.
+- **A test checks every example:** it loads, has a layout, and its decisions and results can be published.
+
+What building them showed is missing, in the order I'd add it:
+
+| Gap | Where it showed | Workaround in the example |
+|---|---|---|
+| **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). |
+| **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. |
+| **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". |
+| **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. |
+| **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. |
+| **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. |
+| **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. |
+| **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. |
+| **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. |
+| **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. |
+| **Changeovers between models, paced lines** | Assembly line | Not modeled. |
+
+Also fixed while drawing them: conveyor labels go on the longest segment, beside vertical ones on the right of the travel direction and 40% of the way along, so loops (test → rework → test) and bends near objects keep their labels readable.
+
 ## Managing projects (implemented 2026-10-21)
 
 - **Rename and describe** from the project list (the ⋯ menu on a card). The name and description live in `project.yaml`, so a change is saved as a version ("Renamed to …"), like any other edit. The id never changes: it's the folder name, the address in links, and the key for scenarios. The name and description shown are always the current ones, even when looking at an older published version: they describe the project, not a version.

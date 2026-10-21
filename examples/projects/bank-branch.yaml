@@ -1,0 +1,39 @@
+# The project file of the bank-branch example, as `outliers-sim serve`
+# creates it: which file is the model, and what the Simulation page lets
+# people change and read.
+
+format: outliers-sim-project/0.1
+name: Bank branch
+description: Customers take a ticket and wait for a teller or an account advisor; when the lines are full, newcomers leave.
+model: model.yaml
+
+# What can be changed on the Simulation page.
+decisions:
+  tellers:
+    label: Tellers on duty
+    path: resources.teller.capacity
+    min: 2
+    max: 5
+  advisors:
+    label: Account advisors on duty
+    path: resources.advisor.capacity
+    min: 1
+    max: 3
+  opening_hours:
+    label: Opening hours
+    choices:
+      current:
+        label: 10:00 to 16:00
+      longer:
+        label: 09:00 to 17:00 (same number of customers, spread out)
+        changes:
+          schedules.doors_open.shifts: ["09:00-17:00"]
+          schedules.staff_hours.shifts: ["08:45-18:00"]
+          sources.door.interarrival: "exponential(1.6 min)"
+
+# What the Simulation page shows, and which way is better.
+results:
+  - { label: Time in the branch (quick transactions), object: exit, measure: time in system of quick, better: lower }
+  - { label: Time in the branch (advice), object: exit, measure: time in system of advice, better: lower }
+  - { label: Customers who left without being served, object: door, measure: lost, better: lower }
+  - { label: Tellers busy, object: teller, measure: busy }
