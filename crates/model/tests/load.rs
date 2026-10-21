@@ -1,6 +1,6 @@
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    Distribution, FailureClock, Node, OnFailure, PerType, WhenBlocked,
+    Arrivals, Distribution, FailureClock, Node, OnFailure, PerType, WhenBlocked,
 };
 use outliers_sim_model::{LoadError, load_str};
 
@@ -72,8 +72,8 @@ fn conveyor_line_example_loads() {
     assert_eq!(spec.entities, ["part"]);
     assert_eq!(spec.sources[0].when_blocked, WhenBlocked::Wait);
     assert_eq!(
-        spec.sources[0].interarrival,
-        Distribution::Exponential { mean: 60.0 }
+        spec.sources[0].arrivals,
+        Arrivals::Interarrival(Distribution::Exponential { mean: 60.0 })
     );
 
     let lathe = &spec.servers[0];

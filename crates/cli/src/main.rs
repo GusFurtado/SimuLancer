@@ -18,7 +18,7 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{
-    Distribution, InputRule, Node, PerType, Routing, ServerKind, Spec,
+    Arrivals, Distribution, InputRule, Node, PerType, Routing, ServerKind, Spec,
 };
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
@@ -293,11 +293,34 @@ fn describe(path: &Path, model: &Model) -> String {
                 .collect::<Vec<_>>()
                 .join(", "),
         };
-        out += &format!(
-            "  {:<12} creates {creates}, every {}\n",
-            s.name,
-            dist(&s.interarrival)
-        );
+        let when = match &s.arrivals {
+            Arrivals::Interarrival(d) => format!("every {}", dist(d)),
+            Arrivals::Profile(periods) => {
+                let clock = |t: f64| {
+                    format!(
+                        "{:02}:{:02}",
+                        (t / 3600.0) as u32,
+                        (t % 3600.0 / 60.0) as u32
+                    )
+                };
+                let per_day: f64 = periods.iter().map(|(a, b, r)| (b - a) * r).sum();
+                format!(
+                    "{} a day: {}",
+                    (per_day * 10.0).round() / 10.0,
+                    periods
+                        .iter()
+                        .map(|(a, b, r)| format!(
+                            "{}-{} {}/h",
+                            clock(*a),
+                            clock(*b),
+                            (r * 3600.0 * 10.0).round() / 10.0
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        };
+        out += &format!("  {:<12} creates {creates}, {when}\n", s.name);
         if let Some(text) = routing(spec, &s.outputs, &s.routing) {
             out += &format!("  {:<12}   {text}\n", "");
         }

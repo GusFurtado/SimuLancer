@@ -416,6 +416,11 @@ b.wait("return document.querySelector('[data-connection=teller_line]') !== null"
 # The bank's model calls what flows "customers".
 check(b.js("return document.querySelector('#part-types .group-title').textContent") == "Customer types", "the model's words")
 check(b.js("return document.getElementById('add-source').title") == "Where customers come from", "the model's words in tooltips")
+# Customers arrive by time of day: the door's panel shows the periods.
+click_obj("door")
+b.wait("return document.getElementById('f-arrivals-mode')?.value === 'profile'")
+check(b.js("return document.querySelectorAll('#profile [data-period]').length") == 3, "three periods")
+check("About 310 customers a day" in b.js("return document.getElementById('profile').textContent"), "customers a day")
 b.js("document.querySelector('[data-connection=teller_line]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
 b.wait("return document.querySelector('.panel .kind')?.textContent === 'Queue'")
 check(b.js("return document.getElementById('f-capacity').value") == "15", "queue capacity shown")

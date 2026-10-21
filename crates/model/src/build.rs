@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    ConnectionKind, Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule, Node,
-    OnFailure, PerType, Resource, Routing, Schedule, Server, ServerKind, Sink, Source, Spec,
+    Arrivals, ConnectionKind, Conveyor, Distribution, Experiment, Failure, FailureClock, InputRule,
+    Node, OnFailure, PerType, Resource, Routing, Schedule, Server, ServerKind, Sink, Source, Spec,
     WhenBlocked,
 };
 use serde_saphyr::Spanned;
@@ -233,7 +233,30 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     let mut sources = Vec::new();
     for (i, (name, s)) in raw.sources.0.iter().enumerate() {
         let creates = b.creates(name, &s.creates, &types);
-        let interarrival = b.distribution(&s.interarrival);
+        let interarrival = match (&s.interarrival, &s.arrivals_per_hour) {
+            (Some(gap), None) => b.distribution(gap).map(Arrivals::Interarrival),
+            (None, Some(profile)) => b.arrival_profile(name, profile).map(Arrivals::Profile),
+            (Some(gap), Some(_)) => {
+                b.error(
+                    gap,
+                    format!(
+                        "source `{}` has both `interarrival` and `arrivals_per_hour`; keep one",
+                        name.value
+                    ),
+                );
+                None
+            }
+            (None, None) => {
+                b.error(
+                    name,
+                    format!(
+                        "source `{}` needs `interarrival` (time between arrivals) or `arrivals_per_hour` (a rate by time of day)",
+                        name.value
+                    ),
+                );
+                None
+            }
+        };
         let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
         let output = endpoints_ok
             .then(|| {
@@ -253,7 +276,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             sources.push(Source {
                 name: name.value.clone(),
                 creates,
-                interarrival,
+                arrivals: interarrival,
                 when_blocked: match s.when_blocked {
                     raw::WhenBlocked::Wait => WhenBlocked::Wait,
                     raw::WhenBlocked::Drop => WhenBlocked::Drop,
@@ -857,6 +880,87 @@ impl Builder {
             return None;
         }
         Some(quantity)
+    }
+
+    /// `arrivals_per_hour`: periods of the day (`"12:00-14:00"`) with a rate
+    /// each, as (start, end, parts per second) in seconds from midnight. A
+    /// period that runs past midnight (`"22:00-02:00"`) is split in two.
+    fn arrival_profile(
+        &mut self,
+        source: &Spanned<String>,
+        raw: &Spanned<raw::OrderedMap<f64>>,
+    ) -> Option<Vec<(f64, f64, f64)>> {
+        let clock = |text: &str, end: bool| -> Option<f64> {
+            let (h, m) = text.trim().split_once(':')?;
+            let (h, m): (u32, u32) = (h.parse().ok()?, m.parse().ok()?);
+            let valid = m <= 59 && h < 24 || (end && h == 24 && m == 0);
+            valid.then_some(f64::from(h * 3600 + m * 60))
+        };
+        let mut ok = true;
+        let mut periods = Vec::new();
+        for (period, rate) in &raw.value.0 {
+            let rate = *rate;
+            let parsed = period
+                .value
+                .split_once('-')
+                .and_then(|(a, b)| Some((clock(a, false)?, clock(b, true)?)));
+            let Some((start, end)) = parsed else {
+                self.error(
+                    period,
+                    format!(
+                        "`{}` isn't a time of day: write it like `12:00-14:00`",
+                        period.value
+                    ),
+                );
+                ok = false;
+                continue;
+            };
+            if !(rate.is_finite() && rate >= 0.0) {
+                self.error(
+                    period,
+                    format!(
+                        "the rate for `{}` must be zero or more arrivals per hour",
+                        period.value
+                    ),
+                );
+                ok = false;
+                continue;
+            }
+            let per_second = rate / 3600.0;
+            if start < end {
+                periods.push((start, end, per_second, period));
+            } else if start > end {
+                periods.push((start, 24.0 * 3600.0, per_second, period));
+                periods.push((0.0, end, per_second, period));
+            } else {
+                self.error(
+                    period,
+                    format!("`{}` starts and ends at the same time", period.value),
+                );
+                ok = false;
+            }
+        }
+        periods.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for w in periods.windows(2) {
+            if w[1].0 < w[0].1 {
+                self.error(
+                    w[1].3,
+                    format!("`{}` overlaps `{}`", w[1].3.value, w[0].3.value),
+                );
+                ok = false;
+            }
+        }
+        if ok && !periods.iter().any(|p| p.2 > 0.0) {
+            self.error(
+                raw,
+                format!(
+                    "source `{}` never has any arrivals: every rate is zero",
+                    source.value
+                ),
+            );
+            ok = false;
+        }
+        ok.then(|| periods.into_iter().map(|(s, e, r, _)| (s, e, r)).collect())
     }
 
     fn distribution(&mut self, value: &Spanned<Scalar>) -> Option<Distribution> {

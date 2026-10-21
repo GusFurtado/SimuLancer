@@ -61,7 +61,10 @@ pub struct RawEntity {}
 pub struct RawSource {
     /// One part type, or a mix: type -> share.
     pub creates: Spanned<RawCreates>,
-    pub interarrival: Spanned<Scalar>,
+    /// Time between arrivals; or `arrivals_per_hour`.
+    pub interarrival: Option<Spanned<Scalar>>,
+    /// Arrivals per hour by time of day: `"12:00-14:00": 70`.
+    pub arrivals_per_hour: Option<Spanned<OrderedMap<f64>>>,
     #[serde(default)]
     pub when_blocked: WhenBlocked,
     /// Required with two or more outgoing conveyors.
