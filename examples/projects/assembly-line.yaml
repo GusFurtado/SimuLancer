@@ -29,6 +29,15 @@ decisions:
     path: resources.technician.capacity
     min: 1
     max: 3
+  pack_changeover:
+    label: Packing changeover
+    description: Setting packing up for the other model.
+    choices:
+      current:
+        label: 1.5 minutes
+      quicker:
+        label: 30 seconds (material for both models at hand)
+        changes: { servers.pack.changeover: "30 s" }
   test_buffer:
     label: Room before the test station
     description: Length of the conveyor before testing. Every metre holds one more machine.
@@ -43,3 +52,4 @@ results:
   - { label: Lead time, object: shipping, measure: time in system, better: lower }
   - { label: Wiring busy, object: wiring, measure: busy }
   - { label: Drum station blocked by a full conveyor, object: drum, measure: blocked, better: lower }
+  - { label: Packing time spent on changeovers, object: pack, measure: changeover, better: lower }

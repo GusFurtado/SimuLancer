@@ -52,6 +52,10 @@ pub struct ServerResult {
     /// Share of all time worked after a shift ended, finishing the work in
     /// hand (`finish_work`).
     pub overtime: f64,
+    /// Setups for another part type, and the share of working time they
+    /// took (part of `busy`).
+    pub changeovers: u64,
+    pub changeover: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]

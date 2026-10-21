@@ -404,6 +404,10 @@ b.wait("return document.querySelector('dl.decisions')?.textContent.includes('Tel
 b.screenshot(f"{out}/12-bank-simulation.png")
 for template in ["assembly-line", "warehouse"]:
     from_template(template)
+b.go(url + "/modeling?project=assembly-line")
+b.wait(f"return {obj('pack')} !== null", 10)
+click_obj("pack")
+b.wait("return document.getElementById('f-servers-pack-changeover')?.value === '1.5 min'")
 for template in ["assembly-line", "bank-branch", "warehouse"]:
     b.go(url + f"/modeling?project={template}")
     b.wait("return document.querySelector('.diagram svg') !== null && document.querySelector('.versions') !== null", 10)

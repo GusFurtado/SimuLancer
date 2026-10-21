@@ -273,6 +273,8 @@ pub struct RawServer {
     pub keeps_clock_of: Option<Spanned<String>>,
     /// Part type -> count: what each finished part becomes (one entry).
     pub splits_into: Option<Spanned<OrderedMap<RawCount>>>,
+    /// Setup time for another part type: one time, or `from->to`: time.
+    pub changeover: Option<Spanned<RawPerType>>,
     #[serde(default)]
     pub failures: Vec<RawFailure>,
     /// Required with two or more incoming conveyors.

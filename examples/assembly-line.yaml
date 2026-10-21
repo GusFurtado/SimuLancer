@@ -1,6 +1,6 @@
 # Washing machine assembly line: two models on one line, six stations on two
-# weekday shifts, a test with rework, and buffers (accumulating conveyors)
-# between stations.
+# weekday shifts, a test with rework, buffers (accumulating conveyors)
+# between stations, and a changeover at packing when the model changes.
 #
 #   release ─> frame ─> drum ─> wiring ─> test ─────> pack ─> shipping
 #                                          │  ^
@@ -59,6 +59,7 @@ servers:
     schedule: two_shifts
   pack:
     process_time: "1.5 min"
+    changeover: "1.5 min"                    # other packing material for the other model
     schedule: two_shifts
 
 conveyors:
