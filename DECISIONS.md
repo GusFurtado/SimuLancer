@@ -319,6 +319,13 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Results over working time (implemented 2026-10-21, issue #23)
+
+- **States are shares of working time.** For a server with a schedule, busy, blocked, failed and idle (and waiting for resources) are shares of its shifts, and add up to 1 without off shift; off shift is still reported, as the share of the whole week. A resource's busy is the share of its units in use while on shift. Before, everything was a share of the calendar week: the bank's tellers read 12.5% busy instead of about 54% of their shift. Servers and resources without a schedule are unchanged.
+- **`outputs.throughput_per`: hour, day, week, or a schedule's name.** One setting for every throughput in the model (sinks, per type, queues, conveyors), so files, the report and the Simulation page agree. A schedule's name means per hour of that schedule's working time within the measured period (computed exactly, so run lengths needn't be whole weeks). New units: `parts/day`, `parts/week`, `parts/working h`.
+- Why one model-wide setting rather than per result: throughput is the same kind of number everywhere in a model, and mixing units between a sink and a conveyor would be confusing. Results on the Simulation page follow it.
+- The assembly line, bike assembly and warehouse templates count throughput per working hour of their shifts. The Modeling page sets it under Model settings ("Count throughput per"), and renaming or deleting a schedule keeps it right.
+
 ## Queues (implemented 2026-10-21, issue #22)
 
 - **A queue is a connection, like a conveyor, with no travel.** `queues: { line: { from: kiosk, to: tellers, capacity: 15 } }`. Parts are at its end as soon as they get on and leave first in, first out. Without `capacity`, there's no limit, which also covers "a link without a conveyor".
@@ -351,7 +358,7 @@ What building them showed is missing, in the order I'd add it:
 | Gap | Where it showed | Workaround in the example | Issue |
 |---|---|---|---|
 | **A queue/storage object, and links without a conveyor** | Bank lines, warehouse storage, assembly buffers | Conveyors as queues. Storage is a 1,000 m conveyor drawn 12 m long, and dragging an object in the Modeling page would set it back to the drawn length (12 m, 23 cartons). Done: see Queues. | #22 |
-| **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. | #23 |
+| **Results over working time** | Every example with shifts | Busy and throughput are averaged over the whole week: tellers show 12.5% busy instead of about 54% of their working hours, and throughput is per calendar hour. Done: see Results over working time. | #23 |
 | **Waiting time and service level** | Bank | Only time in system: no "waited for a teller" or "% served within 5 minutes". | #24 |
 | **Words for what flows** | Bank, warehouse | Customers and orders are called "parts" in the pages and results. | #25 |
 | **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. | #26 |

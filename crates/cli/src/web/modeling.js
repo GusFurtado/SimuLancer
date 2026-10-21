@@ -860,6 +860,21 @@ function capacityField(path) {
     error ? el("div", { class: "message" }, error.message) : null);
 }
 
+/** What throughput is counted per: hour, day, week, or a schedule's working hour. */
+function throughputPerField(tree) {
+  const path = "outputs.throughput_per";
+  const value = getAt(tree, path) ?? "hour";
+  const options = [["hour", "Hour"], ["day", "Day"], ["week", "Week"],
+    ...Object.keys(tree.schedules || {}).map(name => [name, `Working hour of ${name}`])];
+  const error = errorFor(path);
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: "f-throughput-per" }, "Count throughput per",
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path), title: "Back to the base model's value" }, "reset") : null),
+    el("select", { id: "f-throughput-per", onchange: e => setChange(path, e.target.value === "hour" ? null : e.target.value) },
+      options.map(([v, label]) => el("option", { value: v, selected: v === value ? true : null }, label))),
+    error ? el("div", { class: "message" }, error.message) : null);
+}
+
 function experimentPanel(tree) {
   return el("div", {}, el("h3", {}, "Model settings"), el("div", { class: "kind" }, "Apply to the whole model"),
     el("div", { class: "group-title" }, "Experiment"),
@@ -873,6 +888,7 @@ function experimentPanel(tree) {
         onchange: e => setChange("outputs.event_log", e.target.checked ? "jsonl" : null),
       }),
       "Record an animation (replication 1)"),
+    throughputPerField(tree),
     partTypesPanel(tree),
     resourcesPanel(tree),
     schedulesPanel(tree));
@@ -920,9 +936,12 @@ function freeScheduleName(tree) {
 }
 
 /** Everything that follows a schedule: [path of its `schedule` field, name]. */
+/** Every place that names a schedule, as [path, schedule]. */
 function scheduleUsers(tree) {
+  const per = tree.outputs?.throughput_per;
   return ["sources", "servers", "resources"].flatMap(section =>
-    Object.entries(tree[section] || {}).filter(([, o]) => o.schedule).map(([n, o]) => [`${section}.${n}.schedule`, o.schedule]));
+    Object.entries(tree[section] || {}).filter(([, o]) => o.schedule).map(([n, o]) => [`${section}.${n}.schedule`, o.schedule]))
+    .concat(per && per in (tree.schedules || {}) ? [["outputs.throughput_per", per]] : []);
 }
 
 function deleteSchedule(name) {

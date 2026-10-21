@@ -56,3 +56,4 @@ experiment:
 
 outputs:
   event_log: jsonl
+  throughput_per: two_shifts           # per working hour of two_shifts

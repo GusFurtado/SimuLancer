@@ -11,6 +11,7 @@ use outliers_sim_engine::spec::{
 };
 use serde_saphyr::Spanned;
 
+use crate::ThroughputPer;
 use crate::diagnostic::{Diagnostic, Position};
 use crate::expr::{constant, parse_time_distribution};
 use crate::raw::{self, RawModel, Scalar};
@@ -461,6 +462,26 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     }
 
     let experiment = b.experiment(&raw.experiment);
+    let throughput_per = match &raw.outputs.throughput_per {
+        None => ThroughputPer::Hour,
+        Some(per) => match per.value.as_str() {
+            "hour" => ThroughputPer::Hour,
+            "day" => ThroughputPer::Day,
+            "week" => ThroughputPer::Week,
+            name => match schedule_names.iter().position(|s| *s == name) {
+                Some(i) => ThroughputPer::WorkingHour(i),
+                None => {
+                    b.error(
+                        per,
+                        format!(
+                            "`throughput_per` is `hour`, `day`, `week` or a schedule's name (for per working hour), not `{name}`"
+                        ),
+                    );
+                    ThroughputPer::Hour
+                }
+            },
+        },
+    };
 
     if !b.diagnostics.is_empty() {
         // File order; errors without a position last.
@@ -496,6 +517,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         outputs: Outputs {
             event_log: raw.outputs.event_log,
             summary: raw.outputs.summary,
+            throughput_per,
         },
     })
 }

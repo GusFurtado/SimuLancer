@@ -75,7 +75,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
     .map_err(|e| format!("can't write {}: {e}", events_path.display()))?;
     let elapsed = started.elapsed();
 
-    let measures: Vec<_> = measures::collect(&spec, &model.outputs.summary, &results)
+    let measures: Vec<_> = measures::collect(&spec, &model.outputs, &results)
         .into_iter()
         .map(|m| {
             let summary = Summary::of(&m.values, output::CONFIDENCE);

@@ -107,6 +107,9 @@ impl Format {
             Unit::Parts => (1.0, 2, ""),
             Unit::Count => (1.0, 1, ""),
             Unit::PartsPerHour => (1.0, 1, " /h"),
+            Unit::PartsPerWorkingHour => (1.0, 1, " /working h"),
+            Unit::PartsPerDay => (1.0, 1, " /day"),
+            Unit::PartsPerWeek => (1.0, 0, " /week"),
             Unit::Seconds => match mean.abs() {
                 m if m >= 2.0 * 3600.0 => (1.0 / 3600.0, 2, " h"),
                 m if m >= 120.0 => (1.0 / 60.0, 2, " min"),

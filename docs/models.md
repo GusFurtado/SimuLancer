@@ -193,7 +193,7 @@ servers:
 - **Starting:** a server starts a part only when it can take every unit it needs at once. It never holds some units while waiting for others, so servers can't deadlock over them.
 - **Holding:** units are held while processing, including during a failure mid-part. They go back as soon as processing ends, even if the part then waits for room on its conveyor.
 - **Waiting:** servers waiting for units are served first come, first served.
-- **Results:** each resource reports *busy*, the share of its units in use. Each server that needs resources reports *waiting for resources*, the share of time a part was ready but the units weren't. That time is part of *idle*.
+- **Results:** each resource reports *busy*, the share of its units in use (while on shift, if it has a schedule). Each server that needs resources reports *waiting for resources*, the share of its working time a part was ready but the units weren't. That time is part of *idle*.
 
 ## Schedules
 
@@ -221,7 +221,7 @@ Off shift:
   - A repair in progress carries on.
 - **A resource hands out no units.** Units already in use finish their part first.
 - **A source creates nothing.** The first part of each shift arrives at the shift's start.
-- **Results:** servers and resources that follow a schedule report *off shift*, the share of time they were off. For servers it's one of the states that add up to 1; off shift counts before failed.
+- **Results over working time:** for servers and resources that follow a schedule, *busy*, *blocked*, *failed* and *idle* are shares of their working time, so a teller busy 54% of their shift reads 54%, not 12% of the week. *Off shift* is the share of the whole week they were off. While off shift a server counts as off, even if it's being repaired.
 
 ## Sinks
 
@@ -250,6 +250,8 @@ Each replication uses its own random streams, named after the objects that draw 
 outputs:
   event_log: jsonl       # write events.jsonl (replication 1) for the animation
   summary: [throughput, time_in_system, server_states, conveyor_occupancy, source_blocked_time]
+  throughput_per: two_shifts   # hour (default), day, week, or a schedule's name
 ```
 
-`summary` lists which measures to report; all of them by default.
+- `summary` lists which measures to report; all of them by default.
+- `throughput_per` sets what every throughput is counted per. `hour`, `day` and `week` are calendar time: a line that works 80 hours a week and ships 1,900 machines a week reports 11.3 /h. A schedule's name counts per hour of that schedule's working time instead: the same line reports 23.8 /working h with `throughput_per: two_shifts`.

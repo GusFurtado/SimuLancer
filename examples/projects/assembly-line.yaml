@@ -39,7 +39,7 @@ decisions:
 
 # What the Simulation page shows, and which way is better.
 results:
-  - { label: Machines shipped per hour, object: shipping, measure: throughput, better: higher }
+  - { label: Machines shipped per working hour, object: shipping, measure: throughput, better: higher }
   - { label: Lead time, object: shipping, measure: time in system, better: lower }
   - { label: Wiring busy, object: wiring, measure: busy }
   - { label: Drum station blocked by a full conveyor, object: drum, measure: blocked, better: lower }

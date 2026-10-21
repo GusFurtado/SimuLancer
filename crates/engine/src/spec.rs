@@ -49,6 +49,23 @@ impl Schedule {
         self.periods.iter().any(|&(s, e)| s <= w && w < e)
     }
 
+    /// How long it's on between `from` and `to`.
+    pub fn on_time(&self, from: SimTime, to: SimTime) -> SimTime {
+        let week = Self::WEEK.as_micros();
+        let (from, to) = (from.as_micros(), to.as_micros());
+        let mut total = 0;
+        // Each week overlapping [from, to), period by period.
+        let mut base = from - from.rem_euclid(week);
+        while base < to {
+            for &(s, e) in &self.periods {
+                let (s, e) = (base + s.as_micros(), base + e.as_micros());
+                total += (e.min(to) - s.max(from)).max(0);
+            }
+            base += week;
+        }
+        SimTime::from_micros(total)
+    }
+
     /// The first time after `t` at which `is_on` changes, if it ever does.
     pub fn next_change(&self, t: SimTime) -> Option<SimTime> {
         let week = Self::WEEK.as_micros();

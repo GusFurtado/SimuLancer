@@ -602,7 +602,7 @@ fn read_exposed(project: &ProjectFile, source: &str) -> (Exposed, Vec<String>, V
     let model = outliers_sim_model::load_str(source).ok();
     let measures = model
         .as_ref()
-        .map(|m| measures::collect(&m.spec, &m.outputs.summary, &[]));
+        .map(|m| measures::collect(&m.spec, &m.outputs, &[]));
     let try_changes = |changes: &Map<String, Value>| -> Result<(), String> {
         apply_changes(source, &project.model, changes)
             .map(|_| ())

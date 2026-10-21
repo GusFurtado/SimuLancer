@@ -27,7 +27,7 @@ decisions:
 
 # What the Simulation page shows, and which way is better.
 results:
-  - { label: Orders dispatched per hour, object: dispatch, measure: throughput, better: higher }
+  - { label: Orders dispatched per working hour, object: dispatch, measure: throughput, better: higher }
   - { label: Cartons in storage, object: storage, measure: mean parts }
   - { label: Receiving held back (storage or docks full), object: inbound, measure: blocked, better: lower }
   - { label: Pickers busy, object: picker, measure: busy }

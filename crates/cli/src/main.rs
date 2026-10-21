@@ -187,8 +187,8 @@ fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
     let elapsed = started.elapsed();
 
     let comparisons = compare::compare(
-        measures::collect(&base_spec, &base.outputs.summary, &base_results),
-        measures::collect(&scenario_spec, &scenario.outputs.summary, &scenario_results),
+        measures::collect(&base_spec, &base.outputs, &base_results),
+        measures::collect(&scenario_spec, &scenario.outputs, &scenario_results),
     );
     println!(
         "{} (base) vs {} (scenario): {} paired replication{} × {} after {} warm-up, seed {} ({:.2} s)\n",

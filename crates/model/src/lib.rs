@@ -41,6 +41,18 @@ pub struct Model {
 pub struct Outputs {
     pub event_log: EventLog,
     pub summary: Vec<SummaryItem>,
+    pub throughput_per: ThroughputPer,
+}
+
+/// What throughput is counted per.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ThroughputPer {
+    #[default]
+    Hour,
+    Day,
+    Week,
+    /// Per hour the schedule (an index into `Spec::schedules`) is on.
+    WorkingHour(usize),
 }
 
 /// Parses and validates a model from YAML source text.
