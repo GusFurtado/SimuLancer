@@ -294,6 +294,9 @@ pub struct RawOutputs {
     pub event_log: EventLog,
     #[serde(default = "all_summary_items")]
     pub summary: Vec<SummaryItem>,
+    /// What throughput is counted per: `hour` (the default), `day`, `week`,
+    /// or a schedule's name for per working hour of that schedule.
+    pub throughput_per: Option<Spanned<String>>,
 }
 
 impl Default for RawOutputs {
@@ -301,6 +304,7 @@ impl Default for RawOutputs {
         RawOutputs {
             event_log: EventLog::default(),
             summary: all_summary_items(),
+            throughput_per: None,
         }
     }
 }

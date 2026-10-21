@@ -234,7 +234,16 @@ fn default_results(measures: &[Measure]) -> Vec<ResultSpec> {
         })
         .map(|m| ResultSpec {
             label: match m.name.as_str() {
-                "throughput" => format!("Parts per hour at {}", m.object),
+                "throughput" => format!(
+                    "Parts per {} at {}",
+                    match m.unit {
+                        Unit::PartsPerDay => "day",
+                        Unit::PartsPerWeek => "week",
+                        Unit::PartsPerWorkingHour => "working hour",
+                        _ => "hour",
+                    },
+                    m.object
+                ),
                 "time in system" => format!("Time in system to {}", m.object),
                 other => format!("{} {other}", m.object),
             },

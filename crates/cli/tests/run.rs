@@ -152,3 +152,61 @@ fn invalid_model_fails_with_located_error() {
     assert!(!dir.join("summary.json").exists());
     fs::remove_dir_all(dir).unwrap();
 }
+
+/// The sink's throughput in summary.json: (value, unit).
+fn shipping_throughput(dir: &Path) -> (f64, String) {
+    let summary: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("summary.json")).unwrap()).unwrap();
+    let m = summary["measures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["object"] == "shipping" && m["measure"] == "throughput")
+        .unwrap()
+        .clone();
+    (
+        m["mean"].as_f64().unwrap(),
+        m["unit"].as_str().unwrap().to_string(),
+    )
+}
+
+#[test]
+fn throughput_per_hour_day_week_or_working_hour() {
+    let source = fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/assembly-line.yaml"),
+    )
+    .unwrap()
+    .replace("event_log: jsonl", "event_log: none")
+    .replace("throughput_per: two_shifts", "throughput_per: PER");
+    let mut values = Vec::new();
+    for per in ["hour", "day", "week", "two_shifts"] {
+        let dir = temp_dir(&format!("per-{per}"));
+        let model = dir.join("model.yaml");
+        fs::write(&model, source.replace("PER", per)).unwrap();
+        let out = dir.join("out");
+        run(&[
+            "run",
+            model.to_str().unwrap(),
+            "-r",
+            "2",
+            "-o",
+            out.to_str().unwrap(),
+        ]);
+        values.push(shipping_throughput(&out));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    let hour = values[0].0;
+    let units: Vec<&str> = values.iter().map(|(_, u)| u.as_str()).collect();
+    assert_eq!(
+        units,
+        ["parts/h", "parts/day", "parts/week", "parts/working h"]
+    );
+    // Same runs, other units. The measured period is four whole weeks of
+    // which the two shifts are 80 of every 168 hours.
+    for ((value, unit), factor) in values.iter().zip([1.0, 24.0, 168.0, 168.0 / 80.0]) {
+        assert!(
+            (value - hour * factor).abs() < 1e-9 * value.abs().max(1.0),
+            "{unit}: {value}"
+        );
+    }
+}

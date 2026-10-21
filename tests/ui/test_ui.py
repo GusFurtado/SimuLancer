@@ -408,6 +408,7 @@ for template in ["assembly-line", "bank-branch", "warehouse"]:
     b.go(url + f"/modeling?project={template}")
     b.wait("return document.querySelector('.diagram svg') !== null && document.querySelector('.versions') !== null", 10)
     b.screenshot(f"{out}/13-{template}.png")
+check(b.js("return document.getElementById('f-throughput-per').value") == "operations", "throughput per working hour of the warehouse's operations")
 
 # --- Queues: a capacity, no length; dragging redraws them without changing the model.
 b.go(url + "/modeling?project=bank-branch")

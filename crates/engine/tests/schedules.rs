@@ -114,10 +114,12 @@ fn servers_pause_off_shift_and_resume() {
     // 12 x 40 x 4 = 1920 parts in four weeks (less the one cut by the end).
     let done = r.sinks[0].exited;
     assert!((1915..=1920).contains(&done), "{done}");
-    // It works flat out on shift and processes exactly what arrived.
-    let states = m.busy + m.blocked + m.failed + m.off_shift + m.idle;
+    // It works flat out on shift: states are shares of its working time,
+    // so they add up to 1 without the time off shift, and it's busy for
+    // practically all of it.
+    let states = m.busy + m.blocked + m.failed + m.idle;
     assert!((states - 1.0).abs() < 1e-9);
-    assert!((m.busy - 40.0 / 168.0).abs() < 1e-3, "busy {}", m.busy);
+    assert!(m.busy > 0.999, "busy {}", m.busy);
 }
 
 #[test]
@@ -179,4 +181,24 @@ fn resources_off_shift_hand_out_nothing() {
     // Without its operator the machine is idle (waiting for resources) at night.
     assert!(r.servers[0].waiting_for_resources > 0.6);
     assert_eq!(r.servers[0].off_shift, 0.0);
+    // Parts pile up overnight, so on shift the operator never stops: busy
+    // is a share of the operator's shift, not of the whole day.
+    assert!(r.resources[0].busy > 0.99, "busy {}", r.resources[0].busy);
+}
+
+#[test]
+fn on_time_counts_working_time_in_any_window() {
+    use outliers_sim_engine::SimTime;
+    use outliers_sim_engine::spec::Schedule;
+    let h = |hours: i64| SimTime::from_micros(hours * 3600 * 1_000_000);
+    // Weekdays 06:00-14:00: 8 h a day, 40 h a week.
+    let s = Schedule {
+        name: "day".into(),
+        periods: (0..5).map(|d| (h(24 * d + 6), h(24 * d + 14))).collect(),
+    };
+    assert_eq!(s.on_time(h(0), h(168)), h(40));
+    assert_eq!(s.on_time(h(0), h(4 * 168)), h(160));
+    // Windows that cut shifts and weeks: Monday 10:00 to the next Tuesday 08:00.
+    assert_eq!(s.on_time(h(10), h(168 + 24 + 8)), h(4 + 32 + 8 + 2));
+    assert_eq!(s.on_time(h(15), h(30)), h(0));
 }

@@ -84,3 +84,4 @@ experiment:
 
 outputs:
   event_log: jsonl
+  throughput_per: operations           # per working hour of operations

@@ -25,9 +25,11 @@ pub struct SourceResult {
     pub blocked: f64,
 }
 
-/// State fractions are shares of the server's capacity over time, so they
-/// add up to 1. While the server is failed, all of its capacity counts as
-/// failed; while off shift, as off shift (even if it's also being repaired).
+/// State fractions are shares of the server's capacity over its working
+/// time (all the time, or its shifts if it has a schedule), so idle, busy,
+/// blocked and failed add up to 1. While the server is failed, all of its
+/// capacity counts as failed. `off_shift` is the share of all time spent off
+/// shift (even if it's also being repaired).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerResult {
     /// Nothing to work on (starved).
@@ -36,19 +38,20 @@ pub struct ServerResult {
     /// Finished parts waiting for room on the outgoing conveyor.
     pub blocked: f64,
     pub failed: f64,
-    /// Not working because of its schedule.
+    /// Share of all time not working because of its schedule.
     pub off_shift: f64,
     /// Parts that left the server.
     pub processed: u64,
     pub failures: u64,
-    /// Fraction of time a part was ready but resource units weren't (part
-    /// of `idle`).
+    /// Share of working time a part was ready but resource units weren't
+    /// (part of `idle`).
     pub waiting_for_resources: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceResult {
-    /// Time-weighted share of units in use.
+    /// Time-weighted share of units in use while on shift (all the time
+    /// without a schedule).
     pub busy: f64,
     /// Share of time off shift.
     pub off_shift: f64,

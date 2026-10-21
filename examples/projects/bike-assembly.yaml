@@ -32,7 +32,7 @@ decisions:
 
 # What the Simulation page shows, and which way is better.
 results:
-  - { label: Bikes shipped per hour, object: shipping, measure: throughput, better: higher }
+  - { label: Bikes shipped per working hour, object: shipping, measure: throughput, better: higher }
   - { label: Lead time, object: shipping, measure: time in system, better: lower }
   - { label: Fitters busy, object: fitter, measure: busy }
   - { label: Kits waiting for a fitter, object: assembly, measure: waiting for resources, better: lower }

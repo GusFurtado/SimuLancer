@@ -2,7 +2,7 @@
 
 use outliers_sim_engine::ReplicationResult;
 use outliers_sim_engine::spec::{Spec, WhenBlocked};
-use outliers_sim_model::SummaryItem;
+use outliers_sim_model::{Outputs, SummaryItem, ThroughputPer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
@@ -11,6 +11,10 @@ pub enum Unit {
     Fraction,
     Parts,
     PartsPerHour,
+    PartsPerDay,
+    PartsPerWeek,
+    /// Per hour of a schedule's working time (`outputs.throughput_per`).
+    PartsPerWorkingHour,
     Count,
 }
 
@@ -22,6 +26,9 @@ impl Unit {
             Unit::Fraction => "fraction",
             Unit::Parts => "parts",
             Unit::PartsPerHour => "parts/h",
+            Unit::PartsPerDay => "parts/day",
+            Unit::PartsPerWeek => "parts/week",
+            Unit::PartsPerWorkingHour => "parts/working h",
             Unit::Count => "count",
         }
     }
@@ -44,9 +51,28 @@ pub struct Measure {
 }
 
 /// Extracts the measures selected in the model's `outputs.summary`, grouped
-/// by object in the order sources, servers, resources, queues, conveyors, sinks.
-pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]) -> Vec<Measure> {
-    let wants = |item| items.contains(&item);
+/// by object in the order sources, servers, resources, queues, conveyors,
+/// sinks. Throughputs are per `outputs.throughput_per`.
+pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) -> Vec<Measure> {
+    let wants = |item| outputs.summary.contains(&item);
+    // Parts counted over the measured period, as a rate.
+    let e = &spec.experiment;
+    let (per_unit, hours): (Unit, f64) = match outputs.throughput_per {
+        ThroughputPer::Hour => (Unit::PartsPerHour, 1.0),
+        ThroughputPer::Day => (Unit::PartsPerDay, 24.0),
+        ThroughputPer::Week => (Unit::PartsPerWeek, 168.0),
+        ThroughputPer::WorkingHour(schedule) => {
+            let on = spec.schedules[schedule]
+                .on_time(e.warmup, e.warmup + e.run_length)
+                .as_secs_f64();
+            // Per working hour: the measured period's length over its working hours.
+            (
+                Unit::PartsPerWorkingHour,
+                e.run_length.as_secs_f64() / on.max(f64::MIN_POSITIVE),
+            )
+        }
+    };
+    let rate = move |count: u64, r: &ReplicationResult| count as f64 / r.measured * 3600.0 * hours;
     let types_at = spec.types_at();
     let mut out = Vec::new();
     let mut add =
@@ -140,8 +166,8 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
                     r.conveyors[i].full
                 });
             }
-            add("queue", &c.name, "throughput", Unit::PartsPerHour, &|r| {
-                r.conveyors[i].entered as f64 / r.measured * 3600.0
+            add("queue", &c.name, "throughput", per_unit, &|r| {
+                rate(r.conveyors[i].entered, r)
             });
         }
         for (i, c) in spec
@@ -159,19 +185,15 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
             add("conveyor", &c.name, "full", Unit::Fraction, &|r| {
                 r.conveyors[i].full
             });
-            add(
-                "conveyor",
-                &c.name,
-                "throughput",
-                Unit::PartsPerHour,
-                &|r| r.conveyors[i].entered as f64 / r.measured * 3600.0,
-            );
+            add("conveyor", &c.name, "throughput", per_unit, &|r| {
+                rate(r.conveyors[i].entered, r)
+            });
         }
     }
     for (i, s) in spec.sinks.iter().enumerate() {
         if wants(SummaryItem::Throughput) {
-            add("sink", &s.name, "throughput", Unit::PartsPerHour, &|r| {
-                r.sinks[i].exited as f64 / r.measured * 3600.0
+            add("sink", &s.name, "throughput", per_unit, &|r| {
+                rate(r.sinks[i].exited, r)
             });
         }
         if wants(SummaryItem::TimeInSystem) {
@@ -191,8 +213,8 @@ pub fn collect(spec: &Spec, items: &[SummaryItem], results: &[ReplicationResult]
                         "sink",
                         &s.name,
                         &format!("throughput of {entity}"),
-                        Unit::PartsPerHour,
-                        &|r| r.sinks[i].by_type[e].exited as f64 / r.measured * 3600.0,
+                        per_unit,
+                        &|r| rate(r.sinks[i].by_type[e].exited, r),
                     );
                 }
                 if wants(SummaryItem::TimeInSystem) {

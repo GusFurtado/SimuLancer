@@ -40,15 +40,18 @@ sources:
 servers:
   kiosk:
     process_time: "uniform(10 s, 25 s)"
+    schedule: staff_hours
     output: { rule: by_type, routes: { quick: teller_line, advice: advisor_line } }
   tellers:
     capacity: 5                              # counters; open ones depend on tellers on duty
     process_time: "lognormal(mean: 3 min, sd: 1.5 min)"
     needs: { teller: 1 }
+    schedule: staff_hours
   advisors:
     capacity: 3                              # desks
     process_time: "lognormal(mean: 12 min, sd: 5 min)"
     needs: { advisor: 1 }
+    schedule: staff_hours
 
 queues:
   entrance:     { from: door,     to: kiosk,    capacity: 5 }

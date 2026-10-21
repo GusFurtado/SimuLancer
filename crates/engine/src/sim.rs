@@ -279,6 +279,13 @@ fn pick_output(
     }
 }
 
+/// The share of time something with this much time off shift could work,
+/// to turn shares of all time into shares of working time. Never zero, so
+/// something always off shift reports 0 rather than NaN.
+fn working_share(off_shift: f64) -> f64 {
+    (1.0 - off_shift).max(1e-12)
+}
+
 /// Runs one replication. `replication` (1-based) selects the random streams.
 pub fn simulate<O: Observer>(spec: &Spec, replication: u32, observer: &mut O) -> ReplicationResult {
     let mut sim = Sim::new(spec, replication, observer);
@@ -1464,19 +1471,22 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .zip(&self.spec.servers)
                 .map(|(s, spec)| {
                     let capacity = f64::from(spec.capacity);
-                    let busy = s.busy.mean() / capacity;
-                    let blocked = s.blocked.mean() / capacity;
-                    let failed = s.failed.mean() / capacity;
                     let off_shift = s.off.mean() / capacity;
+                    // States are shares of the time the server could work:
+                    // all of it, or its shifts if it has a schedule.
+                    let on = working_share(off_shift);
+                    let busy = s.busy.mean() / capacity / on;
+                    let blocked = s.blocked.mean() / capacity / on;
+                    let failed = s.failed.mean() / capacity / on;
                     ServerResult {
-                        idle: (1.0 - busy - blocked - failed - off_shift).max(0.0),
+                        idle: (1.0 - busy - blocked - failed).max(0.0),
                         off_shift,
                         busy,
                         blocked,
                         failed,
                         processed: s.processed,
                         failures: s.failure_count,
-                        waiting_for_resources: s.waiting.mean(),
+                        waiting_for_resources: s.waiting.mean() / on,
                     }
                 })
                 .collect(),
@@ -1496,7 +1506,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .iter()
                 .zip(&self.spec.resources)
                 .map(|(r, spec)| ResourceResult {
-                    busy: r.busy.mean() / f64::from(spec.capacity),
+                    // Of the time it's on shift (all the time without a schedule).
+                    busy: r.busy.mean() / f64::from(spec.capacity) / working_share(r.off.mean()),
                     off_shift: r.off.mean(),
                 })
                 .collect(),

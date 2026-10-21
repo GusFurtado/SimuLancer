@@ -170,6 +170,9 @@ function formatFor(m) {
     case "parts": return { scale: 1, decimals: 2, suffix: "" };
     case "count": return { scale: 1, decimals: 1, suffix: "" };
     case "parts/h": return { scale: 1, decimals: 1, suffix: " /h" };
+    case "parts/working h": return { scale: 1, decimals: 1, suffix: " /working h" };
+    case "parts/day": return { scale: 1, decimals: 1, suffix: " /day" };
+    case "parts/week": return { scale: 1, decimals: 0, suffix: " /week" };
     case "s":
       if (mean >= 7200) return { scale: 1 / 3600, decimals: 2, suffix: " h" };
       if (mean >= 120) return { scale: 1 / 60, decimals: 2, suffix: " min" };
@@ -295,7 +298,7 @@ function serverStates(container) {
   const card = el("div", { class: "card" }, legend, rows);
   container.append(el("section", {},
     el("h2", {}, "Where each server's time goes"),
-    el("p", { class: "note" }, "Share of capacity × time after warm-up, averaged over replications. Hover for confidence intervals."),
+    el("p", { class: "note" }, "Share of capacity × working time after warm-up (all the time, or the shifts of a server with a schedule), averaged over replications. Hover for confidence intervals."),
     card));
 
   const draw = () => {
@@ -306,8 +309,10 @@ function serverStates(container) {
         .filter(([m]) => m && m.mean > 0);
       const total = parts.reduce((a, [m]) => a + m.mean, 0) || 1;
       const failures = measure("server", s.name, "failures");
+      const off = measure("server", s.name, "off shift");
       const label = el("div", { class: "row-label" }, el("strong", {}, s.name),
-        el("span", {}, `capacity ${s.capacity}` + (failures ? ` · ${fmt(failures, failures.mean)} failures per run` : "")));
+        el("span", {}, `capacity ${s.capacity}` + (failures ? ` · ${fmt(failures, failures.mean)} failures per run` : "") +
+          (off ? ` · off shift ${fmt(off, off.mean)} of the week` : "")));
       const h = 24, gap = 2;
       const chart = svg("svg", { height: h, viewBox: `0 0 ${width} ${h}`, role: "img",
         "aria-label": `${s.name}: ` + parts.map(([m, , l]) => `${l} ${fmt(m, m.mean)}`).join(", ") });
