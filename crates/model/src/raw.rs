@@ -269,6 +269,8 @@ pub struct RawServer {
     pub assembles: Option<OrderedMap<Spanned<u32>>>,
     /// The part type an assembly makes.
     pub makes: Option<Spanned<String>>,
+    /// The component whose arrival time the assembled part keeps.
+    pub keeps_clock_of: Option<Spanned<String>>,
     /// Part type -> count: what each finished part becomes (one entry).
     pub splits_into: Option<Spanned<OrderedMap<RawCount>>>,
     #[serde(default)]

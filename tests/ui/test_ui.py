@@ -412,6 +412,8 @@ check(b.js("return document.getElementById('f-throughput-per').value") == "opera
 click_obj("trucks")
 b.wait("return document.getElementById('f-arrivals-mode')?.value === 'restock'")
 check(b.js("return document.getElementById('f-sources-trucks-reorder_point').value") == "250", "reorder point")
+click_obj("pick")
+b.wait("return document.getElementById('f-keeps-clock')?.value === 'order'")
 click_obj("break_pallet")
 b.wait("return document.getElementById('f-split-type')?.value === 'carton' && document.getElementById('f-split-count').value === '10'")
 

@@ -170,7 +170,7 @@ servers:
 - **Kits:**
   - An assembly server collects one kit at a time.
   - It takes a waiting part only if the kit still needs its type. Other parts wait on their conveyor.
-  - A complete kit becomes one new part of the `makes` type and is processed like any part. Its time in system counts from its earliest component.
+  - A complete kit becomes one new part of the `makes` type and is processed like any part. Its time in system counts from its earliest component, or, with `keeps_clock_of: order`, from its earliest component of that type: an order picked from stock is timed from when the order came in, not from when the stock arrived.
 - **Collecting** happens while the server is up, even if all its slots are busy. A batch or kit starts when there are enough free slots and resource units.
 - **One process time:** batch and assembly servers take a single time, not one per part type.
 - **Checks for assemblies:**

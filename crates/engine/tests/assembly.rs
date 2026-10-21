@@ -65,6 +65,52 @@ fn kits_become_new_parts() {
 }
 
 #[test]
+fn an_assembly_can_keep_the_clock_of_one_component() {
+    // Twice as many frames as bikes need, waiting in an unlimited queue: by
+    // default a bike is timed from its earliest component, its frame, which
+    // waited longer and longer; timed from its wheels, it isn't.
+    let stocked = BIKES
+        .replace("interarrival: \"60 s\"", "interarrival: \"30 s\"")
+        .replace(
+            "  c_frames: { from: frames, to: assembly, length: \"10 m\", speed: \"1 m/s\", spacing: \"1 m\" }\n",
+            "",
+        )
+        .replace("sinks:", "queues:\n  c_frames: { from: frames, to: assembly }\nsinks:");
+    let default = run(&spec(&stocked));
+    let by_wheel = run(&spec(
+        &stocked.replace("makes: bike", "makes: bike\n    keeps_clock_of: wheel"),
+    ));
+    assert_conserved(&by_wheel);
+    assert_eq!(
+        default.sinks[0].exited, by_wheel.sinks[0].exited,
+        "only the timing changes"
+    );
+    assert!(
+        default.sinks[0].time_in_system.mean() > 3600.0,
+        "{}",
+        default.sinks[0].time_in_system.mean()
+    );
+    // The kit's first wheel: 10 s on its conveyor, 30 s for the second, 20 s
+    // of work, 2 s to shipping.
+    let t = by_wheel.sinks[0].time_in_system.mean();
+    assert!((t - 62.0).abs() < 1e-6, "{t}");
+
+    let errors = |yaml: &str| match outliers_sim_model::load_str(yaml) {
+        Ok(_) => panic!("expected an error"),
+        Err(e) => e
+            .diagnostics()
+            .iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    };
+    assert!(
+        errors(&BIKES.replace("makes: bike", "makes: bike\n    keeps_clock_of: bike"))
+            .contains("in the kit")
+    );
+}
+
+#[test]
 fn the_scarcest_component_sets_the_pace() {
     // A wheel a minute: only 30 bikes an hour; frames back up.
     let slow = BIKES.replace("interarrival: \"30 s\"", "interarrival: \"60 s\"");

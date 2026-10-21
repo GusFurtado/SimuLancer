@@ -319,6 +319,12 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
 
+## Which part's clock an assembly keeps (implemented 2026-10-21, issue #29)
+
+- **`keeps_clock_of: order`** on an assembly server: the new part's time in system counts from its earliest component of that type, instead of its earliest component of any type. Without it nothing changes.
+- **Why:** when one component is the customer's request and the others are stock, the earliest component is usually stock that waited for days, so "time in system" measured the stock's age, not the order's lead time. The warehouse read 38 hours; timed from the order it's 12 minutes, which is what its Simulation page now shows as "Order lead time".
+- Kept as one named component rather than per-component times, which can come later if someone needs "how long did the order wait for stock" as its own number (the backlog queue's waiting time already says that in the warehouse).
+
 ## Stock and restocking (implemented 2026-10-21, issue #28)
 
 - **A restocking source keeps a queue stocked**: `restocks: racks`, `reorder_point`, `order` (a fixed quantity, ordered as many times as it takes to get above the reorder point: (s, Q)) or `order_up_to` ((s, S)), a `lead_time`, and optionally `review_every` for periodic review instead of continuous. Deliveries come after the lead time all at once (a group arrival), and wait for the next shift if the source has a schedule.
@@ -407,7 +413,7 @@ What building them showed is missing, in the order I'd add it:
 | **Arrivals that change during the day** | Bank lunch peak, warehouse trucks | A constant rate while the schedule is on. Done: see Arrivals by time of day. | #26 |
 | **Arrivals in groups, and splitting** | Trucks of pallets, pallets of cartons, orders of different sizes | Putaway batches 8 cartons per forklift trip; every order takes exactly 2 cartons. Done (except orders of different sizes): see Arrivals in groups, and splitting. | #27 |
 | **Stock and restocking** | Warehouse | Receiving and orders are independent flows, so storage drifts towards full (receiving gets held back) or empty. Done: see Stock and restocking. | #28 |
-| **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. | #29 |
+| **Which part's clock an assembly keeps** | Warehouse | A shipment's time in system starts when its oldest carton was received, so order lead time can't be measured. Done: see Which part's clock an assembly keeps. | #29 |
 | **Closing the doors but serving who's inside** | Bank | Staff schedules run past closing time. | #30 |
 | **Vehicles** | Warehouse forklifts | A resource plus a trip time on the putaway server. | #31 |
 | **Changeovers between models, paced lines** | Assembly line | Not modeled. | #32, #33 |

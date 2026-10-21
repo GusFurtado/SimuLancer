@@ -1253,7 +1253,9 @@ impl<'a, O: Observer> Sim<'a, O> {
             let staged = std::mem::take(&mut self.servers[server].staging);
             match &spec.kind {
                 ServerKind::Batch(_) => self.start_batch(server, staged),
-                ServerKind::Assembly { makes, .. } => {
+                ServerKind::Assembly {
+                    makes, clock_of, ..
+                } => {
                     for p in &staged {
                         self.observer
                             .record(self.now, TraceEvent::Consumed { part: p.id, server });
@@ -1261,11 +1263,14 @@ impl<'a, O: Observer> Sim<'a, O> {
                     self.totals.consumed += staged.len() as u64;
                     let part = Part {
                         id: self.next_part,
+                        // When its earliest component arrived, or its
+                        // earliest of the type that keeps the clock (an order).
                         created: staged
                             .iter()
+                            .filter(|p| clock_of.is_none_or(|e| p.entity == e))
                             .map(|p| p.created)
                             .min()
-                            .expect("a kit has parts"),
+                            .expect("validated: the clock's type is in the kit"),
                         entity: *makes,
                     };
                     self.next_part += 1;

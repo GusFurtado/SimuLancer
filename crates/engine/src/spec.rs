@@ -307,6 +307,9 @@ pub enum ServerKind {
     Assembly {
         recipe: Vec<(usize, u32)>,
         makes: usize,
+        /// The component type whose arrival time the new part keeps (the
+        /// earliest of that type); `None` keeps the earliest of all.
+        clock_of: Option<usize>,
     },
 }
 
