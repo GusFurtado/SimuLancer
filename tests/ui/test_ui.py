@@ -306,6 +306,15 @@ b.screenshot(f"{out}/6-animation.png")
 click_text(".results-bar button", "3D")
 b.wait("return document.body.textContent.includes('3D animation: planned')")
 
+# --- Recent runs: the trash deletes the open run and its results. ---------------
+if b.js("return document.getElementById('side-runs').hidden"):
+    b.js("document.getElementById('show-runs').click()")
+runs_before = b.js("return document.querySelectorAll('#runs .run-item').length")
+b.js("window.confirm = () => true; document.querySelector('#runs .run-item button.current + .trash').click()")
+b.wait(f"return document.querySelectorAll('#runs .run-item').length === {runs_before - 1}")
+check(b.js("return document.querySelector('iframe.report') === null"), "deleting the open run closes its results")
+b.js("document.getElementById('show-components').click()")  # the page remembers the open panel
+
 # --- Manager: builds scenarios from the decisions, compares them. ---------------
 b.go(url + "/")
 b.wait("return document.querySelector('[data-project=two-cells]') !== null")

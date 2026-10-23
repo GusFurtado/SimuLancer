@@ -99,6 +99,11 @@
   }
   .list button:hover { background: var(--accent-wash); }
   .list button.current { background: var(--accent-wash); font-weight: 600; }
+  .run-item { display: flex; align-items: center; }
+  .run-item button:first-child { flex: 1; min-width: 0; }
+  .list .run-item button.trash { width: auto; flex: none; padding: 6px; color: var(--muted); }
+  .list .run-item button.trash:hover { color: var(--danger); background: none; }
+  .run-item button.trash svg.icon { margin: 0; width: 16px; height: 16px; }
   .list .sub { display: block; color: var(--muted); font-size: 12px; font-weight: 400; }
   .badge { font-size: 11px; padding: 1px 6px; border-radius: 99px; background: var(--page); color: var(--ink-2); box-shadow: 0 0 0 1px var(--ring); }
   .badge.bad { color: var(--danger); }

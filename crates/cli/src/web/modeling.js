@@ -144,13 +144,37 @@ async function loadRuns() {
     list.replaceChildren(el("p", { class: "hint", style: "margin: 0 8px" }, "No runs of this project yet."));
     return;
   }
-  list.replaceChildren(...state.runs.slice(0, 15).map(r => el("button", {
-    class: state.run && state.run.id === r.id ? "current" : null,
-    onclick: () => showRun(r),
-  },
-  r.label, " ",
-  r.status === "done" ? null : el("span", { class: r.status === "failed" ? "badge bad" : "badge" }, r.status),
-  el("span", { class: "sub" }, r.id))));
+  list.replaceChildren(...state.runs.slice(0, 15).map(r => el("div", { class: "run-item" },
+    el("button", {
+      class: state.run && state.run.id === r.id ? "current" : null,
+      onclick: () => showRun(r),
+    },
+    r.label, " ",
+    r.status === "done" ? null : el("span", { class: r.status === "failed" ? "badge bad" : "badge" }, r.status),
+    el("span", { class: "sub" }, r.id)),
+    r.status === "done" || r.status === "failed"
+      ? el("button", { class: "trash", title: "Delete this run", "aria-label": `Delete the run ${r.id}`, onclick: () => deleteRun(r) }, trash())
+      : null)));
+}
+
+/** Deletes a finished run's results, animation included; it can be run again from the model. */
+async function deleteRun(r) {
+  if (!confirm(`Delete the run “${r.label}” (${r.id})? Its results and animation go with it.`)) return;
+  const { ok, data } = await api("DELETE", `runs/${encodeURIComponent(r.id)}`);
+  if (!ok) {
+    state.message = { kind: "error", text: data.error || `The run ${r.id} couldn't be deleted.` };
+  } else if (state.run && state.run.id === r.id) {
+    stopAnimation();
+    state.run = null;
+    if (state.tab === "results") state.tab = "model";
+  }
+  render();
+  loadRuns();
+}
+
+function trash() {
+  return svg("svg", { class: "icon", viewBox: "0 0 24 24", "aria-hidden": "true" },
+    svg("path", { d: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6" }));
 }
 
 // --- opening a project -------------------------------------------------------------------
