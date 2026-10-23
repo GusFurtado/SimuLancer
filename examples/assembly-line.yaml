@@ -3,13 +3,13 @@
 # between stations, and a changeover at packing when the model changes.
 #
 #   release ─> frame ─> drum ─> wiring ─> test ─────> pack ─> shipping
-#                                          │  ^
-#                                     8%   v  │  back to test
+#                                          │  ^  │
+#                                     8%   v  │  └─> scrap (failed again after rework)
 #                                         rework (one technician)
 
 format: outliers-sim/0.1
 name: assembly-line
-description: Washing machines (two models) assembled on six stations over two shifts, with a final test and rework.
+description: Washing machines (two models) assembled on six stations over two shifts, with a final test, rework and scrap.
 
 entities:
   standard: {}
@@ -22,6 +22,10 @@ schedules:
 
 resources:
   technician: { capacity: 1, schedule: two_shifts }
+
+attributes:
+  tests: { default: 0 }      # times a machine has been tested
+  outcome: { default: 0 }    # its last test's draw, from 0 to 1
 
 sources:
   release:
@@ -51,7 +55,15 @@ servers:
   test:
     process_time: "triangular(1.5 min, 1.8 min, 2.2 min)"
     input: { rule: priority, order: [c_retest, c_to_test] }
-    output: { rule: probability, weights: { c_to_pack: 0.92, c_to_rework: 0.08 } }
+    # Each test draws its outcome; 8% fail. A machine failing again after
+    # rework is scrapped.
+    sets: { tests: "tests + 1", outcome: "uniform(0, 1)" }
+    output:
+      rule: by_condition
+      routes:
+        - { when: "outcome < 0.08 and tests >= 2", to: q_scrap }
+        - { when: "outcome < 0.08", to: c_to_rework }
+        - { to: c_to_pack }
     schedule: two_shifts
   rework:
     process_time: "uniform(8 min, 20 min)"
@@ -72,8 +84,12 @@ conveyors:
   c_retest:    { from: rework,  to: test,     length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
   c_ship:      { from: pack,    to: shipping, length: "4.6 m", speed: "0.2 m/s", spacing: "1 m" }
 
+queues:
+  q_scrap: { from: test, to: scrap }
+
 sinks:
   shipping: {}
+  scrap: {}
 
 experiment:
   replications: 20

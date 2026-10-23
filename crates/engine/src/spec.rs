@@ -502,6 +502,10 @@ pub enum Routing {
     /// into [`Spec::conveyors`]) each type takes. `None` for types that never
     /// get here. The part waits for its conveyor.
     ByType(Vec<Option<usize>>),
+    /// The first route whose condition holds, in order; the last has no
+    /// condition and takes every other part. Each is (condition, an index
+    /// into [`Spec::conveyors`]). The part waits for its conveyor.
+    ByCondition(Vec<(Option<Expr>, usize)>),
 }
 
 /// How a server picks among parts waiting at the ends of its incoming
