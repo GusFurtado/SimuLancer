@@ -30,9 +30,15 @@
 //! - Shared resources: a server starts a part only when it can take every
 //!   resource unit it needs at once. Units are held while processing (also
 //!   while suspended by a failure) and given back when processing finishes.
-//!   Servers waiting for units wait in one queue, first come first served:
-//!   when units come back, waiting servers try again in the order they
-//!   started waiting.
+//!   Servers waiting for units wait in one queue: when units come back,
+//!   waiting servers try again, those a resource's `order` lists first (in
+//!   that order; for a server needing several resources, its best rank),
+//!   then the rest in the order they started waiting. A server that can't
+//!   start doesn't hold back one behind it that can.
+//! - Queue order: a queue lets parts go first in first out, last in first
+//!   out, by an attribute (lowest or highest first) or by part type. A new
+//!   part is placed by that order as it gets on (ties behind those already
+//!   there), so the part at the front is always the next to go.
 //! - Schedules repeat weekly; time 0 is Monday 00:00. Off shift, a source
 //!   creates nothing (the first arrival of each shift comes at its start); a
 //!   server stops like a failed one (processing pauses and resumes at the
@@ -70,7 +76,7 @@ use crate::results::{
 use crate::rng::Rng;
 use crate::spec::{
     Arrivals, Conveyor, Distribution, FailureClock, InputRule, MAX_ATTRIBUTES, Node, OnFailure,
-    OrderQuantity, Restock, Routing, ServerKind, Spec, WhenBlocked,
+    OrderQuantity, QueueOrder, Restock, Routing, ServerKind, Spec, WhenBlocked,
 };
 use crate::trace::{Observer, PartId, TraceEvent};
 
@@ -1289,12 +1295,26 @@ impl<'a, O: Observer> Sim<'a, O> {
             self.dispatch(fleet);
             return true;
         }
-        state.belt.push_back(OnBelt {
-            part,
-            pos: 0.0,
-            since: self.now,
-            entered: self.now,
-        });
+        // Where it goes in line: at the back, unless a queue's order puts it ahead.
+        let belt = &state.belt;
+        let ahead_of = |behind: &dyn Fn(&Part) -> bool| belt.iter().position(|p| behind(&p.part));
+        let at = match &c.order {
+            QueueOrder::FirstIn => None,
+            QueueOrder::LastIn => Some(0),
+            QueueOrder::Lowest(a) => ahead_of(&|p| p.attributes[*a] > part.attributes[*a]),
+            QueueOrder::Highest(a) => ahead_of(&|p| p.attributes[*a] < part.attributes[*a]),
+            QueueOrder::ByType(rank) => ahead_of(&|p| rank[p.entity] > rank[part.entity]),
+        }
+        .unwrap_or(belt.len());
+        state.belt.insert(
+            at,
+            OnBelt {
+                part,
+                pos: 0.0,
+                since: self.now,
+                entered: self.now,
+            },
+        );
         state.entered += 1;
         self.observer.record(
             self.now,
@@ -1303,7 +1323,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                 conveyor,
             },
         );
-        if self.conveyors[conveyor].belt.len() == 1 {
+        // A new front part reaches the end (of a queue: at once).
+        if at == 0 {
             self.schedule_reach_end(conveyor);
         }
         true
@@ -1877,7 +1898,20 @@ impl<'a, O: Observer> Sim<'a, O> {
     /// started waiting. Those that still can't start queue up again, in the
     /// same order.
     fn serve_resource_queue(&mut self) {
-        let waiting = std::mem::take(&mut self.resource_queue);
+        let mut waiting = std::mem::take(&mut self.resource_queue);
+        if self.spec.resources.iter().any(|r| !r.order.is_empty()) {
+            let spec = self.spec;
+            // Stable: servers no `order` lists keep the order they started waiting.
+            let rank = |server: usize| {
+                spec.servers[server]
+                    .needs
+                    .iter()
+                    .filter_map(|&(r, _)| spec.resources[r].order.iter().position(|&s| s == server))
+                    .min()
+                    .unwrap_or(usize::MAX)
+            };
+            waiting.make_contiguous().sort_by_key(|&s| rank(s));
+        }
         for server in waiting {
             self.servers[server].waiting_for_resources = false;
             self.pull(server);
@@ -1902,6 +1936,23 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .copied()
                 .filter(|&c| waiting(c))
                 .min_by_key(|&c| self.conveyors[c].head_arrived.unwrap_or(SimTime::MAX)),
+            InputRule::Lowest(a) | InputRule::Highest(a) => {
+                let lowest = matches!(spec.servers[server].input_rule, InputRule::Lowest(_));
+                // Ties go to the part that reached the end first.
+                let key = |c: usize| {
+                    let value = self.conveyors[c].belt[0].part.attributes[a];
+                    let arrived = self.conveyors[c].head_arrived.unwrap_or(SimTime::MAX);
+                    (if lowest { value } else { -value }, arrived)
+                };
+                inputs
+                    .iter()
+                    .copied()
+                    .filter(|&c| waiting(c))
+                    .min_by(|&x, &y| {
+                        let (kx, ky) = (key(x), key(y));
+                        kx.0.total_cmp(&ky.0).then(kx.1.cmp(&ky.1))
+                    })
+            }
             InputRule::RoundRobin => {
                 let n = inputs.len();
                 let start = self.servers[server].next_input;
@@ -2036,10 +2087,12 @@ impl<'a, O: Observer> Sim<'a, O> {
         s.blocked_order.push_back(slot);
         self.station_done(server);
         self.update_failure_clocks(server);
-        self.release_blocked(server);
+        // Servers already waiting for the units it gave back get them before
+        // it takes its next part (which would otherwise always win).
         if !self.spec.servers[server].needs.is_empty() {
             self.serve_resource_queue();
         }
+        self.release_blocked(server);
     }
 
     /// Moves finished parts onto their outgoing conveyors where there's

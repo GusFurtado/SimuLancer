@@ -527,4 +527,15 @@ b.wait("return document.getElementById('pending')?.textContent === 'all changes 
 model = json.load(urllib.request.urlopen(url + "/api/v1/projects/bank-branch"))["tree"]
 check(model["attributes"] == {"due": {"default": "0 s"}}, f"attribute saved: {model.get('attributes')}")
 check(model["sources"]["door"]["sets"] == {"due": "now + 4 h"}, f"sets saved: {model['sources']['door'].get('sets')}")
+# The teller line serves the earliest due date first.
+b.js("document.querySelector('[data-connection=teller_line]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+b.wait("return document.getElementById('f-queue-order') !== null")
+check("Lowest due first" in b.js("return [...document.querySelectorAll('#f-queue-order option')].map(o => o.textContent)"), "attributes as queue orders")
+set_value("f-queue-order", "lowest:due")
+b.wait("return document.getElementById('pending')?.textContent === '1 unsaved change'", 10)
+set_value("save-message", "Earliest due first", "input")
+b.js("document.getElementById('save').click()")
+b.wait("return document.getElementById('pending')?.textContent === 'all changes saved'", 10)
+model = json.load(urllib.request.urlopen(url + "/api/v1/projects/bank-branch"))["tree"]
+check(model["queues"]["teller_line"]["order"] == {"lowest": "due"}, f"order saved: {model['queues']['teller_line'].get('order')}")
 print("web UI sessions (Modeling and Simulation): all checks passed")

@@ -20,7 +20,7 @@ use std::time::Instant;
 use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{
     Arrivals, BinaryOp, Changeover, Count, Distribution, Expr, InputRule, Node, OrderQuantity,
-    PerType, Routing, ServerKind, Spec,
+    PerType, QueueOrder, Routing, ServerKind, Spec,
 };
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
@@ -461,10 +461,12 @@ fn describe(path: &Path, model: &Model) -> String {
         if s.inputs.len() > 1 {
             let names = conveyor_list(spec, &s.inputs);
             let rule = match s.input_rule {
-                InputRule::Single => "single",
-                InputRule::FirstCome => "first come",
-                InputRule::Priority => "priority, in this order",
-                InputRule::RoundRobin => "round robin",
+                InputRule::Single => "single".to_string(),
+                InputRule::FirstCome => "first come".to_string(),
+                InputRule::Priority => "priority, in this order".to_string(),
+                InputRule::RoundRobin => "round robin".to_string(),
+                InputRule::Lowest(a) => format!("lowest {} first", spec.attributes[a].name),
+                InputRule::Highest(a) => format!("highest {} first", spec.attributes[a].name),
             };
             out += &format!("  {:<12}   takes from {names} ({rule})\n", "");
         }
@@ -480,6 +482,14 @@ fn describe(path: &Path, model: &Model) -> String {
                 .map(|i| format!(", on schedule {}", spec.schedules[i].name))
                 .unwrap_or_default();
             out += &format!("  {:<12} capacity {}{schedule}\n", r.name, r.capacity);
+            if !r.order.is_empty() {
+                let servers: Vec<&str> = r
+                    .order
+                    .iter()
+                    .map(|&s| spec.servers[s].name.as_str())
+                    .collect();
+                out += &format!("  {:<12}   serves {} first\n", "", servers.join(", then "));
+            }
         }
     }
     if !spec.schedules.is_empty() {
@@ -510,7 +520,20 @@ fn describe(path: &Path, model: &Model) -> String {
             let target = c
                 .target_wait
                 .map_or(String::new(), |t| format!(", target wait {}", duration(t)));
-            out += &format!("  {:<12} {:<20} {holds}{target}\n", c.name, route);
+            let order = match &c.order {
+                QueueOrder::FirstIn => String::new(),
+                QueueOrder::LastIn => ", last in first out".to_string(),
+                QueueOrder::Lowest(a) => format!(", lowest {} first", spec.attributes[*a].name),
+                QueueOrder::Highest(a) => format!(", highest {} first", spec.attributes[*a].name),
+                QueueOrder::ByType(rank) => {
+                    let mut types: Vec<usize> = (0..spec.entities.len()).collect();
+                    types.sort_by_key(|&e| rank[e]);
+                    let names: Vec<&str> =
+                        types.iter().map(|&e| spec.entities[e].as_str()).collect();
+                    format!(", by type: {}", names.join(", then "))
+                }
+            };
+            out += &format!("  {:<12} {:<20} {holds}{target}{order}\n", c.name, route);
         }
     }
     let transports: Vec<_> = spec

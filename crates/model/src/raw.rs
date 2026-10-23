@@ -255,6 +255,8 @@ pub struct RawInputRule {
     pub rule: Spanned<InputRuleKind>,
     /// Conveyor names, highest priority first, for `priority`.
     pub order: Option<Spanned<Vec<Spanned<String>>>>,
+    /// The attribute `lowest` and `highest` compare.
+    pub by: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -263,6 +265,72 @@ pub enum InputRuleKind {
     FirstCome,
     Priority,
     RoundRobin,
+    Lowest,
+    Highest,
+}
+
+/// Which part a queue lets go next: `first_in`, `last_in`,
+/// `{ lowest: <attribute> }`, `{ highest: <attribute> }` or
+/// `{ by_type: [<type>, ...] }`. Read by hand: it's a word or a map.
+#[derive(Debug, Clone)]
+pub enum RawQueueOrder {
+    FirstIn,
+    LastIn,
+    Lowest(String),
+    Highest(String),
+    ByType(Vec<String>),
+}
+
+impl<'de> Deserialize<'de> for RawQueueOrder {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct OrderVisitor;
+
+        const EXPECTED: &str = "`first_in`, `last_in`, `{ lowest: <attribute> }`, `{ highest: <attribute> }` or `{ by_type: [<part type>, ...] }`";
+
+        impl<'de> Visitor<'de> for OrderVisitor {
+            type Value = RawQueueOrder;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str(EXPECTED)
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<RawQueueOrder, E> {
+                match v {
+                    "first_in" => Ok(RawQueueOrder::FirstIn),
+                    "last_in" => Ok(RawQueueOrder::LastIn),
+                    other => Err(E::custom(format!(
+                        "`{other}` isn't an order: use {EXPECTED}"
+                    ))),
+                }
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<RawQueueOrder, A::Error> {
+                let Some(key) = map.next_key::<String>()? else {
+                    return Err(serde::de::Error::custom(format!(
+                        "an empty order: use {EXPECTED}"
+                    )));
+                };
+                let order = match key.as_str() {
+                    "lowest" => RawQueueOrder::Lowest(map.next_value()?),
+                    "highest" => RawQueueOrder::Highest(map.next_value()?),
+                    "by_type" => RawQueueOrder::ByType(map.next_value()?),
+                    other => {
+                        return Err(serde::de::Error::custom(format!(
+                            "unknown order `{other}`: use {EXPECTED}"
+                        )));
+                    }
+                };
+                if map.next_key::<String>()?.is_some() {
+                    return Err(serde::de::Error::custom(format!(
+                        "an order has one rule: {EXPECTED}"
+                    )));
+                }
+                Ok(order)
+            }
+        }
+
+        deserializer.deserialize_any(OrderVisitor)
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, Deserialize)]
@@ -364,6 +432,8 @@ pub struct RawQueue {
     pub target_wait: Option<Spanned<Scalar>>,
     /// Parts in it when the run starts: `150`, or `{ pallet: 150 }`.
     pub starts_with: Option<Spanned<RawStartsWith>>,
+    /// Which part it lets go next; first in, first out by default.
+    pub order: Option<Spanned<RawQueueOrder>>,
 }
 
 /// Parts carried from one object to another by a vehicle.
@@ -447,6 +517,8 @@ pub struct RawSink {}
 pub struct RawResource {
     pub capacity: Spanned<u32>,
     pub schedule: Option<Spanned<String>>,
+    /// Servers that get units first, highest priority first.
+    pub order: Option<Spanned<Vec<Spanned<String>>>>,
 }
 
 /// Working times that repeat every week.

@@ -7,8 +7,8 @@ use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Arrivals, Attribute, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment,
     Expr, Failure, FailureClock, Fleet, InputRule, MAX_ATTRIBUTES, Node, OnFailure, OrderQuantity,
-    PacedLine, PerType, Resource, Restock, Routing, Schedule, Server, ServerKind, Sink, Source,
-    Spec, WhenBlocked,
+    PacedLine, PerType, QueueOrder, Resource, Restock, Routing, Schedule, Server, ServerKind, Sink,
+    Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -229,6 +229,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 capacity,
                 target_wait: None,
                 starts_with: None,
+                order: QueueOrder::FirstIn,
             });
         }
     }
@@ -269,16 +270,17 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 .positive_quantity(t, Dimension::Time, "target_wait")
                 .map(Some),
         };
-        if let (Some(from), Some(to), Some(capacity), Some(target_wait)) =
-            (from, to, capacity, target_wait)
+        let order = match &q.order {
+            None => Some(QueueOrder::FirstIn),
+            Some(order) => b.queue_order(order, &names),
+        };
+        if let (Some(from), Some(to), Some(capacity), Some(target_wait), Some(order)) =
+            (from, to, capacity, target_wait, order)
         {
-            conveyors.push(Conveyor::queue(
-                name.value.clone(),
-                from,
-                to,
-                capacity,
-                target_wait,
-            ));
+            conveyors.push(Conveyor {
+                order,
+                ..Conveyor::queue(name.value.clone(), from, to, capacity, target_wait)
+            });
         }
     }
 
@@ -480,10 +482,38 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 format!("resource `{}` needs a capacity of at least 1", name.value),
             );
         }
+        let mut order = Vec::new();
+        for server in r.order.iter().flat_map(|o| &o.value) {
+            let needs_it =
+                |s: &raw::RawServer| s.needs.0.iter().any(|(n, _)| n.value == name.value);
+            match raw
+                .servers
+                .0
+                .iter()
+                .position(|(n, _)| n.value == server.value)
+            {
+                Some(i) if !needs_it(&raw.servers.0[i].1) => b.error(
+                    server,
+                    format!(
+                        "server `{}` doesn't need `{}`, so it can't be in its `order`",
+                        server.value, name.value
+                    ),
+                ),
+                Some(i) if order.contains(&i) => {
+                    b.error(server, format!("`{}` is listed twice", server.value))
+                }
+                Some(i) => order.push(i),
+                None => b.error(
+                    server,
+                    format!("`order` lists servers, and `{}` isn't one", server.value),
+                ),
+            }
+        }
         resources.push(Resource {
             name: name.value.clone(),
             capacity: r.capacity.value,
             schedule,
+            order,
         });
     }
 
@@ -646,7 +676,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some(c) => b.changeover(name, c, &types).map(Some),
         };
         let input = endpoints_ok
-            .then(|| b.input_rule(name, &s.input, &server_inputs[i], &conveyor_names))
+            .then(|| b.input_rule(name, &s.input, &server_inputs[i], &conveyor_names, &names))
             .flatten();
         let sets = b.sets(&s.sets, &names);
         let output = endpoints_ok
@@ -1352,6 +1382,77 @@ impl Builder {
             ok = false;
         }
         ok.then(|| periods.into_iter().map(|(s, e, r, _)| (s, e, r)).collect())
+    }
+
+    /// The index of a declared attribute, or an error at `name`.
+    fn attribute(&mut self, name: &Spanned<String>, names: &Names) -> Option<usize> {
+        let found = names.attributes.iter().position(|(n, _)| *n == name.value);
+        if found.is_none() {
+            let known: Vec<String> = names
+                .attributes
+                .iter()
+                .map(|(n, _)| format!("`{n}`"))
+                .collect();
+            self.error(
+                name,
+                format!(
+                    "`{}` isn't listed under `attributes` (attributes: {})",
+                    name.value,
+                    if known.is_empty() {
+                        "none".into()
+                    } else {
+                        known.join(", ")
+                    }
+                ),
+            );
+        }
+        found
+    }
+
+    /// A queue's `order`.
+    fn queue_order(
+        &mut self,
+        order: &Spanned<raw::RawQueueOrder>,
+        names: &Names,
+    ) -> Option<QueueOrder> {
+        let at = |value: &String| Spanned {
+            value: value.clone(),
+            referenced: order.referenced,
+            defined: order.defined,
+        };
+        match &order.value {
+            raw::RawQueueOrder::FirstIn => Some(QueueOrder::FirstIn),
+            raw::RawQueueOrder::LastIn => Some(QueueOrder::LastIn),
+            raw::RawQueueOrder::Lowest(a) => self.attribute(&at(a), names).map(QueueOrder::Lowest),
+            raw::RawQueueOrder::Highest(a) => {
+                self.attribute(&at(a), names).map(QueueOrder::Highest)
+            }
+            raw::RawQueueOrder::ByType(types) => {
+                // Types not listed come after those listed.
+                let mut rank = vec![types.len(); names.entities.len()];
+                let mut ok = true;
+                for (i, t) in types.iter().enumerate() {
+                    match names.entities.iter().position(|e| e == t) {
+                        Some(e) if rank[e] < types.len() => {
+                            self.error(order, format!("`{t}` is listed twice"));
+                            ok = false;
+                        }
+                        Some(e) => rank[e] = i,
+                        None => {
+                            self.error(
+                                order,
+                                format!(
+                                    "`{t}` isn't a part type (part types: {})",
+                                    names.entities.join(", ")
+                                ),
+                            );
+                            ok = false;
+                        }
+                    }
+                }
+                ok.then_some(QueueOrder::ByType(rank))
+            }
+        }
     }
 
     /// `sets`: attribute -> formula, each giving what its attribute holds.
@@ -2222,6 +2323,7 @@ impl Builder {
         rule: &Option<Spanned<raw::RawInputRule>>,
         inputs: &[usize],
         conveyor_names: &[&str],
+        names: &Names,
     ) -> Option<(Vec<usize>, InputRule)> {
         let list = |items: &[usize]| {
             items
@@ -2244,7 +2346,7 @@ impl Builder {
             self.error(
                 name,
                 format!(
-                    "server `{}` has {} incoming conveyors ({}); add `input: {{ rule: first_come | priority | round_robin }}` to say which part it takes next",
+                    "server `{}` has {} incoming conveyors ({}); add `input: {{ rule: first_come | priority | round_robin | lowest | highest }}` to say which part it takes next",
                     name.value,
                     inputs.len(),
                     list(inputs)
@@ -2253,6 +2355,28 @@ impl Builder {
             return None;
         };
         let rule = &rule.value;
+        let by_attribute = matches!(
+            rule.rule.value,
+            raw::InputRuleKind::Lowest | raw::InputRuleKind::Highest
+        );
+        match (&rule.by, by_attribute) {
+            (None, true) => {
+                self.error(
+                    &rule.rule,
+                    "`lowest` and `highest` need `by: <attribute>`, the attribute they compare"
+                        .to_string(),
+                );
+                return None;
+            }
+            (Some(by), false) => {
+                self.error(
+                    by,
+                    "`by` only applies to `rule: lowest` and `rule: highest`".to_string(),
+                );
+                return None;
+            }
+            _ => {}
+        }
         match (rule.rule.value, &rule.order) {
             (raw::InputRuleKind::Priority, None) => {
                 self.error(
@@ -2310,6 +2434,16 @@ impl Builder {
                 None
             }
             (raw::InputRuleKind::FirstCome, None) => Some((inputs.to_vec(), InputRule::FirstCome)),
+            (kind @ (raw::InputRuleKind::Lowest | raw::InputRuleKind::Highest), None) => {
+                let by = rule.by.as_ref().expect("checked above");
+                let a = self.attribute(by, names)?;
+                let rule = if kind == raw::InputRuleKind::Lowest {
+                    InputRule::Lowest(a)
+                } else {
+                    InputRule::Highest(a)
+                };
+                Some((inputs.to_vec(), rule))
+            }
             (raw::InputRuleKind::RoundRobin, None) => {
                 Some((inputs.to_vec(), InputRule::RoundRobin))
             }

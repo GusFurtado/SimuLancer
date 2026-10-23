@@ -226,6 +226,8 @@ Objects connect with conveyors and queues (together, *connections*). Several out
 | `first_come` | the part that reached the end of its conveyor first |
 | `priority` | from the first conveyor in `order: [c_rework, c_new]` that has a part waiting |
 | `round_robin` | from each conveyor in turn, skipping empty ones |
+| `lowest` | the waiting part with the lowest value of an attribute: `{ rule: lowest, by: due }` (ties: the one that got there first) |
+| `highest` | the waiting part with the highest value: `{ rule: highest, by: value }` |
 
 ## Conveyors
 
@@ -241,11 +243,12 @@ conveyors:
 
 ```yaml
 queues:
-  teller_line: { from: kiosk, to: tellers, capacity: 15, target_wait: "5 min" }
+  teller_line: { from: kiosk, to: tellers, capacity: 15, target_wait: "5 min", order: { by_type: [appointment, walk_in] } }
   backlog:     { from: orders, to: pick }        # no capacity: no limit
 ```
 
-- **Waiting in line:** a queue connects two objects like a conveyor, but parts don't travel: they're at its end as soon as they get on, and leave first in, first out.
+- **Waiting in line:** a queue connects two objects like a conveyor, but parts don't travel: they're at its end as soon as they get on, and leave in the queue's `order`.
+- **Order:** which part goes next. `first_in` (the default), `last_in`, `{ lowest: <attribute> }` (e.g. the earliest due date), `{ highest: <attribute> }`, or `{ by_type: [appointment, walk_in] }` (types not listed come after those listed). Ties go first in, first out. A part is never taken out of service for a more urgent one (no preemption). Shortest job first is `{ lowest: <attribute> }` with the work drawn into an attribute at arrival.
 - **Capacity:** how many parts can wait. Without it, there's no limit. When it's full, the object feeding it is blocked (or a source drops the part, with `when_blocked: drop`), as with a full conveyor.
 - **Drawing:** queues aren't in the layout file; they're drawn straight between their objects, so moving an object never changes a queue.
 - **Service level:** with `target_wait`, the queue also reports *within target wait*, the share of parts that waited at most that long ("95% served within 5 minutes").
@@ -291,7 +294,8 @@ servers:
 
 - **Starting:** a server starts a part only when it can take every unit it needs at once. It never holds some units while waiting for others, so servers can't deadlock over them.
 - **Holding:** units are held while processing, including during a failure mid-part. They go back as soon as processing ends, even if the part then waits for room on its conveyor.
-- **Waiting:** servers waiting for units are served first come, first served.
+- **Waiting:** servers waiting for units are served first come, first served, including against the server that just gave them back.
+- **Priority:** `order: [lathe_b, lathe_a]` serves the servers listed first, in that order, when several are waiting; servers not listed follow, first come, first served. A server that can't start (it needs more units than are free) doesn't hold back one behind it that can.
 - **Results:** each resource reports *busy*, the share of its units in use (while on shift, if it has a schedule). Each server that needs resources reports *waiting for resources*, the share of its working time a part was ready but the units weren't. That time is part of *idle*.
 
 ## Schedules

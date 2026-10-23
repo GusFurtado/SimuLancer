@@ -615,6 +615,9 @@ function rename(section, oldName, newName) {
         }
       }
       for (const [f, v] of Object.entries(tree.vehicles || {})) if (v.home === oldName) setChange(`vehicles.${f}.home`, newName);
+      for (const [r, res] of Object.entries(tree.resources || {})) {
+        if (res.order?.includes(oldName)) setChange(`resources.${r}.order`, res.order.map(x => x === oldName ? newName : x));
+      }
       state.layout.positions[newName] = state.layout.positions[oldName];
       delete state.layout.positions[oldName];
       renameInDraft(`${section}.${oldName}`, `${section}.${newName}`, oldName, newName);
@@ -971,8 +974,9 @@ function panel(tree) {
         capacityField(`${p}.capacity`));
     case "queues":
       return el("div", {}, header,
-        el("p", { class: "hint", style: "margin: 0 0 12px" }, say(`${node.from} → ${node.to}. Parts wait here in line, first in first out, with no travel time.`)),
+        el("p", { class: "hint", style: "margin: 0 0 12px" }, say(`${node.from} → ${node.to}. Parts wait here in line, with no travel time.`)),
         capacityField(`${p}.capacity`),
+        queueOrderField(tree, p),
         field("Target wait (for a service level)", `${p}.target_wait`, "text", [], "none, e.g. 5 min"),
         countField(say("Starts with (parts in it at the start)"), `${p}.starts_with`, "none", "f-starts-with"));
     default:
@@ -1288,8 +1292,27 @@ function resourcesPanel(tree) {
         el("input", { value: r, "aria-label": `resource ${r}`, "data-resource": r, onchange: e => renameResource(r, e.target.value.trim()) }),
         el("button", { style: "flex: 0", onclick: () => deleteResource(r), title: `Remove ${r}` }, "Remove")),
       field("Units available", `resources.${r}.capacity`, "int"),
-      scheduleField(tree, `resources.${r}.schedule`, "Available"))),
+      scheduleField(tree, `resources.${r}.schedule`, "Available"),
+      resourceOrderField(tree, r))),
     el("button", { id: "add-resource", onclick: () => setChange(`resources.${freeName(tree, "operator")}`, { capacity: 1 }) }, "+ Resource"));
+}
+
+/** Which waiting servers get a resource's units first. */
+function resourceOrderField(tree, r) {
+  const users = Object.entries(tree.servers || {}).filter(([, s]) => s.needs && r in s.needs).map(([n]) => n);
+  if (users.length < 2) return null;
+  const path = `resources.${r}.order`;
+  const order = getAt(tree, path);
+  const error = errorFor(path);
+  const listed = order ? [...order.filter(s => users.includes(s)), ...users.filter(s => !order.includes(s))] : [];
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: `f-order-${r}` }, "When several servers wait for it",
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
+    el("select", { id: `f-order-${r}`, "data-resource-order": r, onchange: e => setChange(path, e.target.value === "order" ? users : null) },
+      el("option", { value: "", selected: order ? null : true }, "First come, first served"),
+      el("option", { value: "order", selected: order ? true : null }, "Serve in this order")),
+    ...orderList(listed, o => setChange(path, o)),
+    error ? el("div", { class: "message" }, error.message) : null);
 }
 
 function vehiclesPanel(tree) {
@@ -1460,6 +1483,9 @@ function renamePartType(oldName, newName) {
       if (srv.process_time && typeof srv.process_time === "object" && oldName in srv.process_time) setChange(`servers.${name}.process_time`, renameKey(srv.process_time));
       if (srv.output?.routes && oldName in srv.output.routes) setChange(`servers.${name}.output`, { ...srv.output, routes: renameKey(srv.output.routes) });
     }
+    for (const [q, queue] of Object.entries(tree.queues || {})) {
+      if (queue.order?.by_type?.includes(oldName)) setChange(`queues.${q}.order`, { by_type: queue.order.by_type.map(t => t === oldName ? newName : t) });
+    }
     // Formulas name types in `type == <type>`.
     const escaped = oldName.replace(/[-]/g, "\\-");
     rewriteFormulas(tree, text => text.replace(new RegExp(`(type\\s*[!=]=\\s*)${escaped}(?![\\w-])`, "g"), `$1${newName}`));
@@ -1512,6 +1538,15 @@ function renameAttribute(oldName, newName) {
   batch(() => {
     setChange("attributes", Object.fromEntries(Object.entries(tree.attributes).map(([k, v]) => [k === oldName ? newName : k, v])));
     rewriteFormulas(tree, text => text.replace(word, newName), k => k === oldName ? newName : k);
+    // Queue orders and input rules that compare it.
+    for (const [q, queue] of Object.entries(tree.queues || {})) {
+      for (const kind of ["lowest", "highest"]) {
+        if (queue.order?.[kind] === oldName) setChange(`queues.${q}.order`, { [kind]: newName });
+      }
+    }
+    for (const [s, server] of Object.entries(tree.servers || {})) {
+      if (server.input?.by === oldName) setChange(`servers.${s}.input`, { ...server.input, by: newName });
+    }
     renameInDraft(`attributes.${oldName}`, `attributes.${newName}`, oldName, newName);
   });
 }
@@ -1710,11 +1745,20 @@ function inputRule(tree, p, inputs) {
   const path = `${p}.input`;
   const value = getAt(tree, path) || {};
   const error = errorFor(path);
+  const attributes = attributesOf(tree);
+  const byAttribute = ["lowest", "highest"].includes(value.rule);
+  const rules = [...INPUT_RULES, ...(attributes.length || byAttribute ? ["lowest", "highest"] : [])];
   const rule = el("select", {
     id: `f-${path}-rule`,
-    onchange: e => setChange(path, e.target.value === "priority" ? { rule: "priority", order: inputs } : { rule: e.target.value }),
+    onchange: e => {
+      const r = e.target.value;
+      setChange(path, r === "priority" ? { rule: r, order: inputs } : ["lowest", "highest"].includes(r) ? { rule: r, by: value.by || attributes[0] } : { rule: r });
+    },
   }, el("option", { value: "", selected: !value.rule, disabled: true }, "choose a rule"),
-  INPUT_RULES.map(r => el("option", { value: r, selected: value.rule === r }, r.replaceAll("_", " "))));
+  rules.map(r => el("option", { value: r, selected: value.rule === r },
+    r === "lowest" ? "lowest attribute first" : r === "highest" ? "highest attribute first" : r.replaceAll("_", " "))));
+  const by = byAttribute ? el("select", { id: `f-${path}-by`, "aria-label": "attribute", style: "margin-top: 6px", onchange: e => setChange(path, { rule: value.rule, by: e.target.value }) },
+    attributes.map(a => el("option", { value: a, selected: a === value.by ? true : null }, a))) : null;
   const order = value.rule === "priority" ? (value.order || inputs).map((c, i, list) => el("div", { class: "order-item" },
     el("span", {}, `${i + 1}. ${c}`),
     el("button", {
@@ -1727,7 +1771,43 @@ function inputRule(tree, p, inputs) {
   return el("div", { class: `group field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
     el("label", { for: `f-${path}-rule` }, say("Takes parts from ") + inputs.join(", "),
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
-    rule, ...order,
+    rule, by, ...order,
+    error ? el("div", { class: "message" }, error.message) : null);
+}
+
+/** A list to put in order, highest priority first, with a ↑ on each item. */
+function orderList(items, onOrder, label = x => x) {
+  return items.map((x, i) => el("div", { class: "order-item" },
+    el("span", {}, `${i + 1}. ${label(x)}`),
+    el("button", {
+      disabled: i === 0 ? true : null, "aria-label": `raise ${x}`,
+      onclick: () => { const o = [...items]; [o[i - 1], o[i]] = [o[i], o[i - 1]]; onOrder(o); },
+    }, "↑")));
+}
+
+/** Which part a queue lets go next. */
+function queueOrderField(tree, p) {
+  const path = `${p}.order`;
+  const value = getAt(tree, path);
+  const error = errorFor(path);
+  const types = typesOf(tree);
+  const current = !value ? "first_in" : typeof value === "string" ? value
+    : "lowest" in value ? `lowest:${value.lowest}` : "highest" in value ? `highest:${value.highest}` : "by_type";
+  const options = [["first_in", "First in, first out"], ["last_in", "Last in, first out"],
+    ...attributesOf(tree).flatMap(a => [[`lowest:${a}`, `Lowest ${a} first`], [`highest:${a}`, `Highest ${a} first`]]),
+    ...(types.length > 1 || current === "by_type" ? [["by_type", say("By part type, in this order")]] : [])];
+  if (!options.some(([v]) => v === current)) options.push([current, current.replace(":", " ")]);
+  const choose = v => {
+    const [kind, a] = v.split(":");
+    setChange(path, kind === "first_in" ? null : kind === "last_in" ? kind : kind === "by_type" ? { by_type: types } : { [kind]: a });
+  };
+  const listed = current === "by_type" ? [...value.by_type, ...types.filter(t => !value.by_type.includes(t))] : [];
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", { for: "f-queue-order" }, say("Which part goes next"),
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
+    el("select", { id: "f-queue-order", onchange: e => choose(e.target.value) },
+      options.map(([v, text]) => el("option", { value: v, selected: v === current ? true : null }, text))),
+    ...orderList(listed, o => setChange(path, { by_type: o })),
     error ? el("div", { class: "message" }, error.message) : null);
 }
 
