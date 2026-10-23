@@ -102,7 +102,7 @@ This is a list of problems with today's commercial DES tools: Rockwell Arena, Si
 ## 12. Collaboration and deployment
 
 - **Not built for teams.** There's no real multi-user editing, branching or review workflow.
-- **Hard to share with stakeholders.** Letting a manager run scenarios needs a license, a viewer, an expensive cloud product or a custom export.
+- **Hard to share with stakeholders.** Letting someone outside the modeling team run scenarios needs a license, a viewer, an expensive cloud product or a custom export.
 - **Hard to put into production.** Using a model as a decision-support service (an API, a dashboard, a scheduled run) is difficult or requires premium products.
 - **Digital twin marketing.** "Digital twin" features are sold heavily, but connecting live data to a simulation is usually much more fragile than the brochures suggest.
 
@@ -152,7 +152,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Closed file formats | Models are plain YAML; results are JSON, CSV and JSON Lines; formats are documented and versioned. | done |
 | Skills don't transfer | No proprietary scripting language: the model is data, plus a small, documented formula language for distributions. | done |
 | No migration path | The model is readable text and the engine is open, so it can be converted or reimplemented. | partial |
-| Consulting ecosystem | Models are readable enough that an organization can own them, with separate interfaces for the engineer (who builds) and the manager (who decides), so neither depends on an outside expert to operate the tool. | partial |
+| Consulting ecosystem | Models are readable enough that an organization can own them, with separate pages for building the model (Modeling) and for deciding with it (Simulation), so nobody depends on an outside expert to operate the tool. | partial |
 | Vendor survival risk | Open source: anyone can keep it alive. | done |
 | **3. Old architecture** | | |
 | Old foundations, Windows-only | Rust engine; Linux binary, Docker image, web interface in any browser. | done |
@@ -161,7 +161,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | GUI is the only full interface | CLI, HTTP API and web UI are equal citizens; the web UI uses only the public API. | done |
 | Weak APIs | A documented JSON HTTP API (`docs/api.md`), scriptable from any language. | done |
 | **4. Reproducibility and engineering practice** | | |
-| No real version control | Projects are git repositories: the builder's "Save version" commits and "Publish" tags, with the engineer's message; managers only see published versions. | done |
+| No real version control | Projects are git repositories: on the Modeling page, "Save version" commits with a message about what changed and "Publish" tags; the Simulation page only shows published versions. | done |
 | Huge files, multiplied by copies | A model is a few kilobytes of text (the templates are 1.4 to 2.5 KB), and each saved version is a git commit that stores only what changed: 100 saved versions of the warehouse model take 37 KB once packed, and there's one current file. Run results are kept outside the project and can be recreated from the model and the seed. The summary, report and replications take under 100 KB per run, but the event log behind the animation takes about 13 MB, and nothing deletes old ones yet. | partial |
 | Logic is scattered | The whole model is one readable file; `validate` shows everything the engine understood. | done |
 | No automated testing | Validated against queueing theory in CI; models and scenarios can be checked in CI with `validate`. | done |
@@ -184,27 +184,27 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. | done |
 | Warm-up and run length are guessed | The warm-up is explicit and applied automatically, but nothing yet helps choose it. | partial |
 | Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
-| Comparing scenarios is unsound (implied by the above) | Paired comparison with common random numbers: an interval on the difference and a verdict. Managers get the same statistics in plain language: "Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better". | done |
+| Comparing scenarios is unsound (implied by the above) | Paired comparison with common random numbers: an interval on the difference and a verdict. The Simulation page gives the same statistics in plain language: "Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better". | done |
 | Optimization is a black box | No optimizer yet; parameter sweeps through the API. | open |
 | Validation is skipped | The engine itself is validated against queueing theory. Nothing yet helps validate a user's model against real data. | partial |
 | Verification is hard | Readable models, a per-part event log, and a replay that reproduces the engine exactly. | done |
 | **8. Animation as a substitute for rigor** | | |
-| The animation is the product | The manager's page leads with plain-language results and their ranges; each scenario's report and animation are one click below. | done |
+| The animation is the product | The Simulation page leads with plain-language results and their ranges; each scenario's report and animation are one click below. | done |
 | Effort goes into 3D | Layouts are a small separate file; the 2D replay is the default and 3D is optional. | done |
 | Animation is slow | Simulation never runs with animation: runs at full speed, then the event log is replayed. | done |
 | **9. The "pseudo-science" pipeline** | | |
 | Models can't be audited | Anyone can read and re-run a model for free, and get identical numbers. | done |
-| Assumptions aren't documented | Every assumption is a line in the model file, each saved version carries the engineer's message about what changed, and what managers may change is spelled out as named decisions with their options and limits. | partial |
-| The tool lends false authority | Results always come with uncertainty. "No clear change" and "too small to matter" are valid answers, and the manager's page says so in words, with the range, instead of showing a single number. | done |
+| Assumptions aren't documented | Every assumption is a line in the model file, each saved version carries a message about what changed, and what can be changed on the Simulation page is spelled out as named decisions with their options and limits. | partial |
+| The tool lends false authority | Results always come with uncertainty. "No clear change" and "too small to matter" are valid answers, and the Simulation page says so in words, with the range, instead of showing a single number. | done |
 | **10. Learning curve** | | |
-| Tool training replaces method training | The docs explain the methods (CRN, confidence intervals, warm-up) next to the tool, and the manager's page explains in one paragraph why its comparisons are fair. | partial |
-| Weak documentation | Docs live in the repository and are tested by examples. Still thin for engineers. | partial |
+| Tool training replaces method training | The docs explain the methods (CRN, confidence intervals, warm-up) next to the tool, and the Simulation page explains in one paragraph why its comparisons are fair. | partial |
+| Weak documentation | Docs live in the repository and are tested by examples. Still thin on building models. | partial |
 | Hard to debug | Errors point to the exact line or form field, in plain language. | done |
 | **11. Academia–industry pipeline** | | |
 | Research is hard to reproduce | Free tool, text models, fixed seeds: papers can ship reproducible models. | done |
 | **12. Collaboration and deployment** | | |
-| Not built for teams | Separate pages for engineers (build, save, publish) and managers (published versions only), plus the API for developers. Concurrent editing and roles come later. | partial |
-| Hard to share with stakeholders | Managers open a hosted page, build scenarios from the decisions the engineer exposed (options and bounded numbers, so they can't break the model), and read comparisons in plain language. Engineers choose those decisions in the builder, without writing files: a flag on any number, or "offer these edits as an option". Exporting a comparison for a meeting is planned. | partial |
+| Not built for teams | Separate pages for building (Modeling: build, save, publish) and deciding (Simulation: published versions only), plus the API for scripts and other programs. Concurrent editing and roles come later. | partial |
+| Hard to share with stakeholders | Anyone with the link opens the hosted Simulation page, builds scenarios from the decisions exposed on the Modeling page (options and bounded numbers, so they can't break the model), and reads comparisons in plain language. Those decisions are chosen on the Modeling page, without writing files: a flag on any number, or "offer these edits as an option". Exporting a comparison for a meeting is planned. | partial |
 | Hard to put into production | The server and API are the product: a static binary or Docker image, health checks, deployment docs. Webhooks are planned. | partial |
 | **13. Scale and performance** | | |
 | Large models / big experiments | Fast native engine, all cores, no allocation per event. Not yet tested on very large models. | partial |
