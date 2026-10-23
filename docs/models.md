@@ -312,6 +312,21 @@ servers:
 - **Priority:** `order: [lathe_b, lathe_a]` serves the servers listed first, in that order, when several are waiting; servers not listed follow, first come, first served. A server that can't start (it needs more units than are free) doesn't hold back one behind it that can.
 - **Results:** each resource reports *busy*, the share of its units in use (while on shift, if it has a schedule). Each server that needs resources reports *waiting for resources*, the share of its working time a part was ready but the units weren't. That time is part of *idle*.
 
+### Resources parts carry
+
+```yaml
+resources:
+  cards: { capacity: 30 }                                  # at most 30 orders between release and ship (CONWIP)
+servers:
+  release: { process_time: "0 s", takes: { cards: 1 } }    # each part takes a card as it starts here...
+  ship:    { process_time: "2 min", gives_back: [cards] }  # ...and gives it back when done here
+```
+
+- **`takes`** works like `needs` (all at once, together with `needs`; for a batch, for each part of it), but the part keeps the units after it leaves, until it's done at a server whose **`gives_back`** names the resource. The same model covers CONWIP and kanban cards, pallets and fixtures, and beds taken at admission and given back at discharge.
+- **Carried along:** an assembled part carries what its components did; when a part is split, the first part made carries what it did. A part that gives up waiting in a queue gives back what it carries.
+- **Checked when loading:** every resource parts take is given back somewhere, and no part can reach a sink still carrying it (each way from a `takes` passes a `gives_back`). A resource parts carry can't have a schedule. At most 4 resources can be carried.
+- **Results:** *busy* is the share of units out, held by a server or carried by a part: for CONWIP cards, the work in process over the cap.
+
 ## Schedules
 
 ```yaml

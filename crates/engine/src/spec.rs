@@ -11,6 +11,9 @@ use crate::stats::ln_gamma;
 /// Most attributes a model can declare: each part carries all of them.
 pub const MAX_ATTRIBUTES: usize = 8;
 
+/// Most resources parts can carry from one server to another (`takes`).
+pub const MAX_CARRIED: usize = 4;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spec {
     pub entities: Vec<String>,
@@ -352,6 +355,13 @@ pub struct Server {
     /// Resource units needed to process a part: (index into
     /// [`Spec::resources`], units), all taken at once.
     pub needs: Vec<(usize, u32)>,
+    /// Resource units each part takes as it starts here and keeps until a
+    /// server in `gives_back` is done with it: (index into
+    /// [`Spec::resources`], units). Taken together with `needs`.
+    pub takes: Vec<(usize, u32)>,
+    /// Resources (indices into [`Spec::resources`]) whose units a part
+    /// carries that it gives back when its processing here finishes.
+    pub gives_back: Vec<usize>,
     /// Index into [`Spec::schedules`]; `None` works all the time.
     pub schedule: Option<usize>,
     /// One part at a time, batches, or assembly.

@@ -384,6 +384,30 @@ fn describe(path: &Path, model: &Model) -> String {
                 needs.join(", ")
             );
         }
+        if !s.takes.is_empty() {
+            let takes: Vec<String> = s
+                .takes
+                .iter()
+                .map(|&(r, units)| format!("{units} {}", spec.resources[r].name))
+                .collect();
+            out += &format!(
+                "  {:<12}   each part takes {} and keeps it\n",
+                "",
+                takes.join(", ")
+            );
+        }
+        if !s.gives_back.is_empty() {
+            let names: Vec<&str> = s
+                .gives_back
+                .iter()
+                .map(|&r| spec.resources[r].name.as_str())
+                .collect();
+            out += &format!(
+                "  {:<12}   parts give back {} when done here\n",
+                "",
+                names.join(", ")
+            );
+        }
         if let Some(i) = s.schedule {
             out += &format!(
                 "  {:<12}   works on schedule {}\n",

@@ -957,6 +957,8 @@ function panel(tree) {
         changeoverField(tree, p),
         splitField(tree, p),
         needsField(tree, p),
+        needsField(tree, p, "takes"),
+        givesBackField(tree, p),
         scheduleField(tree, `${p}.schedule`, "Works"),
         setsField(tree, p, say("when a part is done, before it leaves")),
         inputRule(tree, p, inputs),
@@ -1311,6 +1313,27 @@ function resourcesPanel(tree) {
     el("button", { id: "add-resource", onclick: () => setChange(`resources.${freeName(tree, "operator")}`, { capacity: 1 }) }, "+ Resource"));
 }
 
+/** Resources parts carry that they give back when done at this server. */
+function givesBackField(tree, p) {
+  const carried = Object.keys(tree.resources || {}).filter(r => Object.values(tree.servers || {}).some(s => s.takes && r in s.takes));
+  const path = `${p}.gives_back`;
+  const value = getAt(tree, path) || [];
+  if (!carried.length && !value.length) return null;
+  const error = errorFor(path);
+  return el("div", { class: `field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
+    el("label", {}, say("Parts give back, when done here"),
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
+    ...[...new Set([...carried, ...value])].map(r => el("label", { class: "check" },
+      el("input", {
+        type: "checkbox", "data-give-back": r, checked: value.includes(r) ? true : null,
+        onchange: e => {
+          const next = e.target.checked ? [...value, r] : value.filter(x => x !== r);
+          setChange(path, next.length ? next : null);
+        },
+      }), r)),
+    error ? el("div", { class: "message" }, error.message) : null);
+}
+
 /** Which waiting servers get a resource's units first. */
 function resourceOrderField(tree, r) {
   const users = Object.entries(tree.servers || {}).filter(([, s]) => s.needs && r in s.needs).map(([n]) => n);
@@ -1390,9 +1413,15 @@ function deleteResource(name) {
   const tree = currentTree();
   batch(() => {
     for (const [server, srv] of Object.entries(tree.servers || {})) {
-      if (srv.needs && name in srv.needs) {
-        const needs = { ...srv.needs }; delete needs[name];
-        setChange(`servers.${server}.needs`, Object.keys(needs).length ? needs : null);
+      for (const key of ["needs", "takes"]) {
+        if (srv[key] && name in srv[key]) {
+          const units = { ...srv[key] }; delete units[name];
+          setChange(`servers.${server}.${key}`, Object.keys(units).length ? units : null);
+        }
+      }
+      if (srv.gives_back?.includes(name)) {
+        const rest = srv.gives_back.filter(r => r !== name);
+        setChange(`servers.${server}.gives_back`, rest.length ? rest : null);
       }
     }
     setChange(`resources.${name}`, null);
@@ -1409,28 +1438,32 @@ function renameResource(oldName, newName) {
   batch(() => {
     setChange("resources", Object.fromEntries(Object.entries(tree.resources).map(([k, v]) => [k === oldName ? newName : k, v])));
     for (const [server, srv] of Object.entries(tree.servers || {})) {
-      if (srv.needs && oldName in srv.needs) {
-        setChange(`servers.${server}.needs`, Object.fromEntries(Object.entries(srv.needs).map(([k, v]) => [k === oldName ? newName : k, v])));
+      for (const key of ["needs", "takes"]) {
+        if (srv[key] && oldName in srv[key]) {
+          setChange(`servers.${server}.${key}`, Object.fromEntries(Object.entries(srv[key]).map(([k, v]) => [k === oldName ? newName : k, v])));
+        }
       }
+      if (srv.gives_back?.includes(oldName)) setChange(`servers.${server}.gives_back`, srv.gives_back.map(r => r === oldName ? newName : r));
     }
     renameInDraft(`resources.${oldName}`, `resources.${newName}`, oldName, newName);
   });
 }
 
-/** The resources a server holds while processing. */
-function needsField(tree, p) {
+/** The resources a server holds while processing (`needs`), or that each
+ *  part takes here and keeps until a server gives them back (`takes`). */
+function needsField(tree, p, key = "needs") {
   const resources = Object.keys(tree.resources || {});
   if (!resources.length) return null;
-  const path = `${p}.needs`;
+  const path = `${p}.${key}`;
   const needs = getAt(tree, path) || {};
   const error = errorFor(path);
   return el("div", { class: `group field${isChanged(path) ? " changed" : ""}${error ? " error" : ""}` },
-    el("div", { class: "group-title" }, "Needs while processing",
+    el("div", { class: "group-title" }, key === "needs" ? "Needs while processing" : say("Each part takes and keeps (until given back)"),
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
     ...resources.map(r => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
       el("span", {}, r),
       el("input", {
-        value: needs[r] ?? "", inputmode: "numeric", placeholder: "0", "aria-label": `units of ${r}`, "data-need": r,
+        value: needs[r] ?? "", inputmode: "numeric", placeholder: "0", "aria-label": `units of ${r}${key === "needs" ? "" : " taken"}`, [key === "needs" ? "data-need" : "data-take"]: r,
         onchange: e => {
           const n = Number(e.target.value);
           const next = { ...needs };

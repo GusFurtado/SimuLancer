@@ -1007,3 +1007,58 @@ fn patience_needs_a_time_for_every_type_that_waits() {
         "{errors:?}"
     );
 }
+
+#[test]
+fn carried_resources_must_be_given_back_before_parts_leave() {
+    let base = replace(
+        MINIMAL,
+        "sources:\n",
+        "resources:\n  pallets: { capacity: 4 }\nsources:\n",
+    );
+    let with = |takes: &str| {
+        replace(
+            &base,
+            "    process_time: \"50 s\"\n",
+            &format!("    process_time: \"50 s\"\n{takes}"),
+        )
+    };
+    // Taken and given back at the same server: fine.
+    load_str(&with(
+        "    takes: { pallets: 1 }\n    gives_back: [pallets]\n",
+    ))
+    .unwrap();
+    let messages =
+        |source: &str| -> Vec<String> { errors(source).into_iter().map(|e| e.1).collect() };
+    let leak = messages(&with("    takes: { pallets: 1 }\n"));
+    assert!(
+        leak.iter().any(|m| m.contains("no server gives it back")),
+        "{leak:?}"
+    );
+    assert!(
+        leak.iter().any(|m| m
+            .contains("parts that take `pallets` at `machine` can reach `done` still carrying it")),
+        "{leak:?}"
+    );
+    let stray = messages(&with("    gives_back: [pallets]\n"));
+    assert_eq!(
+        stray,
+        ["server `machine` gives back `pallets`, but no server `takes` it"]
+    );
+    let too_many = messages(&with(
+        "    takes: { pallets: 5 }\n    gives_back: [pallets]\n",
+    ));
+    assert!(
+        too_many[0].contains("takes 5 `pallets`, but there are only 4"),
+        "{too_many:?}"
+    );
+    let shifts = replace(
+        &with("    takes: { pallets: 1 }\n    gives_back: [pallets]\n"),
+        "pallets: { capacity: 4 }",
+        "pallets: { capacity: 4, schedule: days }\nschedules:\n  days: { shifts: [\"08:00-16:00\"] }",
+    );
+    assert!(
+        messages(&shifts)
+            .iter()
+            .any(|m| m.contains("can't have a schedule"))
+    );
+}

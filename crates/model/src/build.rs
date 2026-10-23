@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
     Arrivals, Attribute, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment,
-    Expr, Failure, FailureClock, Fleet, InputRule, MAX_ATTRIBUTES, Node, OnFailure, OrderQuantity,
-    PacedLine, PerType, QueueOrder, Resource, Restock, Routing, Schedule, Server, ServerKind, Sink,
-    Source, Spec, WhenBlocked,
+    Expr, Failure, FailureClock, Fleet, InputRule, MAX_ATTRIBUTES, MAX_CARRIED, Node, OnFailure,
+    OrderQuantity, PacedLine, PerType, QueueOrder, Resource, Restock, Routing, Schedule, Server,
+    ServerKind, Sink, Source, Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
@@ -584,54 +584,24 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             &format!("server `{}` has a process time for", name.value),
         );
         let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
-        let mut needs = Vec::new();
-        let mut needs_ok = true;
-        for (resource, units) in &s.needs.0 {
+        let needs = b.resource_units(name, "needs", &s.needs, &objects, &raw);
+        let takes = b.resource_units(name, "takes", &s.takes, &objects, &raw);
+        let needs_ok = needs.is_some() && takes.is_some();
+        let (needs, takes) = (needs.unwrap_or_default(), takes.unwrap_or_default());
+        let mut gives_back = Vec::new();
+        for resource in s.gives_back.iter().flat_map(|g| &g.value) {
             match objects.get(resource.value.as_str()) {
                 Some(Object {
                     kind: Kind::Resource,
                     index,
-                }) => {
-                    let capacity = raw.resources.0[*index].1.capacity.value;
-                    if units.value == 0 {
-                        b.error(
-                            units,
-                            format!(
-                                "server `{}` needs at least 1 `{}`; remove it if none",
-                                name.value, resource.value
-                            ),
-                        );
-                        needs_ok = false;
-                    } else if units.value > capacity {
-                        b.error(
-                            units,
-                            format!(
-                                "server `{}` needs {} `{}`, but there are only {capacity}: it could never start",
-                                name.value, units.value, resource.value
-                            ),
-                        );
-                        needs_ok = false;
-                    }
-                    needs.push((*index, units.value));
-                }
-                _ => {
-                    let known: Vec<String> = raw
-                        .resources
-                        .0
-                        .iter()
-                        .map(|(n, _)| format!("`{}`", n.value))
-                        .collect();
-                    b.error(
-                        resource,
-                        format!(
-                            "server `{}` needs `{}`, which isn't listed under `resources` (resources: {})",
-                            name.value,
-                            resource.value,
-                            if known.is_empty() { "none".into() } else { known.join(", ") }
-                        ),
-                    );
-                    needs_ok = false;
-                }
+                }) => gives_back.push(*index),
+                _ => b.error(
+                    resource,
+                    format!(
+                        "`gives_back` lists resources, and `{}` isn't one",
+                        resource.value
+                    ),
+                ),
             }
         }
         let mut failures = Vec::new();
@@ -747,6 +717,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 changeover,
                 process_time,
                 needs,
+                takes,
+                gives_back,
                 schedule,
                 kind,
                 failures,
@@ -901,6 +873,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     check_reachability(&spec, &raw)?;
     check_part_types(&spec, &raw)?;
     check_stock(&mut spec, &raw)?;
+    check_carried(&spec, &raw)?;
 
     Ok(Model {
         name: raw.name.value,
@@ -913,6 +886,138 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             throughput_per,
         },
     })
+}
+
+/// Resources parts carry (`takes`): few enough, always available, given
+/// back somewhere, and never carried out of the model.
+fn check_carried(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> {
+    let mut diagnostics = Vec::new();
+    let mut report = |at: &Spanned<String>, message: String| {
+        diagnostics.push(Diagnostic {
+            position: Position::from_location(&at.referenced),
+            message,
+        })
+    };
+    let taken = |r: usize| {
+        spec.servers
+            .iter()
+            .any(|s| s.takes.iter().any(|t| t.0 == r))
+    };
+    let mut carried = 0;
+    for (r, (name, _)) in raw.resources.0.iter().enumerate() {
+        if !taken(r) {
+            continue;
+        }
+        carried += 1;
+        if carried == MAX_CARRIED + 1 {
+            report(
+                name,
+                format!("parts can carry at most {MAX_CARRIED} resources (`takes`)"),
+            );
+        }
+        if spec.resources[r].schedule.is_some() {
+            report(
+                name,
+                format!(
+                    "`{}` is carried by parts (`takes`), so it can't have a schedule: units in a part's hands can't go off shift",
+                    name.value
+                ),
+            );
+        }
+        if !spec.servers.iter().any(|s| s.gives_back.contains(&r)) {
+            report(
+                name,
+                format!(
+                    "parts take `{}` but no server gives it back: add `gives_back: [{}]` where they should let go of it",
+                    name.value, name.value
+                ),
+            );
+        }
+    }
+    for (i, (name, raw_server)) in raw.servers.0.iter().enumerate() {
+        let server = &spec.servers[i];
+        // Errors about a resource point at where this server names it.
+        let named_in_takes = |r: usize| {
+            raw_server
+                .takes
+                .0
+                .iter()
+                .find(|(n, _)| n.value == spec.resources[r].name)
+                .map_or(name, |(n, _)| n)
+        };
+        let named_in_gives_back = |r: usize| {
+            raw_server
+                .gives_back
+                .iter()
+                .flat_map(|g| &g.value)
+                .find(|n| n.value == spec.resources[r].name)
+                .unwrap_or(name)
+        };
+        for &r in &server.gives_back {
+            if !taken(r) {
+                report(
+                    named_in_gives_back(r),
+                    format!(
+                        "server `{}` gives back `{}`, but no server `takes` it",
+                        name.value, spec.resources[r].name
+                    ),
+                );
+            }
+        }
+        let per_start = if let ServerKind::Batch(n) = server.kind {
+            n
+        } else {
+            1
+        };
+        for &(r, units) in &server.takes {
+            if units * per_start > spec.resources[r].capacity {
+                report(
+                    named_in_takes(r),
+                    format!(
+                        "server `{}` takes {} `{}` for each of its batch of {per_start}, but there are only {}: it could never start",
+                        name.value, units, spec.resources[r].name, spec.resources[r].capacity
+                    ),
+                );
+            }
+            if server.gives_back.contains(&r) {
+                continue;
+            }
+            // Every way out must pass a server that gives it back.
+            let mut stack = vec![i];
+            let mut seen = vec![false; spec.servers.len()];
+            seen[i] = true;
+            let mut leak = None;
+            while let Some(s) = stack.pop() {
+                for &c in &spec.servers[s].outputs {
+                    match spec.conveyors[c].to {
+                        Node::Sink(k) => leak = leak.or(Some(k)),
+                        Node::Server(t) if !seen[t] && !spec.servers[t].gives_back.contains(&r) => {
+                            seen[t] = true;
+                            stack.push(t);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            if let Some(k) = leak {
+                report(
+                    named_in_takes(r),
+                    format!(
+                        "parts that take `{}` at `{}` can reach `{}` still carrying it: add `gives_back: [{}]` to a server on the way",
+                        spec.resources[r].name,
+                        name.value,
+                        spec.sinks[k].name,
+                        spec.resources[r].name
+                    ),
+                );
+            }
+        }
+    }
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(diagnostics)
+    }
 }
 
 /// Starting stock in queues (`starts_with`), and that every restocking
@@ -1493,6 +1598,69 @@ impl Builder {
                 ok.then_some(QueueOrder::ByType(rank))
             }
         }
+    }
+
+    /// Resource units a server `needs` or `takes`: each a listed resource,
+    /// at least 1 and no more than there are.
+    fn resource_units(
+        &mut self,
+        server: &Spanned<String>,
+        verb: &str,
+        map: &raw::OrderedMap<Spanned<u32>>,
+        objects: &HashMap<&str, Object>,
+        raw: &RawModel,
+    ) -> Option<Vec<(usize, u32)>> {
+        let mut units = Vec::new();
+        let mut ok = true;
+        for (resource, n) in &map.0 {
+            match objects.get(resource.value.as_str()) {
+                Some(Object {
+                    kind: Kind::Resource,
+                    index,
+                }) => {
+                    let capacity = raw.resources.0[*index].1.capacity.value;
+                    if n.value == 0 {
+                        self.error(
+                            n,
+                            format!(
+                                "server `{}` {verb} at least 1 `{}`; remove it if none",
+                                server.value, resource.value
+                            ),
+                        );
+                        ok = false;
+                    } else if n.value > capacity {
+                        self.error(
+                            n,
+                            format!(
+                                "server `{}` {verb} {} `{}`, but there are only {capacity}: it could never start",
+                                server.value, n.value, resource.value
+                            ),
+                        );
+                        ok = false;
+                    }
+                    units.push((*index, n.value));
+                }
+                _ => {
+                    let known: Vec<String> = raw
+                        .resources
+                        .0
+                        .iter()
+                        .map(|(n, _)| format!("`{}`", n.value))
+                        .collect();
+                    self.error(
+                        resource,
+                        format!(
+                            "server `{}` {verb} `{}`, which isn't listed under `resources` (resources: {})",
+                            server.value,
+                            resource.value,
+                            if known.is_empty() { "none".into() } else { known.join(", ") }
+                        ),
+                    );
+                    ok = false;
+                }
+            }
+        }
+        ok.then_some(units)
     }
 
     /// `sets`: attribute -> formula, each giving what its attribute holds.

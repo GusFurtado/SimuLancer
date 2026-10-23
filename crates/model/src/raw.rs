@@ -402,6 +402,11 @@ pub struct RawServer {
     /// Resource name -> units held while processing.
     #[serde(default)]
     pub needs: OrderedMap<Spanned<u32>>,
+    /// Resource name -> units each part takes here and carries on.
+    #[serde(default)]
+    pub takes: OrderedMap<Spanned<u32>>,
+    /// Resources whose carried units a part gives back when done here.
+    pub gives_back: Option<Spanned<Vec<Spanned<String>>>>,
     pub schedule: Option<Spanned<String>>,
     /// Process this many parts together.
     pub batch: Option<Spanned<u32>>,
