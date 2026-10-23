@@ -174,6 +174,8 @@
   /* Landing page (the project list) and shared bits for /modeling and /simulation. */
   .doors { max-width: 980px; margin: 8vh auto 40px; padding: 0 16px; }
   .doors h1 { font-size: 28px; margin: 0 0 6px; }
+  .doors h1.brand { margin-bottom: 10px; line-height: 0; }
+  .brand svg { height: 30px; width: auto; fill: currentColor; }
   .doors > p { color: var(--ink-2); margin: 0 0 28px; }
   .door-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
   a.door { display: block; text-decoration: none; color: inherit; background: var(--surface); border-radius: 14px; box-shadow: 0 0 0 1px var(--ring); padding: 22px; }
@@ -195,7 +197,10 @@
   .notice { display: flex; align-items: center; gap: 8px; margin: 0 0 16px; }
   .notice .close { margin-left: auto; color: var(--muted); font-size: 16px; }
   #archived { margin-top: 28px; }
-  #archived > .link { padding: 2px 0; color: var(--muted); }
+  #archived > .link { padding: 2px 0; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+  #archived > .link:hover { color: var(--ink); }
+  .caret { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s; }
+  [aria-expanded="true"] > .caret { transform: rotate(90deg); }
   .archived-list { display: grid; gap: 6px; margin-top: 10px; }
   .archived { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 14px; border-radius: 10px; background: var(--surface); box-shadow: 0 0 0 1px var(--ring); }
   .archived .name { flex: 1; min-width: 200px; }
@@ -212,7 +217,10 @@
   .creating h2 { font-size: 20px; margin: 0 0 14px; }
   .creating .field.name { max-width: 420px; }
   .creating .start-from { font-size: 13px; color: var(--ink-2); margin: 18px 0 8px; font-weight: 600; }
-  .finder input { max-width: 420px; }
+  /* A search box, not a form field: rounded, with a magnifying glass. */
+  .search { position: relative; max-width: 420px; }
+  .search svg { position: absolute; left: 11px; top: 50%; width: 15px; height: 15px; margin-top: -7.5px; pointer-events: none; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; }
+  .search input { padding-left: 33px; border-radius: 99px; }
   .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px; }
   .tag { padding: 3px 10px; border-radius: 99px; font-size: 12px; color: var(--ink-2); }
   .tag.on { background: var(--accent); color: var(--accent-ink); box-shadow: none; }
