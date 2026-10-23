@@ -402,11 +402,13 @@ class Replay {
   }
 
   leave(part, destination, t) {
+    // The head of a conveyor; anywhere in a queue that serves by priority.
     for (const c of Object.values(this.conveyors)) {
-      if (c.to === destination && c.belt.length && c.belt[0].part === part) {
+      const at = c.to === destination ? c.belt.findIndex(item => item.part === part) : -1;
+      if (at >= 0) {
         const positions = this.positions(c, t);
         c.belt.forEach((item, i) => { item.pos = positions[i]; item.since = t; });
-        c.belt.shift();
+        c.belt.splice(at, 1);
         return;
       }
     }

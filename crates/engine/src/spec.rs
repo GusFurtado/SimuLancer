@@ -137,6 +137,10 @@ pub struct Resource {
     pub capacity: u32,
     /// Index into [`Spec::schedules`]; `None` is always available.
     pub schedule: Option<usize>,
+    /// Servers served first when units come back, highest priority first
+    /// (indices into [`Spec::servers`]); others follow in the order they
+    /// started waiting.
+    pub order: Vec<usize>,
 }
 
 /// When something works, repeating every week. Time 0 is Monday 00:00.
@@ -513,6 +517,27 @@ pub enum InputRule {
     Priority,
     /// Inputs in turn, skipping inputs with nothing waiting.
     RoundRobin,
+    /// The waiting part with the lowest value of this attribute (an index
+    /// into [`Spec::attributes`]); ties go to the one that reached the end first.
+    Lowest(usize),
+    /// The waiting part with the highest value of this attribute.
+    Highest(usize),
+}
+
+/// Which part a queue lets go next.
+#[derive(Debug, Clone, PartialEq)]
+pub enum QueueOrder {
+    /// First in, first out.
+    FirstIn,
+    /// Last in, first out.
+    LastIn,
+    /// Lowest value of an attribute (an index into [`Spec::attributes`])
+    /// first; ties first in, first out.
+    Lowest(usize),
+    Highest(usize),
+    /// By part type: indexed by [`Spec::entities`], each type's rank (lower
+    /// goes first); ties first in, first out.
+    ByType(Vec<usize>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -568,6 +593,8 @@ pub struct Conveyor {
     pub target_wait: Option<f64>,
     /// Queues only: parts in it when the run starts, as (type, count).
     pub starts_with: Option<(usize, u32)>,
+    /// Queues only: which part it lets go next.
+    pub order: QueueOrder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -626,6 +653,7 @@ impl Conveyor {
             capacity: capacity.unwrap_or(u32::MAX),
             target_wait,
             starts_with: None,
+            order: QueueOrder::FirstIn,
         }
     }
 

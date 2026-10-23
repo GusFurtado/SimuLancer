@@ -586,3 +586,42 @@ fn mm1k_with_a_finite_queue_loses_as_the_formula_says() {
     });
     assert!(results.iter().all(|r| r.conveyors[0].max_parts <= 2));
 }
+
+#[test]
+fn mm1_with_two_priority_classes_waits_as_cobham_says() {
+    // Non-preemptive priority, two classes with the same exponential service
+    // (mean 1 min) and arrival rates 0.4/min each: ρ1 = ρ2 = 0.4. With
+    // W0 = Σ λi E[Si²] / 2 = 0.8 min, class k waits
+    // W0 / ((1 − σ_{k−1})(1 − σ_k)), σ_k = ρ1 + … + ρk (Cobham, 1954):
+    // urgent 0.8 / 0.6 = 1.333 min, normal 0.8 / (0.6 × 0.2) = 6.667 min.
+    let yaml = format!(
+        r#"
+format: outliers-sim/0.1
+name: priorities
+entities:
+  urgent: {{}}
+  normal: {{}}
+sources:
+  arrivals: {{ creates: {{ urgent: 0.5, normal: 0.5 }}, interarrival: "exponential(1.25 min)" }}
+servers:
+  server: {{ process_time: "exponential(1 min)" }}
+queues:
+  line: {{ from: arrivals, to: server, order: {{ by_type: [urgent, normal] }} }}
+  out: {{ from: server, to: done }}
+sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261023
+"#
+    );
+    let results = replications(&spec(&yaml));
+    check(&results, "urgent wait (s)", 80.0, 0.03, |r| {
+        r.conveyors[0].time_by_type[0].mean()
+    });
+    check(&results, "normal wait (s)", 400.0, 0.03, |r| {
+        r.conveyors[0].time_by_type[1].mean()
+    });
+}

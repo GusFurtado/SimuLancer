@@ -833,3 +833,99 @@ fn at_most_eight_attributes() {
     let source = with_attributes(&many.join("\n"), "{}", "{}");
     assert_one_error(&source, "a9:", "at most 8 attributes");
 }
+
+/// MINIMAL with a queue into the machine instead of `c_in`, an attribute,
+/// and `order` on the queue.
+fn queue_with_order(order: &str) -> String {
+    let s = replace(
+        MINIMAL,
+        "  c_in:  { from: arrivals, to: machine, length: \"2 m\", speed: \"1 m/s\", spacing: \"0.5 m\" }\n",
+        "",
+    );
+    let s = replace(
+        &s,
+        "sources:\n",
+        "attributes:\n  due: { default: \"0 s\" }\nsources:\n",
+    );
+    replace(
+        &s,
+        "sinks:\n",
+        &format!("queues:\n  line: {{ from: arrivals, to: machine, order: {order} }}\nsinks:\n"),
+    )
+}
+
+#[test]
+fn queue_orders_load() {
+    for order in [
+        "first_in",
+        "last_in",
+        "{ lowest: due }",
+        "{ highest: due }",
+        "{ by_type: [part] }",
+    ] {
+        load_str(&queue_with_order(order)).unwrap_or_else(|e| panic!("{order}: {e:?}"));
+    }
+}
+
+#[test]
+fn queue_order_errors() {
+    let cases = [
+        (
+            "{ lowest: size }",
+            "`size` isn't listed under `attributes` (attributes: `due`)",
+        ),
+        ("{ by_type: [bike] }", "`bike` isn't a part type"),
+        ("newest", "`newest` isn't an order"),
+        ("{ lowest: due, highest: due }", "an order has one rule"),
+    ];
+    for (order, expected) in cases {
+        let source = queue_with_order(order);
+        assert_one_error(&source, "line: {", expected);
+    }
+}
+
+#[test]
+fn input_and_resource_priority_errors() {
+    let two_inputs = replace(
+        MINIMAL,
+        "sources:\n",
+        "attributes:\n  due: { default: \"0 s\" }\nresources:\n  operator: { capacity: 1, order: [nobody] }\nsources:\n  more: { creates: part, interarrival: \"1 min\" }\n",
+    );
+    let two_inputs = replace(
+        &two_inputs,
+        "sinks:\n",
+        "queues:\n  q_more: { from: more, to: machine }\nsinks:\n",
+    );
+    let with_rule = |rule: &str| {
+        replace(
+            &two_inputs,
+            "    process_time: \"50 s\"\n",
+            &format!("    process_time: \"50 s\"\n    input: {rule}\n"),
+        )
+    };
+    let errors_of =
+        |source: &str| -> Vec<String> { errors(source).into_iter().map(|e| e.1).collect() };
+    let messages = errors_of(&with_rule("{ rule: lowest }"));
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("need `by: <attribute>`")),
+        "{messages:?}"
+    );
+    let messages = errors_of(&with_rule("{ rule: first_come, by: due }"));
+    assert!(
+        messages.iter().any(|m| m.contains("`by` only applies")),
+        "{messages:?}"
+    );
+    let messages = errors_of(&with_rule("{ rule: highest, by: due }"));
+    assert_eq!(messages, ["`order` lists servers, and `nobody` isn't one"]);
+    let not_needed = replace(
+        &with_rule("{ rule: highest, by: due }"),
+        "[nobody]",
+        "[machine]",
+    );
+    assert_eq!(
+        errors_of(&not_needed),
+        ["server `machine` doesn't need `operator`, so it can't be in its `order`"]
+    );
+}

@@ -208,18 +208,27 @@ func _apply(e: Dictionary) -> void:
 
 ## The head part of the conveyor feeding `destination` leaves at `t`.
 func _leave_conveyor(part: int, destination: String, t: float) -> void:
+	# The head of a conveyor; anywhere in a queue that serves by priority.
 	for c: Dictionary in conveyors.values():
+		if c["to"] != destination:
+			continue
 		var items: Array = c["belt"]
-		if c["to"] == destination and not items.is_empty() and items[0]["part"] == part:
-			# Everyone stopped behind the head starts moving again: record
-			# real positions as the new baseline, as the engine does.
-			var positions := _positions(c, t)
-			for i in items.size():
-				items[i]["pos"] = positions[i]
-				items[i]["since"] = t
-			items.pop_front()
-			return
-	push_error("part %d left for %s but isn't at the head of a conveyor feeding it" % [part, destination])
+		var at := -1
+		for i in items.size():
+			if items[i]["part"] == part:
+				at = i
+				break
+		if at < 0:
+			continue
+		# Everyone stopped behind it starts moving again: record real
+		# positions as the new baseline, as the engine does.
+		var positions := _positions(c, t)
+		for i in items.size():
+			items[i]["pos"] = positions[i]
+			items[i]["since"] = t
+		items.remove_at(at)
+		return
+	push_error("part %d left for %s but isn't on a conveyor feeding it" % [part, destination])
 
 
 func _positions(c: Dictionary, t: float) -> PackedFloat64Array:

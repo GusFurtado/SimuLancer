@@ -321,6 +321,17 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Order in queues and priority for resources (implemented 2026-10-23, issue #57)
+
+- **Queue `order`:** `first_in` (default), `last_in`, `{ lowest | highest: <attribute> }`, `{ by_type: [...] }`. A part is placed in line by the order as it gets on, behind equals, so the front is always the next to go and every other rule (merging, blocking, restocking) works unchanged. Types not listed in `by_type` come after the listed ones, rather than being an error: listing every type of a big model to rank one would be noise.
+- **Validated against Cobham's formula** (M/M/1, two non-preemptive classes, ρ = 0.8): within 2 SE for both classes.
+- **No preemption** (decided on the issue): an urgent part waits for the one in service. It would need a new way to suspend and resume parts outside failures, for a rarer need.
+- **Server `input: { rule: lowest | highest, by: <attribute> }`** compares the front parts of the incoming connections; ties go to the one that got there first.
+- **Resource `order`:** a list of servers that get units first when several wait; others follow first come, first served. A server needing several resources takes its best rank. Priority by the waiting part's attribute was left out: for batches and kits it's unclear which part counts, and no example needed it.
+- **Fixed while doing this:** a server that gave units back took them again for its next part before servers already waiting could, so "first come, first served" didn't hold for a busy server, and a priority could never take effect. Waiting servers now get the units first. Results of models with shared resources change slightly (fairer); all tests pass unchanged.
+- **Replays** (2D and Godot) take a part out of a queue wherever it is, not only at the front.
+- **Not done:** "on time" and lateness at sinks for parts with a due date; a separate issue if wanted.
+
 ## Attributes (implemented 2026-10-23, issue #56)
 
 The first of the modeling-logic issues (#56 to #60): rules can't tell two parts of the same type apart, so dispatching, conditional routing and per-part patience all need values parts carry.
