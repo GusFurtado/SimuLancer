@@ -19,6 +19,9 @@ pub struct RawModel {
     pub units: Option<RawUnits>,
     #[serde(default)]
     pub entities: OrderedMap<RawEntity>,
+    /// Values each part carries: name -> `{ default: .. }`.
+    #[serde(default)]
+    pub attributes: OrderedMap<RawAttribute>,
     #[serde(default)]
     pub sources: OrderedMap<RawSource>,
     #[serde(default)]
@@ -64,6 +67,13 @@ pub struct RawEntity {}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct RawAttribute {
+    /// A plain number (`0`) or a time (`0 s`): what the attribute holds.
+    pub default: Spanned<Scalar>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RawSource {
     /// One part type, or a mix: type -> share.
     pub creates: Spanned<RawCreates>,
@@ -86,6 +96,9 @@ pub struct RawSource {
     /// Required with two or more outgoing conveyors.
     pub output: Option<Spanned<RawOutputRule>>,
     pub schedule: Option<Spanned<String>>,
+    /// Attribute -> formula, set on each new part.
+    #[serde(default)]
+    pub sets: OrderedMap<Spanned<Scalar>>,
 }
 
 /// A whole number of parts: `20`, or `{ min: 20, max: 30 }` (each value
@@ -287,6 +300,9 @@ pub struct RawServer {
     pub input: Option<Spanned<RawInputRule>>,
     /// Required with two or more outgoing conveyors.
     pub output: Option<Spanned<RawOutputRule>>,
+    /// Attribute -> formula, set on each part when its processing finishes.
+    #[serde(default)]
+    pub sets: OrderedMap<Spanned<Scalar>>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -36,6 +36,25 @@ pub fn parse_time_distribution(
     text: &str,
     defaults: &DefaultUnits,
 ) -> Result<Distribution, String> {
+    parse_distribution(text, defaults, false)
+}
+
+/// A distribution of plain numbers, like `uniform(1, 10)` in a formula: the
+/// parameters that are times elsewhere are plain numbers here.
+pub fn parse_number_distribution(text: &str) -> Result<Distribution, String> {
+    parse_distribution(text, &DefaultUnits::default(), true)
+}
+
+/// The names of the distributions, for formulas.
+pub fn is_distribution(name: &str) -> bool {
+    SIGNATURES.iter().any(|(n, _)| *n == name)
+}
+
+fn parse_distribution(
+    text: &str,
+    defaults: &DefaultUnits,
+    plain: bool,
+) -> Result<Distribution, String> {
     let text = text.trim();
     let Some((name, rest)) = text.split_once('(') else {
         let value = parse_quantity(text, Dimension::Time, defaults)?;
@@ -94,15 +113,15 @@ pub fn parse_time_distribution(
         }
         let (param, kind) = params[slot];
         values[slot] = Some(match kind {
-            Time => parse_quantity(value_text, Dimension::Time, defaults)?,
-            Number => value_text
+            Time if !plain => parse_quantity(value_text, Dimension::Time, defaults)?,
+            Time | Number => value_text
                 .trim()
                 .parse::<f64>()
                 .ok()
                 .filter(|v| v.is_finite())
                 .ok_or_else(|| {
                     format!(
-                        "`{param}` of `{name}` is a plain number without a unit, got `{}`",
+                        "`{param}` of `{name}` is a plain number without a unit here, got `{}`",
                         value_text.trim()
                     )
                 })?,

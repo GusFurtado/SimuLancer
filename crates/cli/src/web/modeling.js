@@ -944,6 +944,7 @@ function panel(tree) {
         countField(say("Parts per arrival (e.g. 20, or 20-30)"), `${p}.group`, "1", "f-group"),
         field("When the conveyor is full", `${p}.when_blocked`, "select", ["wait", "drop"]),
         scheduleField(tree, `${p}.schedule`, "Parts arrive"),
+        setsField(tree, p, say("on each new part")),
         outputRule(tree, p, outputs));
     case "servers":
       return el("div", {}, header,
@@ -954,6 +955,7 @@ function panel(tree) {
         splitField(tree, p),
         needsField(tree, p),
         scheduleField(tree, `${p}.schedule`, "Works"),
+        setsField(tree, p, say("when a part is done, before it leaves")),
         inputRule(tree, p, inputs),
         outputRule(tree, p, outputs),
         failures(tree, p));
@@ -1176,6 +1178,7 @@ function experimentPanel(tree) {
       "Record an animation (replication 1)"),
     throughputPerField(tree),
     partTypesPanel(tree),
+    attributesPanel(tree),
     resourcesPanel(tree),
     vehiclesPanel(tree),
     linesPanel(tree),
@@ -1457,7 +1460,102 @@ function renamePartType(oldName, newName) {
       if (srv.process_time && typeof srv.process_time === "object" && oldName in srv.process_time) setChange(`servers.${name}.process_time`, renameKey(srv.process_time));
       if (srv.output?.routes && oldName in srv.output.routes) setChange(`servers.${name}.output`, { ...srv.output, routes: renameKey(srv.output.routes) });
     }
+    // Formulas name types in `type == <type>`.
+    const escaped = oldName.replace(/[-]/g, "\\-");
+    rewriteFormulas(tree, text => text.replace(new RegExp(`(type\\s*[!=]=\\s*)${escaped}(?![\\w-])`, "g"), `$1${newName}`));
   });
+}
+
+// --- attributes --------------------------------------------------------------------------------
+
+const attributesOf = tree => Object.keys(tree.attributes || {});
+/** Words formulas use, which can't name an attribute. */
+const FORMULA_WORDS = ["now", "type", "and", "or", "not", "ms", "s", "min", "h", "d", "mm", "cm", "m", "km", ...Object.keys(DISTRIBUTIONS)];
+
+function attributesPanel(tree) {
+  const names = attributesOf(tree);
+  return el("div", { class: "group", id: "attributes" },
+    el("div", { class: "group-title" }, say("Part attributes")),
+    el("p", { class: "hint", style: "margin: 0 0 8px" }, say("Values each part carries, like a due date or how many times it was reworked. Sources and servers set them with formulas.")),
+    ...names.map(a => el("div", { class: "resource" },
+      el("div", { class: "row", style: "align-items: center" },
+        el("input", { value: a, "aria-label": `attribute ${a}`, "data-attribute": a, onchange: e => renameAttribute(a, e.target.value.trim()) }),
+        el("button", { style: "flex: 0", onclick: () => deleteAttribute(a), title: `Remove ${a}` }, "Remove")),
+      field("Starts at (a number, or a time like 0 s)", `attributes.${a}.default`))),
+    names.length < 8 ? el("button", { id: "add-attribute", onclick: () => setChange(`attributes.${freeAttributeName(names)}`, { default: 0 }) }, "+ Attribute") : null);
+}
+
+function freeAttributeName(names) {
+  for (let i = names.length + 1; ; i++) if (!names.includes(`attribute_${i}`)) return `attribute_${i}`;
+}
+
+/** Applies `rewrite` to every formula in sources' and servers' `sets`. */
+function rewriteFormulas(tree, rewrite, renameKey = k => k) {
+  for (const section of ["sources", "servers"]) {
+    for (const [name, node] of Object.entries(tree[section] || {})) {
+      if (!node.sets) continue;
+      const next = Object.fromEntries(Object.entries(node.sets).map(([k, v]) => [renameKey(k), typeof v === "string" ? rewrite(v) : v]));
+      if (!equal(next, node.sets)) setChange(`${section}.${name}.sets`, next);
+    }
+  }
+}
+
+/** Renames an attribute everywhere: its `sets` and the formulas that read it. */
+function renameAttribute(oldName, newName) {
+  const tree = currentTree();
+  if (newName === oldName) return;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(newName) || FORMULA_WORDS.includes(newName) || attributesOf(tree).includes(newName)) {
+    state.message = { kind: "error", text: `“${newName}” can't be used: attribute names use letters, digits and _, must be unique, and can't be a word formulas use (like now, min or uniform).` };
+    return renderEditor();
+  }
+  const word = new RegExp(`\\b${oldName}\\b`, "g");
+  batch(() => {
+    setChange("attributes", Object.fromEntries(Object.entries(tree.attributes).map(([k, v]) => [k === oldName ? newName : k, v])));
+    rewriteFormulas(tree, text => text.replace(word, newName), k => k === oldName ? newName : k);
+    renameInDraft(`attributes.${oldName}`, `attributes.${newName}`, oldName, newName);
+  });
+}
+
+/** Removes an attribute and stops setting it; formulas still reading it show an error. */
+function deleteAttribute(name) {
+  const tree = currentTree();
+  batch(() => {
+    for (const section of ["sources", "servers"]) {
+      for (const [node, value] of Object.entries(tree[section] || {})) {
+        if (!value.sets || !(name in value.sets)) continue;
+        const sets = { ...value.sets }; delete sets[name];
+        setChange(`${section}.${node}.sets`, Object.keys(sets).length ? sets : null);
+      }
+    }
+    setChange(attributesOf(tree).length > 1 ? `attributes.${name}` : "attributes", null);
+  });
+}
+
+/** The attributes a source or server sets, each with a formula. */
+function setsField(tree, p, when) {
+  const names = attributesOf(tree);
+  if (!names.length) return null;
+  const path = `${p}.sets`;
+  const sets = getAt(tree, path) || {};
+  const update = next => setChange(path, Object.keys(next).length ? next : null);
+  const unset = names.filter(a => !(a in sets));
+  return el("div", { class: `group field${isChanged(path) ? " changed" : ""}`, id: "sets" },
+    el("div", { class: "group-title" }, `Sets ${when}`,
+      isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
+    ...Object.entries(sets).map(([a, formula]) => {
+      const error = errorFor(`${path}.${a}`);
+      return el("div", { class: error ? "error" : null, style: "margin-bottom: 10px" },
+        el("div", { class: "row", style: "align-items: center; margin-bottom: 4px" },
+          el("select", {
+            "aria-label": "attribute", "data-set-attribute": a,
+            onchange: e => update(Object.fromEntries(Object.entries(sets).map(([k, v]) => [k === a ? e.target.value : k, v]))),
+          }, [a, ...unset].map(n => el("option", { value: n, selected: n === a ? true : null }, n))),
+          el("button", { style: "flex: 0", onclick: () => { const next = { ...sets }; delete next[a]; update(next); }, title: `Stop setting ${a}` }, "Remove")),
+        el("input", { value: formula, "data-set": a, "aria-label": `formula for ${a}`, spellcheck: "false", onchange: e => update({ ...sets, [a]: e.target.value.trim() || a }) }),
+        error ? el("div", { class: "message" }, error.message) : null);
+    }),
+    unset.length ? el("button", { id: "add-set", onclick: () => update({ ...sets, [unset[0]]: unset[0] }) }, "+ Set an attribute") : null,
+    el("p", { class: "hint", style: "margin: 6px 0 0" }, "Formulas use attributes, now, times like 4 h, + - * / and draws like uniform(1, 10). Examples: now + 4 h, rework + 1."));
 }
 
 /** What a source creates: one type, or a mix with shares. */

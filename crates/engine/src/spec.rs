@@ -5,11 +5,17 @@
 //! All durations are seconds and all lengths are meters.
 
 use crate::SimTime;
+use crate::rng::Rng;
 use crate::stats::ln_gamma;
+
+/// Most attributes a model can declare: each part carries all of them.
+pub const MAX_ATTRIBUTES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spec {
     pub entities: Vec<String>,
+    /// Values each part carries, at most [`MAX_ATTRIBUTES`].
+    pub attributes: Vec<Attribute>,
     pub sources: Vec<Source>,
     pub servers: Vec<Server>,
     pub conveyors: Vec<Conveyor>,
@@ -23,6 +29,104 @@ pub struct Spec {
     /// Paced lines: stations that move their parts on together.
     pub lines: Vec<PacedLine>,
     pub experiment: Experiment,
+}
+
+/// A value each part carries, like a due date or a rework count. Times are
+/// in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    pub name: String,
+    /// Holds a time (in seconds) rather than a plain number.
+    pub time: bool,
+    pub default: f64,
+}
+
+/// A formula over a part's attributes, the clock and random draws. Checked
+/// when the model is loaded (units, names), so evaluating it can't fail.
+/// Comparisons and `and`/`or`/`not` give 1 for true and 0 for false.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
+    /// A plain number.
+    Value(f64),
+    /// A time, in seconds.
+    Seconds(f64),
+    /// Index into [`Spec::attributes`].
+    Attribute(usize),
+    /// The simulation clock, in seconds.
+    Now,
+    /// A random draw of times (in seconds) or of plain numbers.
+    Draw {
+        distribution: Distribution,
+        time: bool,
+    },
+    /// Whether the part is of this type (an index into [`Spec::entities`]).
+    IsType(usize),
+    Neg(Box<Expr>),
+    Not(Box<Expr>),
+    Binary(BinaryOp, Box<Expr>, Box<Expr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
+    And,
+    Or,
+}
+
+impl Expr {
+    /// The value for a part with these attributes and type, at `now`.
+    pub(crate) fn eval(
+        &self,
+        attributes: &[f64],
+        entity: usize,
+        now: SimTime,
+        rng: &mut Rng,
+    ) -> f64 {
+        let truth = |b: bool| if b { 1.0 } else { 0.0 };
+        match self {
+            Expr::Value(v) | Expr::Seconds(v) => *v,
+            Expr::Attribute(i) => attributes[*i],
+            Expr::Now => now.as_secs_f64(),
+            Expr::Draw { distribution, .. } => rng.sample(distribution),
+            Expr::IsType(e) => truth(entity == *e),
+            Expr::Neg(x) => -x.eval(attributes, entity, now, rng),
+            Expr::Not(x) => truth(x.eval(attributes, entity, now, rng) == 0.0),
+            Expr::Binary(op, a, b) => {
+                let a = a.eval(attributes, entity, now, rng);
+                // `and` and `or` don't evaluate (or draw) their right side when the left decides.
+                match op {
+                    BinaryOp::And if a == 0.0 => return 0.0,
+                    BinaryOp::Or if a != 0.0 => return 1.0,
+                    _ => {}
+                }
+                let b = b.eval(attributes, entity, now, rng);
+                // Times are whole microseconds in the engine; compare them at that grain.
+                let close = (a - b).abs() < 1e-9;
+                match op {
+                    BinaryOp::Add => a + b,
+                    BinaryOp::Sub => a - b,
+                    BinaryOp::Mul => a * b,
+                    BinaryOp::Div => a / b,
+                    BinaryOp::Lt => truth(a < b && !close),
+                    BinaryOp::Le => truth(a < b || close),
+                    BinaryOp::Gt => truth(a > b && !close),
+                    BinaryOp::Ge => truth(a > b || close),
+                    BinaryOp::Eq => truth(close),
+                    BinaryOp::Ne => truth(!close),
+                    BinaryOp::And | BinaryOp::Or => truth(b != 0.0),
+                }
+            }
+        }
+    }
 }
 
 /// Units shared by servers: a server holds the units it needs while it
@@ -128,6 +232,9 @@ pub struct Source {
     pub routing: Routing,
     /// Index into [`Spec::schedules`]: parts only arrive while it's on.
     pub schedule: Option<usize>,
+    /// Attributes set on each new part, in order: (index into
+    /// [`Spec::attributes`], value).
+    pub sets: Vec<(usize, Expr)>,
 }
 
 /// Time to set a station up for another part type.
@@ -258,6 +365,9 @@ pub struct Server {
     /// Indices into [`Spec::conveyors`], in file order.
     pub outputs: Vec<usize>,
     pub routing: Routing,
+    /// Attributes set on each part when its processing finishes, before it
+    /// picks its way out (and before a split, whose parts inherit them).
+    pub sets: Vec<(usize, Expr)>,
 }
 
 /// Which part types can get to each object (indexed by object, then by

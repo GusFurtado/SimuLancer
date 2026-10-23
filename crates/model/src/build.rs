@@ -5,15 +5,17 @@ use std::collections::HashMap;
 
 use outliers_sim_engine::SimTime;
 use outliers_sim_engine::spec::{
-    Arrivals, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment, Failure,
-    FailureClock, Fleet, InputRule, Node, OnFailure, OrderQuantity, PacedLine, PerType, Resource,
-    Restock, Routing, Schedule, Server, ServerKind, Sink, Source, Spec, WhenBlocked,
+    Arrivals, Attribute, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment,
+    Expr, Failure, FailureClock, Fleet, InputRule, MAX_ATTRIBUTES, Node, OnFailure, OrderQuantity,
+    PacedLine, PerType, Resource, Restock, Routing, Schedule, Server, ServerKind, Sink, Source,
+    Spec, WhenBlocked,
 };
 use serde_saphyr::Spanned;
 
 use crate::ThroughputPer;
 use crate::diagnostic::{Diagnostic, Position};
 use crate::expr::{constant, parse_time_distribution};
+use crate::formula::{self, Kind as FormulaKind, Names};
 use crate::raw::{self, RawModel, Scalar};
 use crate::units::{DefaultUnits, Dimension, convert_number, parse_quantity};
 use crate::{FORMAT, Model, Outputs, Words};
@@ -53,6 +55,57 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     let types = Types {
         index: &entity_index,
         names: &entity_names,
+    };
+
+    // Attributes have their own namespace: only formulas and `sets` name them.
+    let mut attributes = Vec::new();
+    let mut attribute_kinds: Vec<(&str, FormulaKind)> = Vec::new();
+    for (i, (name, a)) in raw.attributes.0.iter().enumerate() {
+        b.check_name(name);
+        if let Some(message) = formula::reserved(&name.value) {
+            b.error(name, message);
+        }
+        if i == MAX_ATTRIBUTES {
+            b.error(
+                name,
+                format!("a model can have at most {MAX_ATTRIBUTES} attributes"),
+            );
+        }
+        let default = match &a.default.value {
+            Scalar::Number(n) if n.is_finite() => Some((*n, FormulaKind::Number)),
+            Scalar::Text(t) => parse_quantity(t, Dimension::Time, &DefaultUnits::default())
+                .map(|v| (v, FormulaKind::Time))
+                .ok()
+                .or_else(|| {
+                    t.trim()
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|v| v.is_finite())
+                        .map(|v| (v, FormulaKind::Number))
+                }),
+            Scalar::Number(_) => None,
+        };
+        match default {
+            Some((value, kind)) => {
+                attributes.push(Attribute {
+                    name: name.value.clone(),
+                    time: kind == FormulaKind::Time,
+                    default: value,
+                });
+                attribute_kinds.push((&name.value, kind));
+            }
+            None => b.error(
+                &a.default,
+                format!(
+                    "the default of `{}` is a plain number (`0`) or a time (`0 s`)",
+                    name.value
+                ),
+            ),
+        }
+    }
+    let names = Names {
+        attributes: &attribute_kinds,
+        entities: &entity_names,
     };
 
     // Schedules have their own namespace: only `schedule:` fields name them.
@@ -378,6 +431,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             None => Some(None),
             Some(g) => b.count(g, "`group`").map(Some),
         };
+        let sets = b.sets(&s.sets, &names);
         let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
         let output = endpoints_ok
             .then(|| {
@@ -397,7 +451,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some(group),
             Some((outputs, routing)),
             Some(schedule),
-        ) = (creates, interarrival, group, output, schedule)
+            Some(sets),
+        ) = (creates, interarrival, group, output, schedule, sets)
         {
             sources.push(Source {
                 name: name.value.clone(),
@@ -411,6 +466,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 outputs,
                 routing,
                 schedule,
+                sets,
             });
         }
     }
@@ -592,6 +648,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
         let input = endpoints_ok
             .then(|| b.input_rule(name, &s.input, &server_inputs[i], &conveyor_names))
             .flatten();
+        let sets = b.sets(&s.sets, &names);
         let output = endpoints_ok
             .then(|| {
                 b.output_rule(
@@ -615,6 +672,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             Some(kind),
             Some(splits_into),
             Some(changeover),
+            Some(sets),
         ) = (
             capacity,
             process_time,
@@ -626,6 +684,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             kind,
             splits_into,
             changeover,
+            sets,
         ) {
             servers.push(Server {
                 name: name.value.clone(),
@@ -641,6 +700,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 input_rule,
                 outputs,
                 routing,
+                sets,
             });
         }
     }
@@ -773,6 +833,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             .iter()
             .map(|(n, _)| n.value.clone())
             .collect(),
+        attributes,
         sources,
         servers,
         conveyors,
@@ -1291,6 +1352,68 @@ impl Builder {
             ok = false;
         }
         ok.then(|| periods.into_iter().map(|(s, e, r, _)| (s, e, r)).collect())
+    }
+
+    /// `sets`: attribute -> formula, each giving what its attribute holds.
+    fn sets(
+        &mut self,
+        raw: &raw::OrderedMap<Spanned<Scalar>>,
+        names: &Names,
+    ) -> Option<Vec<(usize, Expr)>> {
+        let mut sets = Vec::new();
+        let mut ok = true;
+        for (attribute, value) in &raw.0 {
+            let Some(i) = names
+                .attributes
+                .iter()
+                .position(|(n, _)| *n == attribute.value)
+            else {
+                let known: Vec<String> = names
+                    .attributes
+                    .iter()
+                    .map(|(n, _)| format!("`{n}`"))
+                    .collect();
+                self.error(
+                    attribute,
+                    format!(
+                        "`{}` isn't listed under `attributes` (attributes: {})",
+                        attribute.value,
+                        if known.is_empty() {
+                            "none".into()
+                        } else {
+                            known.join(", ")
+                        }
+                    ),
+                );
+                ok = false;
+                continue;
+            };
+            let text = match &value.value {
+                Scalar::Number(n) => n.to_string(),
+                Scalar::Text(t) => t.clone(),
+            };
+            match formula::parse(&text, names) {
+                Ok((expr, kind)) if kind == names.attributes[i].1 => sets.push((i, expr)),
+                Ok((_, kind)) => {
+                    self.error(
+                        value,
+                        format!(
+                            "`{}` holds {}, but `{}` is {}",
+                            attribute.value,
+                            names.attributes[i].1.describe(),
+                            text.trim(),
+                            kind.describe()
+                        ),
+                    );
+                    ok = false;
+                }
+                Err(message) => {
+                    self.error(value, message);
+                    ok = false;
+                }
+            }
+        }
+        ok.then_some(sets)
     }
 
     fn distribution(&mut self, value: &Spanned<Scalar>) -> Option<Distribution> {

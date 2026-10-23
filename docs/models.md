@@ -73,6 +73,33 @@ entities:
 
 A model has at least one part type. With several, sources can create a mix, and servers can take different times and send each type its own way. Results then include, for each sink, the throughput and time in system of each type.
 
+## Attributes
+
+```yaml
+attributes:
+  due: { default: "0 s" }        # a time
+  rework: { default: 0 }         # a plain number
+sources:
+  orders:
+    creates: order
+    interarrival: "exponential(5 min)"
+    sets: { due: "now + uniform(2 h, 6 h)" }
+servers:
+  repair:
+    process_time: "10 min"
+    sets: { rework: "rework + 1" }
+```
+
+Attributes are values each part carries, like a due date or how many times it was reworked. Part types already tell parts apart by kind; attributes are for values that differ from part to part.
+
+- **Declared once,** with a default: a plain number (`0`) or a time (`0 s`). That's what each part starts with, and what the attribute holds from then on. At most 8 per model.
+- **`sets` on a source** applies to each new part. **`sets` on a server** applies when a part's processing finishes, before it picks its way out. Formulas apply in the order written, each seeing the values set before it.
+- **Split parts** inherit the finished part's attributes. **An assembled part** keeps those of the component whose clock it keeps (`keeps_clock_of`, or its earliest component).
+- **Formulas** use attribute names, `now` (the simulation clock), numbers, times with units (`4 h`), `+ - * /`, parentheses and distributions, which draw a new value each time: `uniform(2 h, 6 h)` draws a time, and `uniform(1, 10)` a plain number. Plain numbers never take the model's default unit here.
+- **Units are checked:** a time plus a plain number, or a time set into a number attribute, is an error at that line. A time divided by a time is a plain number (`(due - now) / 1 h`).
+- **Names:** attribute names use letters, digits and `_` (`-` means minus), and can't be a word formulas use (`now`, `type`, `and`, `or`, `not`, a unit or a distribution).
+- **Event log:** each value set is a `set` event (`part`, `attribute`, `value`; times in seconds), and the header lists the attributes.
+
 ## Sources
 
 ```yaml
