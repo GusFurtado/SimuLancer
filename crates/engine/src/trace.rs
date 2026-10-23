@@ -53,6 +53,11 @@ pub enum TraceEvent {
         part: PartId,
         source: usize,
     },
+    /// Left a queue after waiting longer than its patience.
+    GaveUp {
+        part: PartId,
+        conveyor: usize,
+    },
     EnteredConveyor {
         part: PartId,
         conveyor: usize,

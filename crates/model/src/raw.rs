@@ -487,6 +487,8 @@ pub struct RawQueue {
     pub starts_with: Option<Spanned<RawStartsWith>>,
     /// Which part it lets go next; first in, first out by default.
     pub order: Option<Spanned<RawQueueOrder>>,
+    /// How long a part waits before giving up: one time, or one per part type.
+    pub patience: Option<Spanned<RawPerType>>,
 }
 
 /// Parts carried from one object to another by a vehicle.

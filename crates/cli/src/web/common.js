@@ -329,6 +329,14 @@ class Replay {
         this.types.set(e.part, Math.max(0, (this.header.entities || []).indexOf(e.entity)));
         break;
       case "lost": this.lost++; this.types.delete(e.part); break;
+      case "gave_up": {
+        // Left a queue after waiting too long.
+        const c = this.conveyors[e.conveyor];
+        c.belt = c.belt.filter(item => item.part !== e.part);
+        this.lost++;
+        this.types.delete(e.part);
+        break;
+      }
       case "stocked":
         // In a queue when the run starts.
         this.created++;

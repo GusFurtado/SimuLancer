@@ -246,6 +246,13 @@ pub fn collect(spec: &Spec, outputs: &Outputs, results: &[ReplicationResult]) ->
                     r.conveyors[i].full
                 });
             }
+            // Of those that left the line, the share that gave up waiting.
+            if c.patience.is_some() {
+                add("queue", &c.name, "gave up", Unit::Fraction, &|r| {
+                    let c = &r.conveyors[i];
+                    c.gave_up as f64 / (c.gave_up + c.time.count) as f64
+                });
+            }
             // A stock: how often it ran out.
             let stocked = c.starts_with.is_some()
                 || spec

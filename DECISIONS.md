@@ -321,6 +321,14 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Giving up in queues (implemented 2026-10-23, issue #59)
+
+- **`patience` on queues:** one time or distribution, or one per part type, drawn for each part as it gets on (from the queue's own stream). If the part is still waiting when it runs out, it leaves: counted as lost (so conservation holds), it makes room like any departure, and restocking sources watching the queue check their stock.
+- **Validated against Erlang-A** with one server (M/M/1+M, ρ = 1, mean patience 5 × the service time): the share giving up and the mean number waiting, exact from the birth-death chain, are within 1 SE.
+- **One result, *gave up*:** the share of those that left the line without being served. The waiting time of those who gave up was left out: no question so far needs it.
+- **Not done:** patience from an attribute (asked on the issue; types cover the examples), and `gives_up_to` (sending them somewhere instead of losing them); both can come when a model needs them.
+- **Bank branch template:** customers waiting for a teller give up after 20 minutes on average (about 6% do); those waiting for an advisor stay. "Gave up waiting for a teller" is one of its results on the Simulation page.
+
 ## Routing by condition (implemented 2026-10-23, issue #58)
 
 - **`output: { rule: by_condition, routes: [ { when, to }, ..., { to } ] }`:** the first route whose condition holds. The last route must have no `when`, and only the last: it takes every other part, so there's no hidden default and no part without a way out.

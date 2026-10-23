@@ -355,6 +355,11 @@ impl<'a, W: Write> EventLog<'a, W> {
                 r#"{{"t":{t},"type":"created","part":{part},"source":"{}","entity":"{}"}}"#,
                 s.sources[source].name, s.entities[entity]
             ),
+            TraceEvent::GaveUp { part, conveyor } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"gave_up","part":{part},"conveyor":"{}"}}"#,
+                s.conveyors[conveyor].name
+            ),
             TraceEvent::Lost { part, source } => writeln!(
                 self.out,
                 r#"{{"t":{t},"type":"lost","part":{part},"source":"{}"}}"#,

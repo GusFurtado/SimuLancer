@@ -36,6 +36,7 @@ results:
   - { label: Served by a teller within 5 minutes, object: teller_line, measure: within target wait, better: higher }
   - { label: Seen by an advisor within 15 minutes, object: advisor_line, measure: within target wait, better: higher }
   - { label: Wait for a teller, object: teller_line, measure: waiting time, better: lower }
+  - { label: Gave up waiting for a teller, object: teller_line, measure: gave up, better: lower }
   - { label: Time in the branch (quick transactions), object: exit, measure: time in system of quick, better: lower }
   - { label: Time in the branch (advice), object: exit, measure: time in system of advice, better: lower }
   - { label: Customers who left without being served, object: door, measure: lost, better: lower }

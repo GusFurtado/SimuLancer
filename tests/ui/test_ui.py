@@ -457,6 +457,7 @@ check("About 310 customers a day" in b.js("return document.getElementById('profi
 b.js("document.querySelector('[data-connection=teller_line]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
 b.wait("return document.querySelector('.panel .kind')?.textContent === 'Queue'")
 check(b.js("return document.getElementById('f-capacity').value") == "15", "queue capacity shown")
+check(b.js("return document.getElementById('f-queues-teller_line-patience').value") == "exponential(20 min)", "patience shown")
 check("teller_line · 15" in b.js("return document.querySelector('.diagram svg').textContent"), "capacity on the diagram")
 b.js(f"""
   const r = {obj('tellers')}, box = r.getBoundingClientRect(), px = box.width / 1.2;

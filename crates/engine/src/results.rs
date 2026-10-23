@@ -114,6 +114,8 @@ pub struct ConveyorResult {
     pub times: Option<Histogram>,
     /// Queues with a target wait: parts that left within it.
     pub within_target: u64,
+    /// Queues with a patience: parts that gave up waiting and left.
+    pub gave_up: u64,
     /// Fraction of time it held nothing (for a stock: out of stock).
     pub empty: f64,
     /// Transports: seconds from a part being ready to its vehicle arriving.

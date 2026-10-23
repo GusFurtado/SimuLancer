@@ -230,6 +230,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 target_wait: None,
                 starts_with: None,
                 order: QueueOrder::FirstIn,
+                patience: None,
             });
         }
     }
@@ -274,11 +275,28 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
             None => Some(QueueOrder::FirstIn),
             Some(order) => b.queue_order(order, &names),
         };
-        if let (Some(from), Some(to), Some(capacity), Some(target_wait), Some(order)) =
-            (from, to, capacity, target_wait, order)
+        let patience = match &q.patience {
+            None => Some(None),
+            Some(p) => b
+                .per_type_distribution(
+                    p,
+                    &types,
+                    &format!("queue `{}` has a patience for", name.value),
+                )
+                .map(Some),
+        };
+        if let (
+            Some(from),
+            Some(to),
+            Some(capacity),
+            Some(target_wait),
+            Some(order),
+            Some(patience),
+        ) = (from, to, capacity, target_wait, order, patience)
         {
             conveyors.push(Conveyor {
                 order,
+                patience,
                 ..Conveyor::queue(name.value.clone(), from, to, capacity, target_wait)
             });
         }
@@ -560,7 +578,11 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 ),
             );
         }
-        let process_time = b.per_type_distribution(name, &s.process_time, &types);
+        let process_time = b.per_type_distribution(
+            &s.process_time,
+            &types,
+            &format!("server `{}` has a process time for", name.value),
+        );
         let schedule = b.schedule_ref(name, &s.schedule, &schedule_names);
         let mut needs = Vec::new();
         let mut needs_ok = true;
@@ -1149,6 +1171,22 @@ fn check_part_types(spec: &Spec, raw: &RawModel) -> Result<(), Vec<Diagnostic>> 
                     name,
                     format!(
                         "server `{}` gets parts of type {}, but its `by_type` rule has no route for them",
+                        name.value,
+                        gaps.join(", ")
+                    ),
+                );
+            }
+        }
+    }
+    for (j, (name, _)) in raw.queues.0.iter().enumerate() {
+        let i = raw.conveyors.0.len() + j;
+        if let Some(PerType::ByType(times)) = &spec.conveyors[i].patience {
+            let gaps = missing(&reach.conveyors[i], &|e| times[e].is_some());
+            if !gaps.is_empty() {
+                report(
+                    name,
+                    format!(
+                        "queue `{}` gets parts of type {}, but `patience` has no time for them",
                         name.value,
                         gaps.join(", ")
                     ),
@@ -2050,20 +2088,21 @@ impl Builder {
         }
     }
 
+    /// One distribution, or one per part type; `what` starts errors about
+    /// unknown types ("server `mill` has a process time for").
     fn per_type_distribution(
         &mut self,
-        server: &Spanned<String>,
         value: &Spanned<raw::RawPerType>,
         types: &Types,
+        what: &str,
     ) -> Option<PerType<Distribution>> {
         match &value.value {
             raw::RawPerType::Same(v) => Some(PerType::Same(self.distribution_at(value, v, "")?)),
             raw::RawPerType::ByType(map) => {
                 let mut out: Vec<Option<Distribution>> = vec![None; types.names.len()];
                 let mut ok = true;
-                let what = format!("server `{}` has a process time for", server.value);
                 for (name, v) in map {
-                    let e = self.part_type(value, name, types, &what);
+                    let e = self.part_type(value, name, types, what);
                     let d = self.distribution_at(value, v, &format!("`{name}`: "));
                     match (e, d) {
                         (Some(e), Some(d)) => out[e] = Some(d),

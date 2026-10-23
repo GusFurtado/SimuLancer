@@ -38,6 +38,9 @@
 //!   that order; for a server needing several resources, its best rank),
 //!   then the rest in the order they started waiting. A server that can't
 //!   start doesn't hold back one behind it that can.
+//! - Patience: in a queue with `patience`, each part draws how long it will
+//!   wait as it gets on. If it's still there when that time is up, it leaves
+//!   (gives up) and is counted as lost; that makes room like any departure.
 //! - Queue order: a queue lets parts go first in first out, last in first
 //!   out, by an attribute (lowest or highest first) or by part type. A new
 //!   part is placed by that order as it gets on (ties behind those already
@@ -254,6 +257,9 @@ struct ConveyorState {
     /// Queues only.
     times: Option<Histogram>,
     within_target: u64,
+    gave_up: u64,
+    /// Draws how long each part waits before giving up.
+    patience_rng: Rng,
     /// Parts that left over the whole run (not reset after the warm-up).
     departed_total: u64,
     /// Transports: parts waiting for a vehicle, with when they got on and
@@ -549,6 +555,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                 time_by_type: vec![Tally::default(); spec.entities.len()],
                 times: c.is_queue().then(Histogram::default),
                 within_target: 0,
+                gave_up: 0,
+                patience_rng: stream(format!("queue/{}/patience", c.name)),
                 departed_total: 0,
                 pickup: VecDeque::new(),
                 in_transit: 0,
@@ -756,6 +764,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                         self.takt_up(line);
                     }
                 }
+                Event::GiveUp { conveyor, part } => self.give_up(conveyor, part),
                 Event::Review { source } => {
                     self.review(source);
                     if let Arrivals::Restock(Restock {
@@ -1339,7 +1348,40 @@ impl<'a, O: Observer> Sim<'a, O> {
         if at == 0 {
             self.schedule_reach_end(conveyor);
         }
+        if let Some(patience) = &c.patience {
+            let state = &mut self.conveyors[conveyor];
+            let wait = duration(state.patience_rng.sample(patience.get(part.entity)));
+            self.events.schedule(
+                self.now + wait,
+                Event::GiveUp {
+                    conveyor,
+                    part: part.id,
+                },
+            );
+        }
         true
+    }
+
+    /// A part's patience ran out: if it's still waiting in the queue, it
+    /// leaves and is lost, and there's room for another.
+    fn give_up(&mut self, conveyor: usize, part: PartId) {
+        let state = &mut self.conveyors[conveyor];
+        let Some(at) = state.belt.iter().position(|p| p.part.id == part) else {
+            return; // already taken
+        };
+        state.belt.remove(at);
+        state.gave_up += 1;
+        state.departed_total += 1;
+        self.totals.lost += 1;
+        self.observer
+            .record(self.now, TraceEvent::GaveUp { part, conveyor });
+        if at == 0 {
+            self.schedule_reach_end(conveyor);
+        }
+        for i in 0..self.restockers[conveyor].len() {
+            self.review(self.restockers[conveyor][i]);
+        }
+        self.after_departure(conveyor);
     }
 
     fn schedule_reach_end(&mut self, conveyor: usize) {
@@ -2386,6 +2428,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 *times = Histogram::default();
             }
             c.within_target = 0;
+            c.gave_up = 0;
             c.pickup_wait = Tally::default();
             c.parts.reset(now);
             c.full.reset(now);
@@ -2471,6 +2514,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     time_by_type: c.time_by_type.clone(),
                     times: c.times.clone(),
                     within_target: c.within_target,
+                    gave_up: c.gave_up,
                     empty: c.empty.mean(),
                     pickup_wait: c.pickup_wait.clone(),
                 })
