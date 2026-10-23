@@ -2147,6 +2147,8 @@ impl Builder {
 
     /// The outgoing conveyors of a source or server and how parts choose
     /// among them. A rule is required with two or more.
+    // Each argument is a different lookup the rules need; bundling them would only hide that.
+    #[allow(clippy::too_many_arguments)]
     fn output_rule(
         &mut self,
         name: &Spanned<String>,
