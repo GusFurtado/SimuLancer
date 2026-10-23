@@ -194,6 +194,16 @@ function savedDraft(detail) {
 
 const draftChanged = () => state.draft && !equal(state.draft, savedDraft(state.detail));
 const docsChanged = () => state.docs.text !== (state.detail?.documentation || "");
+/** How many unsaved edits: model changes, plus decisions, layout and documentation as one each. */
+const unsaved = () => Object.keys(state.changes).length + (draftChanged() ? 1 : 0) + (state.layoutChanged ? 1 : 0) + (docsChanged() ? 1 : 0);
+
+// Leaving with unsaved edits (closing, reloading, ← Projects, Simulation) asks first.
+// Browsers show their own question; pages can't change its words.
+window.addEventListener("beforeunload", e => {
+  if (!state.detail || !unsaved()) return;
+  e.preventDefault();
+  e.returnValue = "";  // older Safari and Chrome
+});
 
 /** What to send to check and save: model changes, plus the draft if edited. */
 function pending() {
@@ -287,7 +297,7 @@ function renderEditor() {
 /** Save, publish, run: the same on the Model, Decisions and Documentation tabs. */
 function actionsBar() {
   const modelChanges = Object.keys(state.changes).length;
-  const changed = modelChanges + (draftChanged() ? 1 : 0) + (state.layoutChanged ? 1 : 0) + (docsChanged() ? 1 : 0);
+  const changed = unsaved();
   const history = state.detail.history || [];
   const lastSaved = history[0];
   const problems = state.exposed?.decision_problems || [];
@@ -306,7 +316,7 @@ function actionsBar() {
       id: "save-message", placeholder: "What changed? (e.g. Faster mill B)", value: state.saveMessage,
       oninput: e => { state.saveMessage = e.target.value; }, "aria-label": "Version message",
     }),
-    el("button", { id: "save", onclick: saveVersion, disabled: changed === 0 }, "Save version"),
+    el("button", { id: "save", class: changed ? "unsaved" : null, onclick: saveVersion, disabled: changed === 0 }, "Save version"),
     el("button", { id: "publish", onclick: publishVersion, disabled: !canPublish,
       title: canPublish ? "Make the last saved version available on the Simulation page"
         : problems.length ? "Fix the problems on the Decisions tab first"

@@ -321,6 +321,14 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Unsaved changes (implemented 2026-10-22, issue #48)
+
+Edits on the Modeling page live in the browser until Save version, so leaving the page used to throw them away silently.
+
+- **Leaving asks first** while anything is unsaved (model, layout, decisions or documentation): closing the tab, reloading, ← Projects and the switch to Simulation. One `beforeunload` handler covers them all, since the page's own links are ordinary navigations. The question is the browser's own ("Leave site? Changes you made may not be saved."); pages can't change its words. The issue also proposed an in-page dialog for the page's links: not built, because the browser's question already covers them and a second dialog would only differ in style.
+- **Save version stands out** while something is unsaved: a ring and a dot in the color of changed fields, next to the existing "3 unsaved changes".
+- Nothing is asked when everything is saved, nor right after saving.
+
 ## Documentation (implemented 2026-10-22, issue #47)
 
 A model says what happens, not why. Saving from the Modeling page rewrites the model file and drops its comments, so assumptions and business rules need a place of their own.
