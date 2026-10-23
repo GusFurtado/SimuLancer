@@ -534,6 +534,13 @@ fn describe(path: &Path, model: &Model) -> String {
                 }
             };
             out += &format!("  {:<12} {:<20} {holds}{target}{order}\n", c.name, route);
+            if let Some(patience) = &c.patience {
+                out += &format!(
+                    "  {:<12}   gives up after waiting {}\n",
+                    "",
+                    per_type(spec, patience)
+                );
+            }
         }
     }
     let transports: Vec<_> = spec

@@ -1,7 +1,8 @@
 # Bank branch: customers come in on weekdays while the doors are open, take a
 # ticket at the kiosk, and wait in line for a teller (quick transactions) or
 # an account advisor (longer appointments). When the line at the kiosk is
-# full, newcomers turn around and leave.
+# full, newcomers turn around and leave; customers waiting for a teller give
+# up after a while.
 #
 #                                ┌─ teller_line ──> tellers ──┐
 #   door ── entrance ──> kiosk ──┤                            ├──> exit
@@ -62,7 +63,7 @@ servers:
 
 queues:
   entrance:     { from: door,     to: kiosk,    capacity: 5 }
-  teller_line:  { from: kiosk,    to: tellers,  capacity: 15, target_wait: "5 min" }
+  teller_line:  { from: kiosk,    to: tellers,  capacity: 15, target_wait: "5 min", patience: "exponential(20 min)" }
   advisor_line: { from: kiosk,    to: advisors, capacity: 7, target_wait: "15 min" }
   teller_out:   { from: tellers,  to: exit }
   advisor_out:  { from: advisors, to: exit }

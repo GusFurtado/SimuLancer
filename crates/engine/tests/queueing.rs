@@ -625,3 +625,56 @@ experiment:
         r.conveyors[0].time_by_type[1].mean()
     });
 }
+
+#[test]
+fn mm1_with_impatient_customers_gives_up_as_erlang_a_says() {
+    // Erlang-A with one server (M/M/1+M): arrivals λ = 1/min, service μ =
+    // 1/min, each waiting customer gives up at rate θ = 1/(5 min). With n in
+    // the system, departures happen at μ + (n − 1)θ, so the stationary
+    // distribution is a product of λ / (μ + (k − 1)θ). The share that gives
+    // up is Σ πn (n − 1)θ / λ; the mean number waiting is Σ πn (n − 1).
+    let (lambda, mu, theta) = (1.0_f64, 1.0_f64, 0.2_f64);
+    let mut p = vec![1.0_f64];
+    for n in 1..400 {
+        let prev = p[n - 1];
+        p.push(prev * lambda / (mu + (n as f64 - 1.0) * theta));
+    }
+    let total: f64 = p.iter().sum();
+    let waiting: f64 = p
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(n, x)| x / total * (n as f64 - 1.0))
+        .sum();
+    let gave_up = waiting * theta / lambda;
+    let yaml = format!(
+        r#"
+format: outliers-sim/0.1
+name: impatient
+entities:
+  customer: {{}}
+sources:
+  arrivals: {{ creates: customer, interarrival: "exponential(1 min)" }}
+servers:
+  server: {{ process_time: "exponential(1 min)" }}
+queues:
+  line: {{ from: arrivals, to: server, patience: "exponential(5 min)" }}
+  out: {{ from: server, to: done }}
+sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261023
+"#
+    );
+    let results = replications(&spec(&yaml));
+    check(&results, "M/M/1+M share giving up", gave_up, 0.01, |r| {
+        let c = &r.conveyors[0];
+        c.gave_up as f64 / (c.gave_up + c.time.count) as f64
+    });
+    check(&results, "M/M/1+M mean waiting", waiting, 0.02, |r| {
+        r.conveyors[0].mean_parts
+    });
+}

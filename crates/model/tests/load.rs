@@ -985,3 +985,25 @@ fn conditional_routes_load_and_check_their_conditions() {
         assert_one_error(&with_routes(routes), line, expected);
     }
 }
+
+#[test]
+fn patience_needs_a_time_for_every_type_that_waits() {
+    let source = replace(
+        &queue_with_order("first_in"),
+        "line: { from: arrivals, to: machine, order: first_in }",
+        "line: { from: arrivals, to: machine, patience: { part: \"exponential(10 min)\" } }",
+    );
+    load_str(&source).unwrap();
+    let source = replace(
+        &source,
+        "{ part: \"exponential(10 min)\" }",
+        "{ other: \"10 min\" }",
+    );
+    let errors = errors(&source);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.1.contains("queue `line` has a patience for `other`")),
+        "{errors:?}"
+    );
+}

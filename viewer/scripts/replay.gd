@@ -142,6 +142,14 @@ func _apply(e: Dictionary) -> void:
 			created += 1
 		"lost":
 			lost += 1
+		"gave_up":
+			# Left a queue after waiting too long.
+			var items: Array = conveyors[e["conveyor"]]["belt"]
+			for i in items.size():
+				if items[i]["part"] == int(e["part"]):
+					items.remove_at(i)
+					break
+			lost += 1
 		"entered_conveyor":
 			var part := int(e["part"])
 			var c: Dictionary = conveyors[e["conveyor"]]

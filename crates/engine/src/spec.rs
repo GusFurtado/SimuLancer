@@ -599,6 +599,8 @@ pub struct Conveyor {
     pub starts_with: Option<(usize, u32)>,
     /// Queues only: which part it lets go next.
     pub order: QueueOrder,
+    /// Queues only: how long a part waits before it gives up and leaves.
+    pub patience: Option<PerType<Distribution>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -658,6 +660,7 @@ impl Conveyor {
             target_wait,
             starts_with: None,
             order: QueueOrder::FirstIn,
+            patience: None,
         }
     }
 

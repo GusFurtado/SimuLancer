@@ -978,6 +978,7 @@ function panel(tree) {
         capacityField(`${p}.capacity`),
         queueOrderField(tree, p),
         field("Target wait (for a service level)", `${p}.target_wait`, "text", [], "none, e.g. 5 min"),
+        patienceField(tree, p),
         countField(say("Starts with (parts in it at the start)"), `${p}.starts_with`, "none", "f-starts-with"));
     default:
       return el("div", {}, header, el("p", { class: "hint" }, say("Sinks take every part; there's nothing to set.")));
@@ -1109,6 +1110,19 @@ function changeoverField(tree, p) {
       el("p", { class: "hint", style: "margin: 0" }, Object.entries(value).map(([k, v]) => `${k.replace("->", " → ")}: ${v}`).join(" · ")));
   }
   return field("Changeover (setup when the part type changes)", path, "text", [], "none, e.g. 8 min");
+}
+
+/** How long a part waits in a queue before giving up: one time (or a
+ *  distribution), or one per part type, shown as written. */
+function patienceField(tree, p) {
+  const path = `${p}.patience`;
+  const value = getAt(tree, path);
+  const label = say("Gives up after waiting (each part draws its own)");
+  if (value && typeof value === "object") {
+    return el("div", { class: "field" }, el("label", {}, label),
+      el("p", { class: "hint", style: "margin: 0" }, Object.entries(value).map(([k, v]) => `${k}: ${v}`).join(" · ")));
+  }
+  return field(label, path, "text", [], "never, e.g. exponential(20 min)");
 }
 
 /** What each finished part becomes: a part type and how many (or nothing). */

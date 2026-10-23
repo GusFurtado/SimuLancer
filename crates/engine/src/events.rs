@@ -69,6 +69,11 @@ pub(crate) enum Event {
     Review {
         source: usize,
     },
+    /// A part's patience in a queue runs out; ignored if it has left.
+    GiveUp {
+        conveyor: usize,
+        part: u64,
+    },
     WarmupEnd,
     RunEnd,
 }
