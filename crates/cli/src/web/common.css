@@ -140,6 +140,9 @@
 
   .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .actions input { width: 220px; }
+  /* Unsaved edits: Save version stands out, in the color of changed fields. */
+  button.unsaved { box-shadow: 0 0 0 2px var(--changed); font-weight: 600; }
+  button.unsaved::before { content: ""; display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 0; border-radius: 50%; background: var(--changed); }
   .status { margin: 12px 0; padding: 10px 12px; border-radius: 8px; background: var(--danger-wash); color: var(--danger); }
   .status ul { margin: 4px 0 0; padding-left: 18px; }
   .status.ok { background: var(--accent-wash); color: var(--ink-2); }

@@ -32,6 +32,10 @@ def from_template(template, id=None):
         data=json.dumps({"id": id or template, "template": template}).encode(), headers={"content-type": "application/json"})
     urllib.request.urlopen(request).close()
 
+def leaving_asks():
+    """Whether leaving the page now would ask first (the page cancels beforeunload)."""
+    return b.js("const e = new Event('beforeunload', {cancelable: true}); window.dispatchEvent(e); return e.defaultPrevented")
+
 def choices():
     return b.js("return [...document.querySelectorAll('.choice b')].map(x => x.textContent)")
 
@@ -472,10 +476,14 @@ b.wait("return document.querySelector('#doc-preview strong')?.textContent === 'b
 check(b.js("return document.querySelector('#doc-preview script')") is None, "HTML in the documentation is text")
 check(b.js("return document.activeElement.id") == "doc-text", "typing keeps the focus")
 check(b.js("return document.getElementById('pending').textContent") == "unsaved documentation", "documentation is a pending change")
+check(b.js("return document.getElementById('save').classList.contains('unsaved')"), "Save version stands out")
+check(leaving_asks(), "leaving with unsaved changes asks first")
 b.screenshot(f"{out}/15-documentation.png")
 set_value("save-message", "Explained the advisors", "input")
 b.js("document.getElementById('save').click()")
 b.wait("return document.getElementById('pending')?.textContent === 'all changes saved'", 10)
 check(b.js("return document.querySelector('.tabs .current').textContent") == "Documentation", "stays on the tab after saving")
+check(not leaving_asks(), "nothing to ask once saved")
+check(not b.js("return document.getElementById('save').classList.contains('unsaved')"), "Save version back to normal")
 check(b.js("return document.querySelector('#doc-view h2').textContent") == "Business rules", "saved documentation shown")
 print("web UI sessions (Modeling and Simulation): all checks passed")
