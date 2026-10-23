@@ -37,6 +37,7 @@ This is a list of problems with today's commercial DES tools: Rockwell Arena, Si
 ## 4. Reproducibility and engineering practice
 
 - **No real version control.** Binary model files can't be diffed or merged, and code review isn't possible. Two people can't work on one model at once.
+- **Huge files, multiplied by copies.** Model files are large, often megabytes, because they bundle graphics, imported data and sometimes results with the logic. With no version control, people version by saving copies (`line_v3_final_REVISED`), so every version costs the full size again, folders fill with near-identical files, and nobody is sure which copy is current.
 - **Logic is scattered.** Model logic is split across dialog boxes, property panels, small expression fields and visual blocks. Nobody can read the whole model top to bottom.
 - **No automated testing.** There's no standard way to write unit tests for model logic or run regression tests when a model changes.
 - **Hard to automate.** It's difficult to run models as part of a pipeline (CI, scheduled jobs, parameter sweeps on a cluster).
@@ -134,7 +135,7 @@ Use these to evaluate any tool, open-source or commercial:
 
 ## 16. How outliers-sim answers these issues
 
-Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-21.
+Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-23.
 
 | Issue | What outliers-sim does about it | Status |
 |---|---|---|
@@ -161,6 +162,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Weak APIs | A documented JSON HTTP API (`docs/api.md`), scriptable from any language. | done |
 | **4. Reproducibility and engineering practice** | | |
 | No real version control | Projects are git repositories: the builder's "Save version" commits and "Publish" tags, with the engineer's message; managers only see published versions. | done |
+| Huge files, multiplied by copies | A model is a few kilobytes of text (the templates are 1.4 to 2.5 KB), and each saved version is a git commit that stores only what changed: 100 saved versions of the warehouse model take 37 KB once packed, and there's one current file. Run results are kept outside the project and can be recreated from the model and the seed. The summary, report and replications take under 100 KB per run, but the event log behind the animation takes about 13 MB, and nothing deletes old ones yet. | partial |
 | Logic is scattered | The whole model is one readable file; `validate` shows everything the engine understood. | done |
 | No automated testing | Validated against queueing theory in CI; models and scenarios can be checked in CI with `validate`. | done |
 | Hard to automate | Headless CLI and HTTP API; a Python parameter sweep is in the docs. | done |
