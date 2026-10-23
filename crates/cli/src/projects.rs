@@ -5,6 +5,7 @@
 //!   project.yaml        name, description, which file is the model
 //!   model.yaml          the model
 //!   model.layout.yaml   its layout (optional)
+//!   README.md           its documentation, in Markdown (optional)
 //! projects/.archive/<id>/   archived projects, the same way
 //! ```
 //!
@@ -25,6 +26,7 @@ use serde_json::{Map, Value};
 
 pub const PROJECT_FORMAT: &str = "outliers-sim-project/0.1";
 pub const PROJECT_FILE: &str = "project.yaml";
+pub const DOCUMENTATION_FILE: &str = "README.md";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -213,7 +215,11 @@ impl Projects {
         if what.is_empty() {
             return Ok(false);
         }
-        self.save(id, &[(PROJECT_FILE, &file.to_text())], &what.join("; "))?;
+        self.save(
+            id,
+            &[(PROJECT_FILE, Some(&file.to_text()))],
+            &what.join("; "),
+        )?;
         Ok(true)
     }
 
@@ -290,11 +296,24 @@ impl Projects {
             .ok_or_else(|| format!("project `{id}` has no `{file}`"))
     }
 
-    /// Writes files and saves them as a new version (a commit).
-    pub fn save(&self, id: &str, files: &[(&str, &str)], message: &str) -> Result<Commit, String> {
+    /// Writes files and saves them as a new version (a commit). A file
+    /// with no content (`None`) is removed.
+    pub fn save(
+        &self,
+        id: &str,
+        files: &[(&str, Option<&str>)],
+        message: &str,
+    ) -> Result<Commit, String> {
         let dir = self.dir(id)?;
         for (name, content) in files {
-            fs::write(dir.join(name), content).map_err(|e| e.to_string())?;
+            let result = match content {
+                Some(content) => fs::write(dir.join(name), content),
+                None => match fs::remove_file(dir.join(name)) {
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    other => other,
+                },
+            };
+            result.map_err(|e| e.to_string())?;
         }
         git(&dir, &["add", "-A"])?;
         if git(&dir, &["status", "--porcelain"])?.trim().is_empty() {
@@ -495,6 +514,8 @@ pub struct Template {
     pub project: &'static str,
     pub model: &'static str,
     pub layout: &'static str,
+    /// Its documentation: what it assumes and leaves out.
+    pub readme: &'static str,
 }
 
 macro_rules! template {
@@ -504,6 +525,7 @@ macro_rules! template {
             project: include_str!(concat!("../../../examples/projects/", $id, ".yaml")),
             model: include_str!(concat!("../../../examples/", $id, ".yaml")),
             layout: include_str!(concat!("../../../examples/", $id, ".layout.yaml")),
+            readme: include_str!(concat!("../../../examples/projects/", $id, ".md")),
         }
     };
 }
@@ -577,6 +599,7 @@ pub fn create_from_template(
             (PROJECT_FILE.into(), project),
             ("model.yaml".into(), template.model.into()),
             ("model.layout.yaml".into(), layout),
+            (DOCUMENTATION_FILE.into(), template.readme.into()),
         ],
         &message,
     )?;
@@ -699,12 +722,16 @@ mod tests {
         );
         assert_ne!(changed, original);
         let commit = p
-            .save("two-cells", &[("model.yaml", &changed)], "Slower arrivals")
+            .save(
+                "two-cells",
+                &[("model.yaml", Some(&changed))],
+                "Slower arrivals",
+            )
             .unwrap();
         assert_eq!(commit.message, "Slower arrivals");
         assert_eq!(commit.published, None);
         assert!(
-            p.save("two-cells", &[("model.yaml", &changed)], "again")
+            p.save("two-cells", &[("model.yaml", Some(&changed))], "again")
                 .unwrap_err()
                 .contains("nothing changed")
         );

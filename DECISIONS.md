@@ -321,6 +321,17 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Documentation (implemented 2026-10-22, issue #47)
+
+A model says what happens, not why. Saving from the Modeling page rewrites the model file and drops its comments, so assumptions and business rules need a place of their own.
+
+- **`README.md` in the project's repository,** in Markdown. Plain text that diffs well, and renders on its own if the repository is ever pushed to GitHub or GitLab. Optional: a blank project has none.
+- **A Documentation tab on the Modeling page,** next to Model and Decisions. It shows the README rendered, with an Edit (pencil) button; empty, it suggests what to write (the question, modeling assumptions, business rules, data, what's left out). Editing puts a text box beside a live preview.
+- **Saved like any other edit:** the text is a pending change (`documentation` in `check` and `save`), so it goes into the next version with its message, and each version keeps the documentation of the model it describes. Saving an empty text removes the file.
+- **Rendered on the server** with `pulldown-cmark` (tables, strikethrough, task lists), so every client shows the same thing and the pages load no Markdown library. The documentation is shared with everyone who opens the project, so the output is made safe: HTML written in the Markdown is shown as text, links go only to `http`, `https`, `mailto` or within the page, and images become links (the pages load nothing they don't ship). Links open in a new tab.
+- **Templates come with one** (`examples/projects/<id>.md`) explaining their assumptions, data and what they leave out. Copying a project copies its README.
+- **Not done (on purpose, for now):** showing the documentation on the Simulation page, and notes on individual objects.
+
 ## Paced lines (implemented 2026-10-21, issue #33)
 
 - **`lines: { front: { stations: [frame, drum], takt: "2.5 min" } }`**: the stations (servers, capacity 1, no batches, in one line only) release finished parts only when the line moves. A takt event checks the stations: if all are done, the line moves; if not, it waits for the last, moves when it finishes, and the next takt counts from then ("a station that isn't done stops the line"). Moving releases the stations last-first, so each frees its place before the one before hands over.

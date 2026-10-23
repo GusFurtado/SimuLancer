@@ -31,10 +31,11 @@ use tower_http::compression::CompressionLayer;
 
 use crate::compare::compare_pair;
 use crate::decisions::{self, Exposed, Target};
+use crate::markdown;
 use crate::measures::{self, Measure};
 use crate::output::layout_json;
 use crate::plain;
-use crate::projects::{self, PROJECT_FILE, ProjectFile, Projects};
+use crate::projects::{self, DOCUMENTATION_FILE, PROJECT_FILE, ProjectFile, Projects};
 use crate::runner::{self, RunOptions};
 use crate::scenarios::Scenarios;
 use crate::thread_count;
@@ -843,7 +844,11 @@ async fn create_project(
             let mut project = source.clone();
             project.name = name;
             let mut files = vec![(PROJECT_FILE.to_string(), project.to_text())];
-            for file in [source.model.clone(), source.layout_file()] {
+            for file in [
+                source.model.clone(),
+                source.layout_file(),
+                DOCUMENTATION_FILE.into(),
+            ] {
                 if let Ok(Some(text)) = state.projects.read_optional(from, None, &file) {
                     files.push((file, text));
                 }
@@ -906,6 +911,14 @@ async fn get_project(
     if resolved.is_none() {
         body["history"] = json!(state.projects.history(&id).unwrap_or_default());
     }
+    let documentation = state
+        .projects
+        .read_optional(&id, resolved.as_deref(), DOCUMENTATION_FILE)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    body["documentation_html"] = json!(markdown::to_html(&documentation));
+    body["documentation"] = json!(documentation);
     let (exposed, problems, measures) = read_exposed(&project, &source);
     body["project_file"] = json!(project);
     body["measures"] = measures_json(&measures);
@@ -939,6 +952,8 @@ struct Changes {
     results: Option<Vec<Value>>,
     /// A whole new layout (the `*.layout.yaml` file as JSON).
     layout: Option<Value>,
+    /// New documentation (`README.md`, in Markdown); empty removes it.
+    documentation: Option<String>,
     /// For saving: what changed, in a few words.
     #[serde(default)]
     message: String,
@@ -982,14 +997,17 @@ async fn check(
         };
     body.apply_to(&mut project);
     let (exposed, problems, _) = read_exposed(&project, &source);
-    Json(json!({
+    let mut response = json!({
         "ok": ok,
         "errors": errors,
         "decisions": exposed.decisions,
         "results": exposed.results,
         "decision_problems": problems,
-    }))
-    .into_response()
+    });
+    if let Some(text) = &body.documentation {
+        response["documentation_html"] = json!(markdown::to_html(text));
+    }
+    Json(response).into_response()
 }
 
 /// Applies pending changes to the working copy and saves a version (a commit).
@@ -998,7 +1016,11 @@ async fn save(
     UrlPath(id): UrlPath<String>,
     Json(body): Json<Changes>,
 ) -> Response {
-    if body.changes.is_empty() && !body.touches_project_file() && body.layout.is_none() {
+    if body.changes.is_empty()
+        && !body.touches_project_file()
+        && body.layout.is_none()
+        && body.documentation.is_none()
+    {
         return error(
             StatusCode::BAD_REQUEST,
             "nothing to save: there are no changes",
@@ -1011,9 +1033,9 @@ async fn save(
     let mut project = loaded.project.clone();
     body.apply_to(&mut project);
     let project_text = project.to_text();
-    let mut files = vec![(loaded.project.model.as_str(), loaded.text.as_str())];
+    let mut files = vec![(loaded.project.model.as_str(), Some(loaded.text.as_str()))];
     if body.touches_project_file() {
-        files.push((PROJECT_FILE, project_text.as_str()));
+        files.push((PROJECT_FILE, Some(project_text.as_str())));
     }
     let layout_file = loaded.project.layout_file();
     let layout_text = body
@@ -1021,7 +1043,17 @@ async fn save(
         .as_ref()
         .map(|tree| layout_text(tree, &loaded.project.model));
     if let Some(text) = &layout_text {
-        files.push((layout_file.as_str(), text.as_str()));
+        files.push((layout_file.as_str(), Some(text.as_str())));
+    }
+    let documentation = body
+        .documentation
+        .as_deref()
+        .map(|text| text.trim_end().to_string() + "\n");
+    if let Some(text) = &documentation {
+        files.push((
+            DOCUMENTATION_FILE,
+            (text.trim() != "").then_some(text.as_str()),
+        ));
     }
     match state.projects.save(&id, &files, &body.message) {
         Ok(commit) => {
@@ -2063,6 +2095,90 @@ mod tests {
         );
         let (status, _) = call(&app, "POST", "/api/v1/projects", Some(body)).await;
         assert_eq!(status, StatusCode::CONFLICT);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn documentation_is_saved_with_the_model() {
+        let (app, root) = app("documentation");
+        let uri = "/api/v1/projects/bank-branch";
+        let (_, project) = call(&app, "GET", uri, None).await;
+        assert!(
+            project["documentation"]
+                .as_str()
+                .unwrap()
+                .starts_with("# Bank branch\n")
+        );
+        assert!(
+            project["documentation_html"]
+                .as_str()
+                .unwrap()
+                .starts_with("<h1>Bank branch</h1>")
+        );
+
+        // A copy keeps it; a blank project has none.
+        let copy = json!({ "id": "branch-2", "from": "bank-branch" });
+        call(&app, "POST", "/api/v1/projects", Some(copy)).await;
+        let (_, copied) = call(&app, "GET", "/api/v1/projects/branch-2", None).await;
+        assert_eq!(copied["documentation"], project["documentation"]);
+        call(
+            &app,
+            "POST",
+            "/api/v1/projects",
+            Some(json!({ "id": "empty" })),
+        )
+        .await;
+        let (_, blank) = call(&app, "GET", "/api/v1/projects/empty", None).await;
+        assert_eq!(blank["documentation"], "");
+        assert_eq!(blank["documentation_html"], "");
+
+        // Checking renders the draft, safely; nothing is written.
+        let draft = "# Notes\n\nTellers <script>x()</script> rotate.";
+        let (_, checked) = call(
+            &app,
+            "POST",
+            &format!("{uri}/check"),
+            Some(json!({ "documentation": draft })),
+        )
+        .await;
+        let html = checked["documentation_html"].as_str().unwrap();
+        assert!(
+            html.contains("<h1>Notes</h1>") && !html.contains("<script"),
+            "{html}"
+        );
+        assert!(
+            fs::read_to_string(root.join("projects/bank-branch/README.md"))
+                .unwrap()
+                .starts_with("# Bank")
+        );
+
+        // Saving writes README.md as a version; published versions keep theirs.
+        let save = json!({ "documentation": draft, "message": "Explained the tellers" });
+        let (status, saved) = call(&app, "POST", &format!("{uri}/save"), Some(save)).await;
+        assert_eq!(status, StatusCode::OK, "{saved}");
+        assert_eq!(saved["saved"]["message"], "Explained the tellers");
+        let (_, project) = call(&app, "GET", uri, None).await;
+        assert_eq!(project["documentation"], format!("{draft}\n"));
+        let (_, published) = call(&app, "GET", &format!("{uri}?version=v1"), None).await;
+        assert!(
+            published["documentation"]
+                .as_str()
+                .unwrap()
+                .starts_with("# Bank branch")
+        );
+
+        // Emptied, the file goes.
+        let (status, _) = call(
+            &app,
+            "POST",
+            &format!("{uri}/save"),
+            Some(json!({ "documentation": "  \n" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!root.join("projects/bank-branch/README.md").exists());
+        let (_, project) = call(&app, "GET", uri, None).await;
+        assert_eq!(project["documentation"], "");
         fs::remove_dir_all(root).unwrap();
     }
 

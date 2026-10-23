@@ -245,6 +245,39 @@
   .stack { display: grid; gap: 14px; }
 
 
+  /* /modeling, Documentation tab: README.md rendered, or edited beside a preview. */
+  .doc-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 14px 0 10px; }
+  .doc-bar .hint { margin: 0; }
+  .doc-edit { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .doc-source { position: sticky; top: 12px; }
+  .doc-source textarea { min-height: 460px; height: calc(100vh - 300px); padding: 12px; font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .doc-source .hint { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+  .doc-empty { max-width: 640px; }
+  .doc-empty p { margin: 0 0 6px; }
+  .doc-empty ul { margin: 0 0 16px; padding-left: 20px; color: var(--ink-2); }
+  @media (max-width: 900px) { .doc-edit { grid-template-columns: minmax(0, 1fr); } .doc-source { position: static; } .doc-source textarea { min-height: 280px; height: auto; } }
+  .markdown { max-width: 760px; padding: 20px 24px; line-height: 1.6; overflow-wrap: anywhere; }
+  .doc-edit .markdown { max-width: none; }
+  .markdown > :first-child { margin-top: 0; }
+  .markdown > :last-child { margin-bottom: 0; }
+  .markdown h1 { font-size: 22px; margin: 0 0 12px; }
+  .markdown h2 { font-size: 17px; margin: 22px 0 8px; }
+  .markdown h3, .markdown h4 { font-size: 14px; margin: 18px 0 6px; }
+  .markdown p, .markdown ul, .markdown ol, .markdown pre, .markdown table, .markdown blockquote { margin: 0 0 12px; }
+  .markdown ul, .markdown ol { padding-left: 22px; }
+  .markdown li { margin: 2px 0; }
+  .markdown a { color: var(--accent); }
+  .markdown code { background: var(--page); padding: 1px 5px; border-radius: 4px; box-shadow: 0 0 0 1px var(--ring); }
+  .markdown pre { background: var(--page); padding: 10px 12px; border-radius: 8px; overflow-x: auto; box-shadow: 0 0 0 1px var(--ring); line-height: 1.35; }
+  .markdown pre code { background: none; padding: 0; box-shadow: none; }
+  .markdown blockquote { padding: 2px 14px; color: var(--ink-2); box-shadow: inset 3px 0 0 var(--grid); }
+  .markdown table { border-collapse: collapse; display: block; overflow-x: auto; }
+  .markdown th, .markdown td { padding: 5px 10px; text-align: left; border: 1px solid var(--grid); }
+  .markdown th { background: var(--page); }
+  .markdown hr { border: 0; border-top: 1px solid var(--grid); margin: 18px 0; }
+  .markdown input[type="checkbox"] { width: auto; box-shadow: none; margin: 0 6px 0 0; vertical-align: -1px; }
+  .markdown li:has(> input[type="checkbox"]) { list-style: none; margin-left: -20px; }
+
   /* /simulation: decisions, scenarios and comparisons. */
   .scenario-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
   @media (max-width: 1100px) { .scenario-grid { grid-template-columns: 1fr; } }

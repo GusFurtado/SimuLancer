@@ -13,7 +13,7 @@ outliers-sim serve --data ./data --host 0.0.0.0       # other machines (put it b
 
 ## Concepts
 
-- **Projects** live in `<data>/projects/<id>/`, each a git repository with `project.yaml` (name, description, model file), the model and its layout. A new data folder has none. Projects start blank, from a template (`GET /api/v1/templates`), or as a copy of another project.
+- **Projects** live in `<data>/projects/<id>/`, each a git repository with `project.yaml` (name, description, model file), the model, its layout and its documentation (`README.md`, optional). A new data folder has none. Projects start blank, from a template (`GET /api/v1/templates`), or as a copy of another project.
 - **Working copy** is the model as last saved on the Modeling page.
   - **Saving** applies changes and records a version (a git commit with a message).
   - **Publishing** marks the last saved version as `v1`, `v2`, … (a git tag).
@@ -138,6 +138,7 @@ The built-in templates, to pass as `template` when creating a project. Tags say 
 | `decision_problems` | What's wrong with them, as sentences. Empty when the version can be published. |
 | `project_file` | `project.yaml` as JSON, including the `decisions` and `results` as written. |
 | `measures` | What the model reports (`object_type`, `object`, `measure`, `unit`): what results can name. |
+| `documentation`, `documentation_html` | `README.md` in that version, as Markdown and rendered. Empty strings when there is none. The HTML is safe to show: HTML written in the Markdown comes out as text, links go only to `http`, `https`, `mailto` or within the page, and images become links. |
 
 ### `PATCH /api/v1/projects/{id}`
 
@@ -166,6 +167,7 @@ Checks changes against the working copy. Nothing is saved.
 - **Pending decisions and results:** the body may also carry `decisions` and/or `results`, which replace `project.yaml`'s.
 - **Response:** `{ "ok": true, "errors": [], "decisions": [...], "results": [...], "decision_problems": [...] }`, where `decisions`, `results` and `decision_problems` are as in `GET /projects/{id}`.
 - **A new layout:** `layout` replaces the saved one, as the layout file or `layout.json` would hold it. This is for edits that add, remove or move objects.
+- **Documentation:** with `documentation` (Markdown), the response also has `documentation_html`, rendered as in `GET /projects/{id}`, for a preview.
 - **When the model itself has errors,** `ok` is false, `errors` lists them as above, and only the structure of the decisions is checked.
 
 ### `POST /api/v1/projects/{id}/save`
@@ -176,7 +178,7 @@ Checks changes against the working copy. Nothing is saved.
 
 Applies the changes to the working copy and saves a version.
 
-- **With `decisions` and/or `results`,** `project.yaml` is updated in the same version. With `layout`, so is the layout file.
+- **With `decisions` and/or `results`,** `project.yaml` is updated in the same version. With `layout`, so is the layout file. With `documentation`, so is `README.md`; an empty one removes it.
 - **Formatting:** the files are rewritten in standard formatting, and comments in them aren't kept.
 
 Responses:
@@ -185,7 +187,7 @@ Responses:
 |---|---|
 | `200` | `{ "ok": true, "saved": <commit>, "decision_problems": [...] }` |
 | `422` | the changes have errors (nothing is saved) |
-| `400` | no changes, decisions or results |
+| `400` | no changes, decisions, results, layout or documentation |
 
 ### `POST /api/v1/projects/{id}/publish`
 
