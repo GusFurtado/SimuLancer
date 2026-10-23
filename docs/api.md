@@ -22,7 +22,7 @@ outliers-sim serve --data ./data --host 0.0.0.0       # other machines (put it b
 - **Changes** map dotted paths in the model to new values (`null` removes an entry, e.g. `"conveyors.c3": null`), e.g. `{"servers.mill_b.capacity": 2, "sources.arrivals.output": {"rule": "round_robin"}}`. List items by index: `servers.mill_b.failures.0.downtime`. Paths address the `tree` that `GET /projects/{id}` returns.
 - **Decisions and results** are what the Simulation page lets people change and read, set in `project.yaml` (below). A **scenario** picks a value for some decisions; it's stored with the published version it was made on, outside the project's git history.
 - **Comparisons** run the current setup and some scenarios with the same random numbers and describe each result's change in plain language.
-- **Runs** are queued and executed one at a time, each using all CPU cores (or `--threads`). Each run's results, including the exact model text that ran, go to `<data>/runs/<id>/`. The list of runs lives in memory; result folders stay on disk.
+- **Runs** are queued and executed one at a time, each using all CPU cores (or `--threads`). Each run's results, including the exact model text that ran, go to `<data>/runs/<id>/`. The list of runs lives in memory, so a restarted server starts with none and removes the result folders of earlier runs.
 
 ## Decisions and results in `project.yaml`
 
@@ -300,6 +300,10 @@ Oldest first. `summary` is what the scenario changes, in words. `?version=` keep
 - `status`: `queued`, `running`, `done` or `failed` (then `error` says why).
 - Poll `GET /api/v1/runs/{id}` every 0.5–1 s for progress.
 - `GET /api/v1/runs` lists runs newest first.
+
+### `DELETE /api/v1/runs/{id}`
+
+Removes a finished run and its result folder: `204`. A queued or running run gives `409`; an unknown one `404`. A comparison that used the run then fails with "the run is gone".
 
 ### `GET /api/v1/runs/{id}/files/{name}`
 

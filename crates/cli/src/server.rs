@@ -58,6 +58,34 @@ pub struct ServeArgs {
     threads: Option<usize>,
 }
 
+/// The run list lives in memory, so results left by an earlier server can't be
+/// reached any more: remove them. Only folders named like run ids are touched.
+fn remove_old_runs(runs: &std::path::Path) -> Result<(), String> {
+    let entries = fs::read_dir(runs).map_err(|e| format!("can't read {}: {e}", runs.display()))?;
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let is_run = name
+            .to_str()
+            .and_then(|n| n.split_once('-'))
+            .is_some_and(|(a, b)| {
+                !a.is_empty()
+                    && !b.is_empty()
+                    && (a.chars().chain(b.chars())).all(|c| c.is_ascii_digit())
+            });
+        if is_run && entry.path().is_dir() {
+            fs::remove_dir_all(entry.path())
+                .map_err(|e| format!("can't remove {}: {e}", entry.path().display()))?;
+            removed += 1;
+        }
+    }
+    if removed > 0 {
+        let runs = if removed == 1 { "run" } else { "runs" };
+        println!("removed the results of {removed} {runs} from an earlier start");
+    }
+    Ok(())
+}
+
 pub fn serve(args: &ServeArgs) -> Result<(), String> {
     projects::git(std::path::Path::new("."), &["--version"])
         .map_err(|e| format!("outliers-sim serve needs git to version projects: {e}"))?;
@@ -67,6 +95,7 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
     for dir in [&projects_dir, &runs_dir] {
         fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     }
+    remove_old_runs(&runs_dir)?;
     let projects = Projects::new(projects_dir);
     let scenarios = Scenarios::new(args.data.join("scenarios"));
     let state = AppState::start(projects, scenarios, runs_dir, thread_count(args.threads));
@@ -145,7 +174,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/comparisons/{id}", get(get_comparison))
         .route("/api/v1/runs", get(list_runs).post(start_run))
-        .route("/api/v1/runs/{id}", get(get_run))
+        .route("/api/v1/runs/{id}", get(get_run).delete(delete_run))
         .route("/api/v1/runs/{id}/files/{name}", get(get_run_file))
         .layer(CompressionLayer::new())
         .with_state(state)
@@ -1239,6 +1268,30 @@ async fn get_run(State(state): State<Arc<AppState>>, UrlPath(id): UrlPath<String
     }
 }
 
+/// Removes a finished run and its result folder. Comparisons using it then say the run is gone.
+async fn delete_run(State(state): State<Arc<AppState>>, UrlPath(id): UrlPath<String>) -> Response {
+    {
+        let mut jobs = state.jobs.lock().expect("jobs lock");
+        let Some(i) = jobs.iter().position(|j| j.id == id) else {
+            return error(StatusCode::NOT_FOUND, format!("no run `{id}`"));
+        };
+        if matches!(jobs[i].status, Status::Queued | Status::Running) {
+            return error(
+                StatusCode::CONFLICT,
+                format!("run `{id}` hasn't finished; delete it when it's done"),
+            );
+        }
+        jobs.remove(i);
+    }
+    match fs::remove_dir_all(state.runs.join(&id)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("can't remove the results of run `{id}`: {e}"),
+        ),
+        _ => StatusCode::NO_CONTENT.into_response(),
+    }
+}
+
 /// Result files a run can have, and their media types.
 const RUN_FILES: &[(&str, &str)] = &[
     ("report.html", "text/html; charset=utf-8"),
@@ -1933,6 +1986,38 @@ mod tests {
         .await;
         assert_eq!(latest["version"], "v2");
         assert!(latest.get("history").is_none());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn deletes_finished_runs_and_old_results() {
+        let (app, root) = app("delete-runs");
+        let body = json!({ "project": "two-cells", "replications": 2 });
+        let (_, run) = call(&app, "POST", "/api/v1/runs", Some(body)).await;
+        let id = run["id"].as_str().unwrap().to_string();
+        let (status, _) = call(&app, "DELETE", &format!("/api/v1/runs/{id}"), None).await;
+        assert!(
+            [StatusCode::CONFLICT, StatusCode::NO_CONTENT].contains(&status),
+            "a queued or running run can't be deleted: {status}"
+        );
+        wait_for(&app, &id).await;
+        assert!(root.join("runs").join(&id).join("events.jsonl").exists());
+        let (status, _) = call(&app, "DELETE", &format!("/api/v1/runs/{id}"), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert!(!root.join("runs").join(&id).exists());
+        let (_, list) = call(&app, "GET", "/api/v1/runs", None).await;
+        assert_eq!(list["runs"], json!([]));
+        let (status, _) = call(&app, "DELETE", &format!("/api/v1/runs/{id}"), None).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // Results of an earlier start are removed; anything else is left alone.
+        let runs = root.join("runs");
+        fs::create_dir_all(runs.join("1791642661-3")).unwrap();
+        fs::create_dir_all(runs.join("notes")).unwrap();
+        fs::write(runs.join("2-2"), "a file").unwrap();
+        remove_old_runs(&runs).unwrap();
+        assert!(!runs.join("1791642661-3").exists());
+        assert!(runs.join("notes").exists() && runs.join("2-2").exists());
         fs::remove_dir_all(root).unwrap();
     }
 
