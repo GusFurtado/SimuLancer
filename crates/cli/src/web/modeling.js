@@ -269,6 +269,7 @@ function render() {
 }
 
 function renderEditor() {
+  renderSide();
   const content = document.getElementById("content");
   if (!content || !["model", "decisions", "documentation"].includes(state.tab)) return;
   if (!state.baseTree) {
@@ -599,28 +600,75 @@ function rename(section, oldName, newName) {
   });
 }
 
+/** Edits of what's on the diagram; adding and connecting are in the Components panel. */
 function diagramToolbar() {
   const tool = (label, onclick, attrs = {}) => el("button", { onclick, ...attrs }, label);
   return el("div", { class: "toolbar" },
-    tool("+ Source", () => addObject("sources"), { id: "add-source", title: say("Where parts come from") }),
-    tool("+ Server", () => addObject("servers"), { id: "add-server", title: say("A machine or station that works on parts") }),
-    tool("+ Sink", () => addObject("sinks"), { id: "add-sink", title: say("Where parts leave") }),
-    connectTool("conveyors", "Conveyor", "connect", say("Click an object, then the next one, to link them with a conveyor (parts travel along it)")),
-    connectTool("queues", "Queue", "connect-queue", say("Click an object, then the next one, to link them with a queue (parts wait in line, no travel time)")),
-    connectTool("transports", "Transport", "connect-transport", say("Click an object, then the next one, to have vehicles carry parts between them")),
     tool("Delete", deleteSelected, { id: "delete", disabled: state.selected ? null : true, title: "Delete the selected object or conveyor" }),
     el("span", { style: "flex: 1" }),
     tool("↶ Undo", undo, { id: "undo", disabled: state.undo.length ? null : true, title: "Undo (Ctrl+Z)" }),
     tool("↷ Redo", redo, { id: "redo", disabled: state.redo.length ? null : true, title: "Redo (Ctrl+Shift+Z)" }));
 }
 
-/** Connecting objects with a conveyor or a queue: one button each. */
-function connectTool(kind, label, id, title) {
-  const on = state.connect?.kind === kind;
-  return el("button", {
-    id, class: on ? "primary" : null, title,
-    onclick: () => { state.connect = on ? null : { from: null, kind }; renderEditor(); },
-  }, on ? "Connecting… (Esc)" : `→ ${label}`);
+// --- side panels: components and recent runs ------------------------------------------------
+
+/** The open panel ("components", "runs" or null), remembered in this browser. At first,
+ *  Components on a wide screen; none on a phone, where the panel covers the diagram. */
+state.side = (() => {
+  const first = matchMedia("(max-width: 760px)").matches ? null : "components";
+  try { const saved = localStorage.getItem("modeling.side"); return saved === null ? first : saved || null; } catch { return first; }
+})();
+
+function toggleSide(name) {
+  state.side = state.side === name ? null : name;
+  try { localStorage.setItem("modeling.side", state.side || ""); } catch { /* not remembered */ }
+  renderSide();
+}
+
+for (const b of document.querySelectorAll(".activity button")) b.addEventListener("click", () => toggleSide(b.dataset.side));
+
+function renderSide() {
+  document.getElementById("side").hidden = !state.side;
+  for (const b of document.querySelectorAll(".activity button")) {
+    b.classList.toggle("current", b.dataset.side === state.side);
+    b.setAttribute("aria-expanded", String(b.dataset.side === state.side));
+  }
+  document.getElementById("side-runs").hidden = state.side !== "runs";
+  const panel = document.getElementById("side-components");
+  panel.hidden = state.side !== "components";
+  panel.replaceChildren(...componentsPanel());
+}
+
+/** What can be added to the model, and the ways to connect objects. */
+function componentsPanel() {
+  const ready = Boolean(state.baseTree);
+  // Adding works from any tab: it switches to the model's diagram. On a phone the
+  // panel covers the diagram, so it closes (for now, not remembered).
+  const onModel = f => () => {
+    if (matchMedia("(max-width: 760px)").matches) state.side = null;
+    if (state.tab !== "model") { state.tab = "model"; render(); }
+    f();
+  };
+  const item = (id, name, about, onclick, extra = {}) => el("button", { id, class: "component", onclick, disabled: ready ? null : true, title: about, ...extra },
+    el("b", {}, name), el("span", {}, about));
+  const connect = (kind, id, name, about) => {
+    const on = state.connect?.kind === kind;
+    return item(id, on ? `${name}: connecting… (Esc)` : name, about,
+      onModel(() => { state.connect = on ? null : { from: null, kind }; renderEditor(); }),
+      { class: on ? "component on" : "component", "aria-pressed": String(on) });
+  };
+  return [
+    el("h2", {}, "Components"),
+    el("h3", {}, "Add"),
+    item("add-source", "Source", say("Where parts come from"), onModel(() => addObject("sources"))),
+    item("add-server", "Server", say("A machine or station that works on parts"), onModel(() => addObject("servers"))),
+    item("add-sink", "Sink", say("Where parts leave"), onModel(() => addObject("sinks"))),
+    el("h3", {}, "Connect"),
+    connect("conveyors", "connect", "Conveyor", say("Parts travel along it")),
+    connect("queues", "connect-queue", "Queue", say("Parts wait in line, no travel time")),
+    connect("transports", "connect-transport", "Transport", say("Vehicles carry parts between them")),
+    el("p", { class: "hint" }, "To connect, click a kind, then an object on the diagram and the next one."),
+  ];
 }
 
 let drag = null;
@@ -1931,6 +1979,7 @@ function showRun(run) {
 // --- start -----------------------------------------------------------------------------------
 
 state.project = pageProject();
+renderSide();
 if (state.project) {
   openProject(state.project);
   loadRuns();

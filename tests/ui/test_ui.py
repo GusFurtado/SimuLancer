@@ -485,5 +485,14 @@ b.wait("return document.getElementById('pending')?.textContent === 'all changes 
 check(b.js("return document.querySelector('.tabs .current').textContent") == "Documentation", "stays on the tab after saving")
 check(not leaving_asks(), "nothing to ask once saved")
 check(not b.js("return document.getElementById('save').classList.contains('unsaved')"), "Save version back to normal")
+
+# --- Side panels: each icon opens its panel, and clicking it again closes it.
+b.js("document.getElementById('show-runs').click()")
+check(b.js("return !document.getElementById('side').hidden && !document.getElementById('side-runs').hidden"), "recent runs open")
+check(b.js("return document.getElementById('side-components').hidden"), "one panel at a time")
+b.js("document.getElementById('show-runs').click()")
+check(b.js("return document.getElementById('side').hidden"), "clicking the open panel's icon closes it")
+b.js("document.getElementById('show-components').click()")
+check(b.js("return !document.getElementById('side-components').hidden"), "components open")
 check(b.js("return document.querySelector('#doc-view h2').textContent") == "Business rules", "saved documentation shown")
 print("web UI sessions (Modeling and Simulation): all checks passed")

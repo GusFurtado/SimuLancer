@@ -321,6 +321,14 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Side panels on the Modeling page (implemented 2026-10-22)
+
+"Recent runs" took a fixed column of the screen while modeling, and the buttons to add and connect objects sat in a row above the diagram with Delete, Undo and Redo.
+
+- **An activity bar, as in code editors:** a narrow strip of icons on the left, one per panel: *Components* and *Recent runs*. An icon opens its panel; clicking it again closes it, giving the diagram the whole width. One panel at a time.
+- **Components panel:** *Add* (source, server, sink) and *Connect* (conveyor, queue, transport), each with one line saying what it is, in the model's words ("Where customers come from"). The connect mode being used is highlighted. They work from any tab, switching to the Model tab. Delete, Undo and Redo stay on the diagram: they act on what's there.
+- **Remembered per browser** (`localStorage`): which panel was open, or none. At first Components is open on a wide screen and nothing on a phone, where a panel opens over the diagram and closes itself once something is chosen.
+
 ## Unsaved changes (implemented 2026-10-22, issue #48)
 
 Edits on the Modeling page live in the browser until Save version, so leaving the page used to throw them away silently.
