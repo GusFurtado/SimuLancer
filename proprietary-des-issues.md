@@ -156,7 +156,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | **3. Old architecture** | | |
 | Old foundations, Windows-only | Rust engine; Linux binary, Docker image, web interface in any browser. | done |
 | Single-threaded engines | Replications run in parallel across all cores, with results independent of the thread count. | done |
-| Slow startup and heavy UI | 30 replications of the examples in about 0.2 s; the web UI is plain HTML/JS with no install, and shows one project at a time (picked from the project list). | done |
+| Slow startup and heavy UI | 30 replications of the examples in about 0.2 s; the web UI is plain HTML/JS with no install, and shows one project at a time (picked from the project list), and loads nothing from the internet (not even a font). | done |
 | GUI is the only full interface | CLI, HTTP API and web UI are equal citizens; the web UI uses only the public API. | done |
 | Weak APIs | A documented JSON HTTP API (`docs/api.md`), scriptable from any language. | done |
 | **4. Reproducibility and engineering practice** | | |

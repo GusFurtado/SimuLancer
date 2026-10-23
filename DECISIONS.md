@@ -318,6 +318,8 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **`/modeling` and `/simulation` show one project.** A top bar has the way back to the projects, the project's name, and a switch between editing and running the same project. The Modeling page's recent runs are this project's only. Without `?project=` the pages go back to `/`; an unknown or unpublished project gets a sentence and a link back instead of an empty page.
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
+- **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
+- **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
 ## Paced lines (implemented 2026-10-21, issue #33)
 

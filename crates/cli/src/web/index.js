@@ -124,7 +124,10 @@ async function archive(p) {
 
 function archivedSection() {
   if (!state.archived.length) return [];
-  const toggle = el("button", { class: "link", id: "show-archived", onclick: () => { state.showArchived = !state.showArchived; render(); } },
+  const toggle = el("button", {
+    class: "link", id: "show-archived", "aria-expanded": String(state.showArchived),
+    onclick: () => { state.showArchived = !state.showArchived; render(); },
+  }, svg("svg", { class: "caret", viewBox: "0 0 24 24", "aria-hidden": "true" }, svg("path", { d: "M9 5l7 7-7 7" })),
     `${state.showArchived ? "Hide" : "Show"} archived projects (${state.archived.length})`);
   if (!state.showArchived) return [toggle];
   return [toggle, el("div", { class: "archived-list" }, ...state.archived.map(p => el("div", { class: "archived", "data-archived": p.id },
@@ -212,8 +215,10 @@ function newProjectView() {
       })),
     el("h3", { class: "start-from" }, "Start from"),
     el("div", { class: "finder" },
-      el("input", { id: "template-search", type: "search", value: c.query, placeholder: "Search templates: bank, warehouse, shifts, rework…",
-        oninput: e => { c.query = e.target.value; render(); } }),
+      el("div", { class: "search" },
+        svg("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" }, svg("circle", { cx: 10.5, cy: 10.5, r: 6.5 }), svg("path", { d: "M15.5 15.5 21 21" })),
+        el("input", { id: "template-search", type: "search", value: c.query, placeholder: "Search templates: bank, warehouse, shifts, rework…",
+          "aria-label": "Search templates", oninput: e => { c.query = e.target.value; render(); } })),
       tagButtons(found)),
     el("div", { class: "choices" },
       choice("", el("b", {}, "Blank"), el("span", {}, "One source, one machine and an exit, to build on.")),
