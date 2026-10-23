@@ -267,6 +267,11 @@ impl<'a, W: Write> EventLog<'a, W> {
             "warmup": e.warmup.as_secs_f64(),
             "end": (e.warmup + e.run_length).as_secs_f64(),
             "entities": spec.entities,
+            "attributes": spec.attributes.iter().map(|a| json!({
+                "name": a.name,
+                "unit": if a.time { Some("s") } else { None },
+                "default": a.default,
+            })).collect::<Vec<_>>(),
             "sources": spec.sources.iter().map(|s| &s.name).collect::<Vec<_>>(),
             "servers": spec.servers.iter().map(|s| json!({
                 "name": s.name,
@@ -436,6 +441,17 @@ impl<'a, W: Write> EventLog<'a, W> {
                 self.out,
                 r#"{{"t":{t},"type":"exited","part":{part},"sink":"{}"}}"#,
                 s.sinks[sink].name
+            ),
+            TraceEvent::Set {
+                part,
+                attribute,
+                value,
+            } => writeln!(
+                self.out,
+                r#"{{"t":{t},"type":"set","part":{part},"attribute":"{}","value":{}}}"#,
+                s.attributes[attribute].name,
+                // JSON has no infinity or NaN (a division by zero).
+                serde_json::Value::from(value)
             ),
         }
     }

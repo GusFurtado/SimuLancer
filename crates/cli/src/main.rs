@@ -19,8 +19,8 @@ use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
 use outliers_sim_engine::spec::{
-    Arrivals, Changeover, Count, Distribution, InputRule, Node, OrderQuantity, PerType, Routing,
-    ServerKind, Spec,
+    Arrivals, BinaryOp, Changeover, Count, Distribution, Expr, InputRule, Node, OrderQuantity,
+    PerType, Routing, ServerKind, Spec,
 };
 use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
 use outliers_sim_model::Model;
@@ -285,6 +285,18 @@ fn describe(path: &Path, model: &Model) -> String {
     let spec = &model.spec;
     let mut out = format!("ok: {} ({})\n", path.display(), model.name);
 
+    if !spec.attributes.is_empty() {
+        out += "\nattributes\n";
+        for a in &spec.attributes {
+            let default = if a.time {
+                duration(a.default)
+            } else {
+                a.default.to_string()
+            };
+            out += &format!("  {:<12} starts at {default}\n", a.name);
+        }
+    }
+
     out += "\nsources\n";
     for s in &spec.sources {
         let creates = match s.creates.as_slice() {
@@ -350,6 +362,7 @@ fn describe(path: &Path, model: &Model) -> String {
                 "", spec.schedules[i].name
             );
         }
+        out += &sets_text(spec, &s.sets, "on each new part");
     }
     out += "\nservers\n";
     for s in &spec.servers {
@@ -435,6 +448,7 @@ fn describe(path: &Path, model: &Model) -> String {
                 );
             }
         }
+        out += &sets_text(spec, &s.sets, "when a part is done");
         for f in &s.failures {
             out += &format!(
                 "  {:<12}   fails ({}) after {}, down for {}\n",
@@ -644,9 +658,70 @@ fn node_name(spec: &Spec, node: Node) -> &str {
     }
 }
 
+/// One line per attribute a source or server sets.
+fn sets_text(spec: &Spec, sets: &[(usize, Expr)], when: &str) -> String {
+    sets.iter()
+        .map(|(a, f)| {
+            format!(
+                "  {:<12}   sets {} = {} {when}\n",
+                "",
+                spec.attributes[*a].name,
+                formula(spec, f)
+            )
+        })
+        .collect()
+}
+
+/// A formula as the engine understood it, fully parenthesized.
+fn formula(spec: &Spec, f: &Expr) -> String {
+    match f {
+        Expr::Value(v) => v.to_string(),
+        Expr::Seconds(s) => duration(*s),
+        Expr::Attribute(a) => spec.attributes[*a].name.clone(),
+        Expr::Now => "now".into(),
+        Expr::Draw { distribution, time } => {
+            let value = |v: f64| if *time { duration(v) } else { v.to_string() };
+            dist_body(distribution, value)
+        }
+        Expr::IsType(e) => format!("type == {}", spec.entities[*e]),
+        Expr::Neg(x) => format!("-{}", formula(spec, x)),
+        Expr::Not(x) => format!("not {}", formula(spec, x)),
+        Expr::Binary(op, a, b) => {
+            let symbol = match op {
+                BinaryOp::Add => "+",
+                BinaryOp::Sub => "-",
+                BinaryOp::Mul => "*",
+                BinaryOp::Div => "/",
+                BinaryOp::Lt => "<",
+                BinaryOp::Le => "<=",
+                BinaryOp::Gt => ">",
+                BinaryOp::Ge => ">=",
+                BinaryOp::Eq => "==",
+                BinaryOp::Ne => "!=",
+                BinaryOp::And => "and",
+                BinaryOp::Or => "or",
+            };
+            let side = |x: &Expr| match x {
+                Expr::Binary(..) => format!("({})", formula(spec, x)),
+                _ => formula(spec, x),
+            };
+            format!("{} {symbol} {}", side(a), side(b))
+        }
+    }
+}
+
 fn dist(d: &Distribution) -> String {
-    let body = match *d {
-        Distribution::Constant(v) => return duration(v),
+    if let Distribution::Constant(v) = *d {
+        return duration(v);
+    }
+    format!("{}, mean {}", dist_body(d, duration), duration(d.mean()))
+}
+
+/// A distribution with its parameters written by `value` (shapes are plain numbers).
+fn dist_body(d: &Distribution, value: impl Fn(f64) -> String) -> String {
+    let duration = value;
+    match *d {
+        Distribution::Constant(v) => duration(v),
         Distribution::Exponential { mean } => format!("exponential({})", duration(mean)),
         Distribution::Uniform { min, max } => {
             format!("uniform({}, {})", duration(min), duration(max))
@@ -666,8 +741,7 @@ fn dist(d: &Distribution) -> String {
         Distribution::Gamma { shape, scale } => {
             format!("gamma(shape {shape}, scale {})", duration(scale))
         }
-    };
-    format!("{body}, mean {}", duration(d.mean()))
+    }
 }
 
 /// Seconds in the largest unit that keeps the number readable.

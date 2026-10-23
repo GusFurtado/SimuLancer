@@ -200,6 +200,8 @@ func _apply(e: Dictionary) -> void:
 			_leave_conveyor(int(e["part"]), e["sink"], t)
 			sinks[e["sink"]] += 1
 			exited += 1
+		"set":
+			pass  # an attribute's new value; nothing to draw
 		_:
 			push_warning("unknown event type: %s" % e["type"])
 

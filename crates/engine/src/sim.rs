@@ -50,6 +50,12 @@
 //! - Failure clocks run only while the server is up. `busy_time` clocks run
 //!   only while at least one slot is processing. While the server is down it
 //!   does nothing: no processing, no taking parts, no releasing blocked parts.
+//! - Attributes: a part starts with every attribute's default. Its source's
+//!   `sets` apply when it's created; a server's `sets` apply when its
+//!   processing finishes, before it picks its way out. Formulas apply in
+//!   order, each seeing the values set before it. Split parts inherit the
+//!   finished part's attributes; an assembled part, those of the component
+//!   whose clock it keeps.
 //! - Events at the same time run in the order they were scheduled. Events at
 //!   exactly the end of the run are not processed.
 
@@ -63,8 +69,8 @@ use crate::results::{
 };
 use crate::rng::Rng;
 use crate::spec::{
-    Arrivals, Conveyor, Distribution, FailureClock, InputRule, Node, OnFailure, OrderQuantity,
-    Restock, Routing, ServerKind, Spec, WhenBlocked,
+    Arrivals, Conveyor, Distribution, FailureClock, InputRule, MAX_ATTRIBUTES, Node, OnFailure,
+    OrderQuantity, Restock, Routing, ServerKind, Spec, WhenBlocked,
 };
 use crate::trace::{Observer, PartId, TraceEvent};
 
@@ -77,6 +83,8 @@ struct Part {
     created: SimTime,
     /// Index into [`Spec::entities`].
     entity: usize,
+    /// Values of [`Spec::attributes`], in order; the rest are unused.
+    attributes: [f64; MAX_ATTRIBUTES],
 }
 
 /// The conveyor a waiting part will leave on; `None` means any output with
@@ -92,6 +100,8 @@ struct SourceState {
     thinning_rng: Rng,
     /// Draws how many parts arrive together (`group`).
     group_rng: Rng,
+    /// Draws in the formulas of `sets`.
+    sets_rng: Rng,
     next_output: usize,
     /// Parts waiting to get on a conveyor (`when_blocked: wait`), in order:
     /// one, or the rest of a group.
@@ -170,6 +180,8 @@ struct ServerState {
     setup_time: f64,
     /// Draws how many parts a split makes.
     split_rng: Rng,
+    /// Draws in the formulas of `sets`.
+    sets_rng: Rng,
     /// Waiting in the resource queue: a part is ready, units aren't.
     waiting_for_resources: bool,
     /// The batch or kit being collected.
@@ -399,6 +411,8 @@ struct Sim<'a, O: Observer> {
     end: SimTime,
     events: EventList,
     next_part: PartId,
+    /// What a part's attributes start as.
+    default_attributes: [f64; MAX_ATTRIBUTES],
     sources: Vec<SourceState>,
     servers: Vec<ServerState>,
     conveyors: Vec<ConveyorState>,
@@ -433,6 +447,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 type_rng: stream(format!("source/{}/type", s.name)),
                 thinning_rng: stream(format!("source/{}/thinning", s.name)),
                 group_rng: stream(format!("source/{}/group", s.name)),
+                sets_rng: stream(format!("source/{}/sets", s.name)),
                 next_output: 0,
                 held: VecDeque::new(),
                 off_shift: false,
@@ -486,6 +501,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     changeovers: 0,
                     setup_time: 0.0,
                     split_rng: stream(format!("server/{}/split", s.name)),
+                    sets_rng: stream(format!("server/{}/sets", s.name)),
                     waiting_for_resources: false,
                     staging: Vec::new(),
                     waiting: TimeAverage::default(),
@@ -534,6 +550,13 @@ impl<'a, O: Observer> Sim<'a, O> {
             end: experiment.warmup + experiment.run_length,
             events: EventList::default(),
             next_part: 0,
+            default_attributes: {
+                let mut values = [0.0; MAX_ATTRIBUTES];
+                for (v, a) in values.iter_mut().zip(&spec.attributes) {
+                    *v = a.default;
+                }
+                values
+            },
             sources,
             servers,
             conveyors,
@@ -803,6 +826,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     id: self.next_part,
                     created: self.now,
                     entity,
+                    attributes: self.default_attributes,
                 };
                 self.next_part += 1;
                 self.totals.created += 1;
@@ -895,10 +919,11 @@ impl<'a, O: Observer> Sim<'a, O> {
                 .unwrap_or(creates.last().expect("validated: at least one type"))
                 .0
         };
-        let part = Part {
+        let mut part = Part {
             id: self.next_part,
             created: self.now,
             entity,
+            attributes: self.default_attributes,
         };
         self.next_part += 1;
         self.sources[source].created += 1;
@@ -912,7 +937,31 @@ impl<'a, O: Observer> Sim<'a, O> {
                 entity,
             },
         );
+        self.set_attributes(&mut part, Node::Source(source));
         part
+    }
+
+    /// Applies the `sets` of a source or server to a part, in order: each
+    /// formula sees the values set before it.
+    fn set_attributes(&mut self, part: &mut Part, at: Node) {
+        let spec = self.spec;
+        let (sets, rng) = match at {
+            Node::Source(i) => (&spec.sources[i].sets, &mut self.sources[i].sets_rng),
+            Node::Server(i) => (&spec.servers[i].sets, &mut self.servers[i].sets_rng),
+            Node::Sink(_) => return,
+        };
+        for (attribute, formula) in sets {
+            let value = formula.eval(&part.attributes, part.entity, self.now, rng);
+            part.attributes[*attribute] = value;
+            self.observer.record(
+                self.now,
+                TraceEvent::Set {
+                    part: part.id,
+                    attribute: *attribute,
+                    value,
+                },
+            );
+        }
     }
 
     /// The first arrival of the run or of a shift: at once with a time
@@ -1723,17 +1772,19 @@ impl<'a, O: Observer> Sim<'a, O> {
                             .record(self.now, TraceEvent::Consumed { part: p.id, server });
                     }
                     self.totals.consumed += staged.len() as u64;
+                    // It keeps the clock and attributes of its earliest
+                    // component, or its earliest of the type that keeps the
+                    // clock (an order).
+                    let keeper = staged
+                        .iter()
+                        .filter(|p| clock_of.is_none_or(|e| p.entity == e))
+                        .min_by_key(|p| p.created)
+                        .expect("validated: the clock's type is in the kit");
                     let part = Part {
                         id: self.next_part,
-                        // When its earliest component arrived, or its
-                        // earliest of the type that keeps the clock (an order).
-                        created: staged
-                            .iter()
-                            .filter(|p| clock_of.is_none_or(|e| p.entity == e))
-                            .map(|p| p.created)
-                            .min()
-                            .expect("validated: the clock's type is in the kit"),
+                        created: keeper.created,
                         entity: *makes,
+                        attributes: keeper.attributes,
                     };
                     self.next_part += 1;
                     self.totals.assembled += 1;
@@ -1912,7 +1963,10 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     fn process_done(&mut self, server: usize, slot: usize) {
         let spec = &self.spec.servers[server];
-        let Slot::Busy { part, holds, .. } = self.servers[server].slots[slot] else {
+        let Slot::Busy {
+            mut part, holds, ..
+        } = self.servers[server].slots[slot]
+        else {
             unreachable!("a current ProcessDone event belongs to a busy slot");
         };
         if holds {
@@ -1927,8 +1981,9 @@ impl<'a, O: Observer> Sim<'a, O> {
                 server,
             },
         );
+        self.set_attributes(&mut part, Node::Server(server));
         // A split part becomes several, which leave one by one, keeping the
-        // time the original arrived.
+        // time the original arrived and its attributes.
         let part = match &spec.splits_into {
             None => part,
             Some((entity, count)) => {
@@ -1948,6 +2003,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                             id: self.next_part,
                             created: part.created,
                             entity: *entity,
+                            attributes: part.attributes,
                         };
                         self.next_part += 1;
                         self.observer.record(

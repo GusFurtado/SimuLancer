@@ -6,6 +6,7 @@
 mod build;
 mod diagnostic;
 mod expr;
+mod formula;
 mod layout;
 mod raw;
 mod scenario;

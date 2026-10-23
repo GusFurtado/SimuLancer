@@ -752,3 +752,84 @@ fn queue_errors() {
         "{duplicate:#?}"
     );
 }
+
+/// MINIMAL with attributes, and `sets` on the source and the server.
+fn with_attributes(attributes: &str, source_sets: &str, server_sets: &str) -> String {
+    let s = replace(
+        MINIMAL,
+        "sources:\n",
+        &format!("attributes:\n{attributes}\nsources:\n"),
+    );
+    let s = replace(
+        &s,
+        "    interarrival: \"exponential(1 min)\"\n",
+        &format!("    interarrival: \"exponential(1 min)\"\n    sets: {source_sets}\n"),
+    );
+    replace(
+        &s,
+        "    process_time: \"50 s\"\n",
+        &format!("    process_time: \"50 s\"\n    sets: {server_sets}\n"),
+    )
+}
+
+#[test]
+fn attributes_load_with_their_kinds_and_defaults() {
+    let source = with_attributes(
+        "  due: { default: \"0 s\" }\n  rework: { default: 0 }",
+        "{ due: \"now + 4 h\" }",
+        "{ rework: \"rework + 1\" }",
+    );
+    let model = load_str(&source).unwrap();
+    let a = &model.spec.attributes;
+    assert_eq!((a[0].name.as_str(), a[0].time), ("due", true));
+    assert_eq!(
+        (a[1].name.as_str(), a[1].time, a[1].default),
+        ("rework", false, 0.0)
+    );
+    assert_eq!(model.spec.sources[0].sets.len(), 1);
+    assert_eq!(model.spec.servers[0].sets[0].0, 1);
+}
+
+#[test]
+fn attribute_errors_point_at_the_line() {
+    let attributes = "  due: { default: \"0 s\" }\n  rework: { default: 0 }";
+    let cases = [
+        (
+            with_attributes(attributes, "{ due: \"now + 4\" }", "{}"),
+            "due: \"now + 4\"",
+            "can't add a time and a plain number",
+        ),
+        (
+            with_attributes(attributes, "{}", "{ rework: \"now\" }"),
+            "rework: \"now\"",
+            "`rework` holds a plain number, but `now` is a time",
+        ),
+        (
+            with_attributes(attributes, "{}", "{ priority: 1 }"),
+            "priority: 1",
+            "`priority` isn't listed under `attributes` (attributes: `due`, `rework`)",
+        ),
+        (
+            with_attributes("  now: { default: 0 }", "{}", "{}"),
+            "now: { default",
+            "formulas use that word",
+        ),
+        (
+            with_attributes("  due: { default: soon }", "{}", "{}"),
+            "due: { default",
+            "a plain number (`0`) or a time (`0 s`)",
+        ),
+    ];
+    for (source, line, expected) in cases {
+        assert_one_error(&source, line, expected);
+    }
+}
+
+#[test]
+fn at_most_eight_attributes() {
+    let many: Vec<String> = (1..=9)
+        .map(|i| format!("  a{i}: {{ default: 0 }}"))
+        .collect();
+    let source = with_attributes(&many.join("\n"), "{}", "{}");
+    assert_one_error(&source, "a9:", "at most 8 attributes");
+}

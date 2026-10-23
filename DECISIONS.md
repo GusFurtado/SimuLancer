@@ -321,6 +321,19 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Attributes (implemented 2026-10-23, issue #56)
+
+The first of the modeling-logic issues (#56 to #60): rules can't tell two parts of the same type apart, so dispatching, conditional routing and per-part patience all need values parts carry.
+
+- **Attributes are data, not methods.** Parts don't get code; rules read their values. That keeps the model readable top to bottom, which is the point of the format (see `proprietary-des-issues.md` §4 and §5). Categories stay part types.
+- **Numbers and times only.** Text attributes (`channel: phone`) would duplicate part types. The kind comes from the default (`0` or `0 s`) and is checked in every formula.
+- **One small formula language** (`crates/model/src/formula.rs`) for `sets` now and for conditions next (#58): numbers, times with units, attributes, `now`, distributions, `+ - * /`, comparisons, `and`/`or`/`not` and `type == <part type>`. It is parsed and unit-checked when the model loads, so the engine evaluates it without errors. Plain numbers in formulas never take the model's default unit, so `uniform(1, 10)` is a number draw and `uniform(1 h, 2)` is an error rather than a guess.
+- **When `sets` apply:** at a source, on creation; at a server, when processing finishes, before routing (so a rework count can decide the way out) and before a split (whose parts inherit). An assembly keeps the attributes of the component whose clock it keeps: the order, not the parts that went into it.
+- **Random draws in formulas** use each object's own `sets` stream, so adding attributes changes no other draw (tested).
+- **At most 8 attributes,** stored inline in each part. This keeps parts `Copy`, with no allocation per part; runs are about 1% slower (warehouse, one thread: 3.61 s vs 3.59 s).
+- **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
+- **Modeling page:** *Part attributes* in the model settings (name, starts at), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
+
 ## Deleting runs (implemented 2026-10-23, issue #53)
 
 Run results piled up without limit: on the LAN server, 19 runs took 140 MB, 98.5% of it the event logs behind the animations. Since the run list lives in memory, results of runs from before a restart couldn't even be reached.

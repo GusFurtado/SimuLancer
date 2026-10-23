@@ -6,8 +6,15 @@ use crate::spec::Node;
 
 pub type PartId = u64;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TraceEvent {
+    /// A source or server set one of the part's attributes (an index into
+    /// [`crate::Spec`]'s `attributes`); times are in seconds.
+    Set {
+        part: PartId,
+        attribute: usize,
+        value: f64,
+    },
     /// A vehicle sets off from one object to another, arriving at `until`;
     /// carrying `part`, or empty.
     VehicleTrip {
