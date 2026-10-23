@@ -13,7 +13,7 @@ const state = {
   changes: {},       // unsaved changes: path -> value
   errors: [],        // from POST /check
   selected: null,    // { section, name } or null (experiment)
-  tab: "model",      // "model" | "decisions" | "results"
+  tab: "model",      // "model" | "decisions" | "documentation" | "results"
   draft: null,       // project.yaml's { decisions, results } with unsaved edits
   exposed: null,     // the draft as checked: { decisions, results, decision_problems }
   offer: null,       // the "offer as an option" form: { decision, newLabel, optionLabel, currentLabel }
@@ -27,6 +27,7 @@ const state = {
   view: "report",
   message: null,     // { kind: "ok" | "error", text, list?, progress? }
   saveMessage: "",
+  docs: { text: "", editing: false, html: "" },  // README.md: the draft, whether it's being edited, the draft rendered
 };
 
 // --- change paths ---------------------------------------------------------------
@@ -166,7 +167,7 @@ async function openProject(id, keepMessage = false) {
     changes: {},
     errors: (data.errors || []).map(e => ({ change: null, message: `${e.file}${e.line ? ":" + e.line : ""}: ${e.message}` })),
     selected: null,
-    tab: keepMessage && state.tab === "decisions" ? "decisions" : "model",
+    tab: keepMessage && ["decisions", "documentation"].includes(state.tab) ? state.tab : "model",
     message: keepMessage ? state.message : null,
     saveMessage: "",
     draft: savedDraft(data),
@@ -177,6 +178,7 @@ async function openProject(id, keepMessage = false) {
     undo: [], redo: [],
     exposed: { decisions: data.decisions, results: data.results, decision_problems: data.decision_problems },
     offer: null,
+    docs: { text: data.documentation || "", editing: false, html: data.documentation_html || "" },
   });
   if (!data.tree) {
     state.message = { kind: "error", text: "This model can't be read.", list: state.errors.map(e => e.message) };
@@ -191,12 +193,14 @@ function savedDraft(detail) {
 }
 
 const draftChanged = () => state.draft && !equal(state.draft, savedDraft(state.detail));
+const docsChanged = () => state.docs.text !== (state.detail?.documentation || "");
 
 /** What to send to check and save: model changes, plus the draft if edited. */
 function pending() {
   const body = { changes: state.changes };
   if (draftChanged()) Object.assign(body, state.draft);
   if (state.layoutChanged) body.layout = layoutTree();
+  if (docsChanged()) body.documentation = state.docs.text;
   return body;
 }
 
@@ -223,6 +227,7 @@ const scheduleCheck = debounce(async () => {
   const { data } = await api("POST", `projects/${encodeURIComponent(state.project)}/check`, pending());
   state.errors = data.errors || [];
   state.exposed = { decisions: data.decisions || [], results: data.results || [], decision_problems: data.decision_problems || [] };
+  if (data.documentation_html !== undefined) state.docs.html = data.documentation_html;
   renderEditor();
 }, 250);
 
@@ -243,6 +248,7 @@ function render() {
       el("button", { class: state.tab === "model" ? "current" : null, onclick: () => { state.tab = "model"; render(); } }, "Model"),
       el("button", { id: "tab-decisions", class: state.tab === "decisions" ? "current" : null, onclick: () => { state.tab = "decisions"; render(); } },
         "Decisions", (state.exposed?.decision_problems || []).length ? el("span", { class: "badge bad", style: "margin-left: 6px" }, "!") : null),
+      el("button", { id: "tab-documentation", class: state.tab === "documentation" ? "current" : null, onclick: () => { state.tab = "documentation"; render(); } }, "Documentation"),
       state.run ? el("button", { class: state.tab === "results" ? "current" : null, onclick: () => { state.tab = "results"; render(); } }, "Results") : null),
     el("div", { id: "content" }));
   if (results) {
@@ -254,12 +260,13 @@ function render() {
 
 function renderEditor() {
   const content = document.getElementById("content");
-  if (!content || (state.tab !== "model" && state.tab !== "decisions")) return;
+  if (!content || !["model", "decisions", "documentation"].includes(state.tab)) return;
   if (!state.baseTree) {
     content.replaceChildren(statusBox());
     return;
   }
   if (state.tab === "decisions") return renderDecisions(content);
+  if (state.tab === "documentation") return renderDocumentation(content);
   const tree = currentTree();
   const general = state.errors.filter(e => !e.change);
   content.replaceChildren(...[
@@ -277,10 +284,10 @@ function renderEditor() {
   ].filter(Boolean));
 }
 
-/** Save, publish, run: the same on the Model and Decisions tabs. */
+/** Save, publish, run: the same on the Model, Decisions and Documentation tabs. */
 function actionsBar() {
   const modelChanges = Object.keys(state.changes).length;
-  const changed = modelChanges + (draftChanged() ? 1 : 0) + (state.layoutChanged ? 1 : 0);
+  const changed = modelChanges + (draftChanged() ? 1 : 0) + (state.layoutChanged ? 1 : 0) + (docsChanged() ? 1 : 0);
   const history = state.detail.history || [];
   const lastSaved = history[0];
   const problems = state.exposed?.decision_problems || [];
@@ -291,6 +298,7 @@ function actionsBar() {
     if (modelChanges) parts.push(`${modelChanges} unsaved change${modelChanges === 1 ? "" : "s"}`);
     if (draftChanged()) parts.push("unsaved decision edits");
     if (state.layoutChanged && !modelChanges) parts.push("unsaved layout");
+    if (docsChanged()) parts.push("unsaved documentation");
     return parts.join(", ");
   };
   return el("div", { class: "actions" },
@@ -1763,6 +1771,98 @@ function previewDecisions(decisions) {
         ? `or: ${dec.choices.slice(1).map(c => c.label).join(" · ")}`
         : `can be ${value(dec, dec.min)} to ${value(dec, dec.max)}`)),
   ]));
+}
+
+// --- documentation ---------------------------------------------------------------------------
+
+const DOCS_TEMPLATE = `# Purpose
+What question the model answers, and for whom.
+
+## Modeling assumptions
+- Why an object or rule is modeled the way it is.
+
+## Business rules
+- How the real system decides (priorities, routing, schedules).
+
+## Data
+Where the numbers come from, and when they were measured.
+
+## Not modeled
+- What was left out, and why it doesn't matter for the question.`;
+
+/** The project's README.md: read rendered, edit as Markdown with a live preview. */
+function renderDocumentation(content) {
+  const docs = state.docs;
+  const html = docsChanged() ? docs.html : state.detail.documentation_html || "";
+  // While typing, only the preview and the save bar change: the text box keeps its focus.
+  const preview = document.getElementById("doc-preview");
+  if (docs.editing && preview && document.getElementById("doc-text")) {
+    fillMarkdown(preview, html);
+    content.querySelector(".actions").replaceWith(actionsBar());
+    content.querySelector(".doc-bar").replaceWith(docBar(html));
+    return;
+  }
+  let body;
+  if (docs.editing) {
+    body = el("div", { class: "doc-edit" },
+      el("div", { class: "doc-source" },
+        el("textarea", {
+          id: "doc-text", "aria-label": "Documentation, in Markdown", spellcheck: "true", placeholder: DOCS_TEMPLATE,
+          oninput: e => { docs.text = e.target.value; scheduleCheck(); renderEditor(); },
+        }, docs.text),
+        el("p", { class: "hint" }, "Markdown: ", el("code", {}, "# Heading"), " ", el("code", {}, "**bold**"), " ",
+          el("code", {}, "- list"), " ", el("code", {}, "[link](https://…)"), " ", el("code", {}, "| table |"))),
+      fillMarkdown(el("div", { class: "card markdown", id: "doc-preview", "aria-label": "Preview" }), html));
+  } else if (html) {
+    body = fillMarkdown(el("div", { class: "card markdown", id: "doc-view" }), html);
+  } else {
+    body = el("div", { class: "card doc-empty", id: "doc-view" },
+      el("p", {}, "No documentation yet. Write down what the model can't say for itself, for whoever works on it next:"),
+      el("ul", {},
+        el("li", {}, "the question it answers;"),
+        el("li", {}, "modeling assumptions: why something is modeled the way it is;"),
+        el("li", {}, "business rules: priorities, routing, schedules;"),
+        el("li", {}, "where the data comes from, and what's left out.")),
+      el("button", { class: "primary", id: "doc-write", onclick: editDocs }, pencil(), "Write the documentation"));
+  }
+  content.replaceChildren(actionsBar(), statusBox(), docBar(html), body);
+}
+
+function editDocs() {
+  state.docs.editing = true;
+  renderEditor();
+  document.getElementById("doc-text").focus();
+}
+
+/** Edit or Done, and a way back to the saved text. */
+function docBar(html) {
+  const docs = state.docs;
+  return el("div", { class: "doc-bar" },
+    docs.editing
+      ? el("button", { id: "doc-done", onclick: () => { docs.editing = false; renderEditor(); } }, "Done")
+      : html ? el("button", { id: "doc-edit", onclick: editDocs }, pencil(), "Edit") : null,
+    docs.editing && docsChanged()
+      ? el("button", { class: "link danger", id: "doc-discard", onclick: () => { docs.text = state.detail.documentation || ""; docs.editing = false; renderEditor(); } }, "Discard changes")
+      : null,
+    el("span", { class: "hint" }, docs.editing
+      ? "Saved with the model when you save a version."
+      : "README.md in the project, versioned with the model."));
+}
+
+/** Puts the server-rendered Markdown (already made safe) in `node`; links open in a new tab. */
+function fillMarkdown(node, html) {
+  node.innerHTML = html || '<p class="hint">Nothing to show yet.</p>';
+  for (const a of node.querySelectorAll("a[href]")) {
+    if (a.getAttribute("href").startsWith("#")) continue;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+  }
+  return node;
+}
+
+function pencil() {
+  return svg("svg", { class: "icon", viewBox: "0 0 24 24", "aria-hidden": "true" },
+    svg("path", { d: "M4 20h4L19 9l-4-4L4 16v4z" }), svg("path", { d: "M13.5 6.5l4 4" }));
 }
 
 // --- saving, publishing and running --------------------------------------------------------

@@ -41,7 +41,7 @@ outliers-sim serve --data ./data --port 8080
 
 Then open `http://localhost:8080` and pick a project (or create one). Each project opens two ways:
 
-- **Modeling.** Draw the model on its diagram (add sources, servers and sinks, connect them with conveyors or queues, drag them into place; conveyor lengths follow the drawing), and click machines, conveyors and queues to change them; errors show next to the field as you type. Run to check, **save a version** with a short message, then **publish** it to the Simulation page. On the *Decisions* tab, choose what can be changed on the Simulation page ("⚑ Make this a decision" under a number, or "Offer as an option…" for a set of edits) and which results it shows. Versions are git commits and tags in the project's repository; nobody needs to know git.
+- **Modeling.** Draw the model on its diagram (add sources, servers and sinks, connect them with conveyors or queues, drag them into place; conveyor lengths follow the drawing), and click machines, conveyors and queues to change them; errors show next to the field as you type. Run to check, **save a version** with a short message, then **publish** it to the Simulation page. On the *Decisions* tab, choose what can be changed on the Simulation page ("⚑ Make this a decision" under a number, or "Offer as an option…" for a set of edits) and which results it shows. On the *Documentation* tab, write down in Markdown what the model can't say for itself: assumptions, business rules, where the data comes from. Versions are git commits and tags in the project's repository; nobody needs to know git.
 - **Simulation.** Published versions only. Build scenarios from the decisions the model offers (a set of options, or a number within limits), compare them with the current setup, and read the answer in plain language: *"Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better"*. Every scenario's report and 2D animation are one click away.
 
 Everything the pages do goes through the documented HTTP API (`docs/api.md`): projects, versions, runs and results as JSON, for scripts and integrations.
@@ -79,7 +79,7 @@ servers:
 | `crates/engine` | Simulation core. Standard units only (time in integer µs, length in m), no I/O. |
 | `crates/model` | Loads and validates YAML model files and converts units for the engine. |
 | `crates/cli` | The `outliers-sim` command (`validate`, `run`). |
-| `examples/` | Example models, which are also the templates new projects start from: an assembly line, a bank branch, a warehouse, and smaller ones. `templates.yaml` tags them for the template search, `projects/*.yaml` are their project files (decisions and results), `*.layout.yaml` their drawings, and `blank.yaml` is what a blank project starts as. |
+| `examples/` | Example models, which are also the templates new projects start from: an assembly line, a bank branch, a warehouse, and smaller ones. `templates.yaml` tags them for the template search, `projects/*.yaml` are their project files (decisions and results), `projects/*.md` their documentation, `*.layout.yaml` their drawings, and `blank.yaml` is what a blank project starts as. |
 | `viewer/` | Godot 4.7 project that replays event logs in 3D. |
 | `DECISIONS.md` | Design decisions and open questions. |
 | `proprietary-des-issues.md` | Problems with commercial DES tools that this project is a response to. |

@@ -1,6 +1,7 @@
 mod compare;
 mod decisions;
 mod files;
+mod markdown;
 mod measures;
 mod output;
 mod plain;

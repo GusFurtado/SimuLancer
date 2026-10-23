@@ -20,6 +20,7 @@ axum = "0.8.9"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tower-http = { version = "0.7.1", features = ["compression-gzip"] }
 serde-saphyr = "1.3.0"
+pulldown-cmark = { version = "0.13.5", default-features = false, features = ["html"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"

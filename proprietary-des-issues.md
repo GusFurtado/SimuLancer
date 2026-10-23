@@ -166,7 +166,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Hard to automate | Headless CLI and HTTP API; a Python parameter sweep is in the docs. | done |
 | Results depend on the software version | Our own random number generator and distributions, so the same seed gives the same results forever; integer time. | done |
 | Models die with the license | No license to expire. | done |
-| Documentation by hand | The model file is the specification; `validate` prints an exact summary. | partial |
+| Documentation by hand | The model file is the specification; `validate` prints an exact summary. What the model can't say (assumptions, business rules, data sources) goes in the project's `README.md`, written on the Modeling page's Documentation tab and versioned with the model; templates come with one. | partial |
 | **5. Modeling paradigm** | | |
 | Too much hidden in the GUI | The text file is the source of truth. The UI, including drawing the model, edits it, so nothing lives only in the GUI. | done |
 | Implicit default behavior | Tie-breaking, blocking and failure rules are documented; routing and merging rules are required whenever there's a choice. | done |
