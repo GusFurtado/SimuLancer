@@ -377,6 +377,7 @@
   .field.dist .param input { margin-top: 2px; font-size: 14px; color: var(--ink); }
   label.check { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); margin: 0 0 12px; cursor: pointer; }
   label.check input { width: auto; box-shadow: none; }
+  .field label.check { justify-content: flex-start; font-size: 13px; margin: 0 0 4px; }
   .schedule { border-top: 1px dashed var(--grid); padding-top: 8px; }
   .days { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; }
   .days .day { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); margin: 0; }

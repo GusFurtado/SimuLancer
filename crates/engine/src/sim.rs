@@ -38,6 +38,12 @@
 //!   that order; for a server needing several resources, its best rank),
 //!   then the rest in the order they started waiting. A server that can't
 //!   start doesn't hold back one behind it that can.
+//! - Carried resources: a server's `takes` are taken with its `needs` when a
+//!   part starts (for each part of a batch; a kit's new part takes them), but
+//!   the part keeps them until it finishes at a server whose `gives_back`
+//!   names them. An assembled part carries what its components did; a split
+//!   part's first part carries what it did. A part that gives up waiting
+//!   gives back everything it carries.
 //! - Patience: in a queue with `patience`, each part draws how long it will
 //!   wait as it gets on. If it's still there when that time is up, it leaves
 //!   (gives up) and is counted as lost; that makes room like any departure.
@@ -81,8 +87,8 @@ use crate::results::{
 };
 use crate::rng::Rng;
 use crate::spec::{
-    Arrivals, Conveyor, Distribution, FailureClock, InputRule, MAX_ATTRIBUTES, Node, OnFailure,
-    OrderQuantity, QueueOrder, Restock, Routing, ServerKind, Spec, WhenBlocked,
+    Arrivals, Conveyor, Distribution, FailureClock, InputRule, MAX_ATTRIBUTES, MAX_CARRIED, Node,
+    OnFailure, OrderQuantity, QueueOrder, Restock, Routing, ServerKind, Spec, WhenBlocked,
 };
 use crate::trace::{Observer, PartId, TraceEvent};
 
@@ -97,6 +103,9 @@ struct Part {
     entity: usize,
     /// Values of [`Spec::attributes`], in order; the rest are unused.
     attributes: [f64; MAX_ATTRIBUTES],
+    /// Resource units it carries (`takes`), by carried resource (see
+    /// `Sim::carried`).
+    carrying: [u32; MAX_CARRIED],
 }
 
 /// The conveyor a waiting part will leave on; `None` means any output with
@@ -436,6 +445,8 @@ struct Sim<'a, O: Observer> {
     next_part: PartId,
     /// What a part's attributes start as.
     default_attributes: [f64; MAX_ATTRIBUTES],
+    /// Per resource: its place in `Part::carrying`, if parts carry it.
+    carried: Vec<Option<usize>>,
     sources: Vec<SourceState>,
     servers: Vec<ServerState>,
     conveyors: Vec<ConveyorState>,
@@ -575,6 +586,22 @@ impl<'a, O: Observer> Sim<'a, O> {
             end: experiment.warmup + experiment.run_length,
             events: EventList::default(),
             next_part: 0,
+            carried: {
+                let taken = |r: usize| {
+                    spec.servers
+                        .iter()
+                        .any(|s| s.takes.iter().any(|t| t.0 == r))
+                };
+                let mut next = 0;
+                (0..spec.resources.len())
+                    .map(|r| {
+                        taken(r).then(|| {
+                            next += 1;
+                            next - 1
+                        })
+                    })
+                    .collect()
+            },
             default_attributes: {
                 let mut values = [0.0; MAX_ATTRIBUTES];
                 for (v, a) in values.iter_mut().zip(&spec.attributes) {
@@ -854,6 +881,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                     created: self.now,
                     entity,
                     attributes: self.default_attributes,
+                    carrying: [0; MAX_CARRIED],
                 };
                 self.next_part += 1;
                 self.totals.created += 1;
@@ -951,6 +979,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             created: self.now,
             entity,
             attributes: self.default_attributes,
+            carrying: [0; MAX_CARRIED],
         };
         self.next_part += 1;
         self.sources[source].created += 1;
@@ -1369,12 +1398,13 @@ impl<'a, O: Observer> Sim<'a, O> {
         let Some(at) = state.belt.iter().position(|p| p.part.id == part) else {
             return; // already taken
         };
-        state.belt.remove(at);
+        let mut gone = state.belt.remove(at).expect("found").part;
         state.gave_up += 1;
         state.departed_total += 1;
         self.totals.lost += 1;
         self.observer
             .record(self.now, TraceEvent::GaveUp { part, conveyor });
+        self.give_back(&mut gone, None);
         if at == 0 {
             self.schedule_reach_end(conveyor);
         }
@@ -1860,6 +1890,13 @@ impl<'a, O: Observer> Sim<'a, O> {
                         created: keeper.created,
                         entity: *makes,
                         attributes: keeper.attributes,
+                        // It carries what its components carried.
+                        carrying: staged.iter().fold([0; MAX_CARRIED], |mut sum, p| {
+                            for (s, c) in sum.iter_mut().zip(p.carrying) {
+                                *s += c;
+                            }
+                            sum
+                        }),
                     };
                     self.next_part += 1;
                     self.totals.assembled += 1;
@@ -1893,7 +1930,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                 s.rng
                     .sample(self.spec.servers[server].process_time.get(entity)),
             );
-        for (i, part) in parts.into_iter().enumerate() {
+        for (i, mut part) in parts.into_iter().enumerate() {
+            self.take_carried(server, &mut part);
             let s = &mut self.servers[server];
             let slot = s.idle_slot().expect("caller checked for free slots");
             s.set_up_for[slot] = Some(entity);
@@ -1933,11 +1971,52 @@ impl<'a, O: Observer> Sim<'a, O> {
         setup
     }
 
+    /// Whether every unit a start needs is free: `needs`, plus `takes` for
+    /// each part it starts (a whole batch).
     fn resources_available(&self, server: usize) -> bool {
-        self.spec.servers[server].needs.iter().all(|&(r, units)| {
+        let s = &self.spec.servers[server];
+        let per_start = if let ServerKind::Batch(n) = s.kind {
+            n
+        } else {
+            1
+        };
+        let units = |r: usize| -> u32 {
+            let needs: u32 = s.needs.iter().filter(|x| x.0 == r).map(|x| x.1).sum();
+            let takes: u32 = s.takes.iter().filter(|x| x.0 == r).map(|x| x.1).sum();
+            needs + takes * per_start
+        };
+        s.needs.iter().chain(&s.takes).all(|&(r, _)| {
             !self.resources[r].off_shift
-                && self.resources[r].in_use + units <= self.spec.resources[r].capacity
+                && self.resources[r].in_use + units(r) <= self.spec.resources[r].capacity
         })
+    }
+
+    /// A part starting at `server` takes the units in its `takes`, and carries them.
+    fn take_carried(&mut self, server: usize, part: &mut Part) {
+        for &(r, units) in &self.spec.servers[server].takes {
+            self.resources[r].in_use += units;
+            part.carrying[self.carried[r].expect("taken resources are carried")] += units;
+        }
+    }
+
+    /// Gives back what a part carries of `resources` (all it carries, with
+    /// `None`); waiting servers then try again.
+    fn give_back(&mut self, part: &mut Part, resources: Option<&[usize]>) {
+        let mut any = false;
+        for r in 0..self.carried.len() {
+            let Some(slot) = self.carried[r] else {
+                continue;
+            };
+            if resources.is_some_and(|list| !list.contains(&r)) || part.carrying[slot] == 0 {
+                continue;
+            }
+            self.resources[r].in_use -= part.carrying[slot];
+            part.carrying[slot] = 0;
+            any = true;
+        }
+        if any {
+            self.serve_resource_queue();
+        }
     }
 
     fn any_input_waiting(&self, server: usize) -> bool {
@@ -2019,12 +2098,13 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
     }
 
-    fn start_process(&mut self, server: usize, part: Part, holds: bool) {
+    fn start_process(&mut self, server: usize, mut part: Part, holds: bool) {
         if holds {
             for &(r, units) in &self.spec.servers[server].needs {
                 self.resources[r].in_use += units;
             }
         }
+        self.take_carried(server, &mut part);
         let slot = self.servers[server]
             .idle_slot()
             .expect("caller checked for a free slot");
@@ -2087,6 +2167,10 @@ impl<'a, O: Observer> Sim<'a, O> {
             },
         );
         self.set_attributes(&mut part, Node::Server(server));
+        let gives_back = &spec.gives_back;
+        if !gives_back.is_empty() {
+            self.give_back(&mut part, Some(gives_back));
+        }
         // A split part becomes several, which leave one by one, keeping the
         // time the original arrived and its attributes.
         let part = match &spec.splits_into {
@@ -2109,6 +2193,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                             created: part.created,
                             entity: *entity,
                             attributes: part.attributes,
+                            carrying: [0; MAX_CARRIED],
                         };
                         self.next_part += 1;
                         self.observer.record(
@@ -2122,9 +2207,11 @@ impl<'a, O: Observer> Sim<'a, O> {
                         child
                     })
                     .collect();
-                let first = children
+                let mut first = children
                     .pop_front()
                     .expect("validated: splits make at least one part");
+                // The first part made carries what the split part carried.
+                first.carrying = part.carrying;
                 self.servers[server].split_rest[slot] = children;
                 first
             }
@@ -2297,7 +2384,9 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     // --- Sinks ---
 
-    fn exit(&mut self, sink: usize, part: Part) {
+    fn exit(&mut self, sink: usize, mut part: Part) {
+        // Validation rules this out; give back anything still carried anyway.
+        self.give_back(&mut part, None);
         self.sink_exited[sink] += 1;
         self.totals.exited += 1;
         let time = (self.now - part.created).as_secs_f64();

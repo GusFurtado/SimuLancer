@@ -421,6 +421,13 @@ b.go(url + "/modeling?project=assembly-line")
 b.wait(f"return {obj('pack')} !== null", 10)
 click_obj("pack")
 b.wait("return document.getElementById('f-servers-pack-changeover')?.value === '1.5 min'")
+# Taking a resource no server gives back is an error at that field.
+click_obj("frame")
+b.wait("return document.querySelector('[data-take=technician]') !== null")
+b.js("const i = document.querySelector('[data-take=technician]'); i.value = '1'; i.dispatchEvent(new Event('change'))")
+b.wait("return [...document.querySelectorAll('.field.error .message')].some(m => m.textContent.includes('still carrying it'))", 10)
+b.js("document.querySelector('[data-take=technician]').closest('.field').querySelector('.reset').click()")
+b.wait("return document.getElementById('pending')?.textContent === 'all changes saved'", 10)
 for template in ["assembly-line", "bank-branch", "warehouse"]:
     b.go(url + f"/modeling?project={template}")
     b.wait("return document.querySelector('.diagram svg') !== null && document.querySelector('.versions') !== null", 10)
