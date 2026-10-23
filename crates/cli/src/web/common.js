@@ -5,7 +5,7 @@
 const API = "api/v1";
 const SPEEDS = [1, 10, 60, 300, 1800, 3600];
 const STATES = [["busy", "Busy"], ["blocked", "Blocked (output full)"], ["failed", "Failed"], ["idle", "Idle (starved)"], ["off", "Off shift"]];
-const OUTPUT_RULES = ["probability", "round_robin", "first_available", "shortest_queue", "by_type"];
+const OUTPUT_RULES = ["probability", "round_robin", "first_available", "shortest_queue", "by_type", "by_condition"];
 const INPUT_RULES = ["first_come", "priority", "round_robin"];
 const OBJECT_SIZE = 1.2;
 /** Part type colors: --type-0 ... --type-5 in common.css. */

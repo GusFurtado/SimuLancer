@@ -1713,11 +1713,14 @@ function outputRule(tree, p, outputs) {
         ? { rule: r, weights: Object.fromEntries(outputs.map(o => [o, +(1 / outputs.length).toFixed(4)])) }
         : r === "by_type"
           ? { rule: r, routes: Object.fromEntries(typesOf(tree).map(t => [t, outputs[0]])) }
-          : { rule: r });
+          : r === "by_condition"
+            ? { rule: r, routes: [{ when: "uniform(0, 1) < 0.5", to: outputs[0] }, { to: outputs[1] }] }
+            : { rule: r });
     },
   }, el("option", { value: "", selected: !value.rule, disabled: true }, "choose a rule"),
   OUTPUT_RULES.map(r => el("option", { value: r, selected: value.rule === r }, r.replaceAll("_", " "))));
-  const routes = value.rule === "by_type" ? typesOf(tree).map(t => el("div", { class: "row field", style: "margin-bottom: 6px; align-items: center" },
+  const routes = value.rule === "by_condition" && Array.isArray(value.routes) ? conditionRoutes(path, value, outputs)
+    : value.rule === "by_type" ? typesOf(tree).map(t => el("div", { class: "row field", style: "margin-bottom: 6px; align-items: center" },
     el("span", {}, t),
     el("select", {
       "aria-label": `conveyor for ${t}`, "data-route": t,
@@ -1738,6 +1741,36 @@ function outputRule(tree, p, outputs) {
       isChanged(path) ? el("button", { class: "reset", onclick: () => resetChange(path) }, "reset") : null),
     rule, ...routes, ...weights,
     error ? el("div", { class: "message" }, error.message) : null);
+}
+
+/** `by_condition`: the first route whose condition holds; the last takes the rest. */
+function conditionRoutes(path, value, outputs) {
+  const routes = value.routes;
+  const update = next => setChange(path, { ...value, routes: next });
+  const to = (route, i) => el("select", {
+    "aria-label": i === routes.length - 1 ? "otherwise to" : `route ${i + 1} to`, "data-route-to": i,
+    onchange: e => update(routes.map((r, k) => k === i ? { ...r, to: e.target.value } : r)),
+  }, outputs.map(o => el("option", { value: o, selected: route.to === o ? true : null }, o)));
+  return [
+    ...routes.slice(0, -1).map((route, i) => {
+      const error = errorFor(`${path}.routes.${i}`);
+      return el("div", { class: `route${error ? " error" : ""}` },
+        el("div", { class: "row", style: "align-items: center; margin-bottom: 4px" },
+          el("span", { style: "flex: 0 0 auto" }, i === 0 ? "When" : "Else when"),
+          el("input", {
+            value: route.when ?? "", "data-when": i, "aria-label": `condition ${i + 1}`, spellcheck: "false",
+            onchange: e => update(routes.map((r, k) => k === i ? { ...r, when: e.target.value.trim() } : r)),
+          })),
+        el("div", { class: "row", style: "align-items: center; margin-bottom: 8px" },
+          el("span", { style: "flex: 0 0 auto" }, "go to"), to(route, i),
+          routes.length > 2 ? el("button", { style: "flex: 0", title: "Remove this route", onclick: () => update(routes.filter((_, k) => k !== i)) }, "Remove") : null),
+        error ? el("div", { class: "message" }, error.message) : null);
+    }),
+    el("div", { class: "row", style: "align-items: center; margin-bottom: 6px" },
+      el("span", { style: "flex: 0 0 auto" }, "Otherwise go to"), to(routes[routes.length - 1], routes.length - 1)),
+    el("button", { "data-action": "add-route", onclick: () => update([...routes.slice(0, -1), { when: "uniform(0, 1) < 0.5", to: outputs[0] }, routes[routes.length - 1]]) }, "+ Condition"),
+    el("p", { class: "hint", style: "margin: 6px 0 0" }, "Conditions compare attributes, now and draws (rework >= 2, due < now, uniform(0, 1) < 0.1), and can use and, or, not, and type == <part type>."),
+  ];
 }
 
 function inputRule(tree, p, inputs) {

@@ -234,8 +234,9 @@ pub struct RawOutputRule {
     pub rule: Spanned<OutputRuleKind>,
     /// Conveyor name -> weight, for `probability`.
     pub weights: Option<OrderedMap<Spanned<f64>>>,
-    /// Part type -> conveyor name, for `by_type`.
-    pub routes: Option<OrderedMap<Spanned<String>>>,
+    /// Part type -> conveyor name, for `by_type`; a list of
+    /// `{ when, to }`, for `by_condition`.
+    pub routes: Option<Spanned<RawRoutes>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -246,6 +247,58 @@ pub enum OutputRuleKind {
     FirstAvailable,
     ShortestQueue,
     ByType,
+    ByCondition,
+}
+
+/// `routes`: a map (part type -> conveyor) or a list of conditions. Read by
+/// hand: it's a map or a list.
+#[derive(Debug)]
+pub enum RawRoutes {
+    ByType(OrderedMap<Spanned<String>>),
+    Conditions(Vec<RawConditionRoute>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawConditionRoute {
+    /// Absent on the last route, which takes every other part.
+    pub when: Option<Spanned<Scalar>>,
+    pub to: Spanned<String>,
+}
+
+impl<'de> Deserialize<'de> for RawRoutes {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct RoutesVisitor;
+
+        impl<'de> Visitor<'de> for RoutesVisitor {
+            type Value = RawRoutes;
+
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("part type -> conveyor (`by_type`), or a list of `{ when, to }` (`by_condition`)")
+            }
+
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<RawRoutes, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = map.next_entry()? {
+                    entries.push(entry);
+                }
+                Ok(RawRoutes::ByType(OrderedMap(entries)))
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<RawRoutes, A::Error> {
+                let mut routes = Vec::new();
+                while let Some(route) = seq.next_element()? {
+                    routes.push(route);
+                }
+                Ok(RawRoutes::Conditions(routes))
+            }
+        }
+
+        deserializer.deserialize_any(RoutesVisitor)
+    }
 }
 
 /// How a server chooses among parts waiting on incoming conveyors.

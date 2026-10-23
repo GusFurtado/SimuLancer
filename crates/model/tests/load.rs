@@ -929,3 +929,59 @@ fn input_and_resource_priority_errors() {
         ["server `machine` doesn't need `operator`, so it can't be in its `order`"]
     );
 }
+
+/// MINIMAL with a second exit and `by_condition` routes out of the machine.
+fn with_routes(routes: &str) -> String {
+    let s = replace(
+        MINIMAL,
+        "sources:\n",
+        "attributes:\n  rework: { default: 0 }\nsources:\n",
+    );
+    let s = replace(
+        &s,
+        "    process_time: \"50 s\"\n",
+        &format!(
+            "    process_time: \"50 s\"\n    output:\n      rule: by_condition\n      routes:\n{routes}"
+        ),
+    );
+    replace(
+        &s,
+        "sinks:\n  done: {}\n",
+        "queues:\n  q_scrap: { from: machine, to: scrap }\nsinks:\n  done: {}\n  scrap: {}\n",
+    )
+}
+
+#[test]
+fn conditional_routes_load_and_check_their_conditions() {
+    let ok = "        - { when: \"rework >= 2 and type == part\", to: q_scrap }\n        - { to: c_out }\n";
+    let model = load_str(&with_routes(ok)).unwrap();
+    assert!(matches!(
+        &model.spec.servers[0].routing,
+        outliers_sim_engine::spec::Routing::ByCondition(r) if r.len() == 2 && r[1].0.is_none()
+    ));
+    let cases = [
+        (
+            "        - { when: \"rework + 1\", to: q_scrap }\n        - { to: c_out }\n",
+            "when: \"rework + 1\"",
+            "`when` is a condition, like `rework >= 2`, but `rework + 1` is a plain number",
+        ),
+        (
+            "        - { to: q_scrap }\n        - { to: c_out }\n",
+            "- { to: q_scrap }",
+            "only the last route goes without `when`",
+        ),
+        (
+            "        - { when: \"rework >= 2\", to: q_scrap }\n        - { when: \"rework < 2\", to: c_out }\n",
+            "when: \"rework < 2\"",
+            "the last route has no `when`",
+        ),
+        (
+            "        - { when: \"rework >= 2\", to: nowhere }\n        - { to: c_out }\n",
+            "to: nowhere",
+            "`nowhere` isn't an outgoing conveyor of `machine`",
+        ),
+    ];
+    for (routes, line, expected) in cases {
+        assert_one_error(&with_routes(routes), line, expected);
+    }
+}

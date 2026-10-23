@@ -165,3 +165,59 @@ experiment:
     // Three packs per tray, each with its tray's batch.
     assert_eq!(seen[..6], [0.0, 0.0, 0.0, 10.0, 10.0, 10.0]);
 }
+
+#[test]
+fn routes_by_condition_send_parts_by_their_attributes() {
+    // Each inspection fails half the parts, which go back through repair;
+    // a part's third inspection scraps it. So 1/4 of parts are scrapped.
+    let s = spec(
+        r#"
+format: outliers-sim/0.1
+name: rework
+entities:
+  part: {}
+attributes:
+  checks: { default: 0 }
+sources:
+  arrivals: { creates: part, interarrival: "exponential(10 min)" }
+servers:
+  inspect:
+    process_time: "1 min"
+    sets: { checks: "checks + 1" }
+    input: { rule: first_come }
+    output:
+      rule: by_condition
+      routes:
+        - { when: "checks >= 3", to: q_scrap }
+        - { when: "uniform(0, 1) < 0.5", to: q_repair }
+        - { to: q_ok }
+  repair: { process_time: "2 min" }
+queues:
+  q_in: { from: arrivals, to: inspect }
+  q_repair: { from: inspect, to: repair }
+  q_back: { from: repair, to: inspect }
+  q_scrap: { from: inspect, to: scrap }
+  q_ok: { from: inspect, to: ok }
+sinks:
+  scrap: {}
+  ok: {}
+experiment:
+  replications: 1
+  run_length: "4000 h"
+  seed: 2
+"#,
+    );
+    let r = simulate(&s, 1, &mut NoTrace);
+    let (scrap, ok) = (r.sinks[0].exited as f64, r.sinks[1].exited as f64);
+    let share = scrap / (scrap + ok);
+    let se = (0.25 * 0.75 / (scrap + ok)).sqrt();
+    assert!((share - 0.25).abs() < 4.0 * se, "scrapped {share}");
+    // Scrapped parts were repaired twice; of the good ones, a third (those
+    // that failed once) were repaired once.
+    let repairs = r.servers[1].processed as f64;
+    let expected = 2.0 * scrap + ok / 3.0;
+    assert!(
+        (repairs - expected).abs() < 0.05 * expected,
+        "repairs {repairs} vs {expected}"
+    );
+}

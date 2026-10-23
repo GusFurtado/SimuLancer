@@ -217,9 +217,22 @@ Objects connect with conveyors and queues (together, *connections*). Several out
 | `first_available` | the first conveyor, in order, with room |
 | `shortest_queue` | the conveyor holding the fewest parts, among those with room |
 | `by_type` | the conveyor given for the part's type: `routes: { frame: c_paint, wheel: c_ship }` |
+| `by_condition` | the first route whose condition holds (see below) |
 
-- **Waiting:** with `probability`, `round_robin` and `by_type`, a part waits for its conveyor. With the other two, it takes whichever gets room first.
+- **Waiting:** with `probability`, `round_robin`, `by_type` and `by_condition`, a part waits for its conveyor. With the other two, it takes whichever gets room first.
 - **`by_type`:** every type that can reach the object must have a route.
+- **`by_condition`:** a list of routes, each with a condition, ending with one without: it takes every other part, so no part is left without a way out.
+
+  ```yaml
+  output:
+    rule: by_condition
+    routes:
+      - { when: "rework >= 2", to: c_scrap }
+      - { when: "due < now", to: c_express }
+      - { to: c_ok }
+  ```
+
+  Conditions are [formulas](#attributes) that compare (`<`, `<=`, `>`, `>=`, `==`, `!=`) and combine (`and`, `or`, `not`, parentheses), and can test the part's type: `type == frame`. They're checked when the part is ready to leave, after the server's `sets`. A draw in a condition (`uniform(0, 1) < 0.1`) is new for each part; to use one draw in several routes, set it into an attribute first (see the assembly-line template).
 
 | `input` rule | The server takes |
 |---|---|

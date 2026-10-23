@@ -21,6 +21,9 @@
 //!   `shortest_queue` the one holding the fewest parts (ties to the first
 //!   listed) among those with room. For both, if none has room, the part
 //!   waits for whichever gets room first.
+//!   `by_condition` takes the first route whose condition holds for the part
+//!   (its attributes and type, at that moment; the last route has none), and
+//!   the part waits for that conveyor. Draws in conditions use the routing stream.
 //! - Merging (several incoming conveyors): when the server can take a part,
 //!   it picks among the conveyors whose head is waiting at the end, by
 //!   `first_come` (earliest arrival at the end, ties to the input listed
@@ -314,15 +317,23 @@ fn duration(seconds: f64) -> SimTime {
 fn pick_output(
     routing: &Routing,
     outputs: &[usize],
-    entity: usize,
+    part: &Part,
+    now: SimTime,
     rng: &mut Rng,
     next: &mut usize,
 ) -> Target {
     match routing {
         Routing::Single => Some(outputs[0]),
         Routing::ByType(routes) => {
-            Some(routes[entity].expect("validated: every type that gets here has a route"))
+            Some(routes[part.entity].expect("validated: every type that gets here has a route"))
         }
+        Routing::ByCondition(routes) => routes
+            .iter()
+            .find(|(when, _)| {
+                when.as_ref()
+                    .is_none_or(|w| w.eval(&part.attributes, part.entity, now, rng) != 0.0)
+            })
+            .map(|&(_, c)| c),
         Routing::Probability(weights) => {
             let u = 1.0 - rng.open01(); // [0, 1)
             let mut cumulative = 0.0;
@@ -789,7 +800,8 @@ impl<'a, O: Observer> Sim<'a, O> {
             let target = pick_output(
                 &source_spec.routing,
                 &source_spec.outputs,
-                part.entity,
+                &part,
+                self.now,
                 &mut state.routing_rng,
                 &mut state.next_output,
             );
@@ -2079,7 +2091,8 @@ impl<'a, O: Observer> Sim<'a, O> {
         let target = pick_output(
             &spec.routing,
             &spec.outputs,
-            part.entity,
+            &part,
+            self.now,
             &mut s.routing_rng,
             &mut s.next_output,
         );
@@ -2125,7 +2138,8 @@ impl<'a, O: Observer> Sim<'a, O> {
                     let target = pick_output(
                         &spec.routing,
                         outputs,
-                        next.entity,
+                        &next,
+                        self.now,
                         &mut s.routing_rng,
                         &mut s.next_output,
                     );

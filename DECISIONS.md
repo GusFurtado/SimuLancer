@@ -321,6 +321,14 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Routing by condition (implemented 2026-10-23, issue #58)
+
+- **`output: { rule: by_condition, routes: [ { when, to }, ..., { to } ] }`:** the first route whose condition holds. The last route must have no `when`, and only the last: it takes every other part, so there's no hidden default and no part without a way out.
+- **Conditions are the formulas of #56** (`formula.rs`) and must give a condition (a comparison, `and`/`or`/`not`, `type == <part type>`); anything else is an error at that line. They're evaluated when the part is ready to leave, after the server's `sets`, so a count set there can decide the way out.
+- **No probabilities inside conditions** (decided on the issue): a draw in a condition (`uniform(0, 1) < 0.1`) covers it, and setting one draw into an attribute lets several routes share it. That's how the assembly-line template now tells a first test failure (rework) from a second (scrap). The template's results change: about 0.6% of machines (8% × 8%) are scrapped instead of looping forever.
+- **`routes` is a map for `by_type` and a list for `by_condition`;** using the wrong shape is an error that shows the right one.
+- **Draws in conditions** use the object's routing stream, like `probability`.
+
 ## Order in queues and priority for resources (implemented 2026-10-23, issue #57)
 
 - **Queue `order`:** `first_in` (default), `last_in`, `{ lowest | highest: <attribute> }`, `{ by_type: [...] }`. A part is placed in line by the order as it gets on, behind equals, so the front is always the next to go and every other rule (merging, blocking, restocking) works unchanged. Types not listed in `by_type` come after the listed ones, rather than being an error: listing every type of a big model to rank one would be noise.

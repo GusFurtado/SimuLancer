@@ -657,6 +657,17 @@ fn routing(spec: &Spec, outputs: &[usize], routing: &Routing) -> Option<String> 
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
+        Routing::ByCondition(routes) => Some(format!(
+            "sends {}",
+            routes
+                .iter()
+                .map(|(when, c)| match when {
+                    Some(w) => format!("to {} when {}", spec.conveyors[*c].name, formula(spec, w)),
+                    None => format!("otherwise to {}", spec.conveyors[*c].name),
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        )),
     }
 }
 

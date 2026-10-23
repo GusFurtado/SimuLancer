@@ -444,6 +444,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                     &source_outputs[i],
                     &conveyor_names,
                     &types,
+                    &names,
                 )
             })
             .flatten();
@@ -688,6 +689,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                     &server_outputs[i],
                     &conveyor_names,
                     &types,
+                    &names,
                 )
             })
             .flatten();
@@ -2145,6 +2147,8 @@ impl Builder {
 
     /// The outgoing conveyors of a source or server and how parts choose
     /// among them. A rule is required with two or more.
+    // Each argument is a different lookup the rules need; bundling them would only hide that.
+    #[allow(clippy::too_many_arguments)]
     fn output_rule(
         &mut self,
         name: &Spanned<String>,
@@ -2153,6 +2157,7 @@ impl Builder {
         outputs: &[usize],
         conveyor_names: &[&str],
         types: &Types,
+        names: &Names,
     ) -> Option<(Vec<usize>, Routing)> {
         let list = |items: &[usize]| {
             items
@@ -2175,7 +2180,7 @@ impl Builder {
             self.error(
                 name,
                 format!(
-                    "{kind} `{}` has {} outgoing conveyors ({}); add `output: {{ rule: probability | round_robin | first_available | shortest_queue | by_type }}` to say how parts choose",
+                    "{kind} `{}` has {} outgoing conveyors ({}); add `output: {{ rule: probability | round_robin | first_available | shortest_queue | by_type | by_condition }}` to say how parts choose",
                     name.value,
                     outputs.len(),
                     list(outputs)
@@ -2184,23 +2189,133 @@ impl Builder {
             return None;
         };
         let rule = &rule.value;
-        if rule.routes.is_some() && rule.rule.value != raw::OutputRuleKind::ByType {
+        let routes_apply = matches!(
+            rule.rule.value,
+            raw::OutputRuleKind::ByType | raw::OutputRuleKind::ByCondition
+        );
+        if rule.routes.is_some() && !routes_apply {
             self.error(
                 &rule.rule,
-                "`routes` only apply to `rule: by_type`".to_string(),
+                "`routes` only apply to `rule: by_type` and `rule: by_condition`".to_string(),
             );
             return None;
         }
+        if rule.weights.is_some() && rule.rule.value != raw::OutputRuleKind::Probability {
+            self.error(
+                &rule.rule,
+                "`weights` only apply to `rule: probability`".to_string(),
+            );
+            return None;
+        }
+        let outgoing = |b: &mut Self, conveyor: &Spanned<String>| {
+            let c = outputs
+                .iter()
+                .copied()
+                .find(|&c| conveyor_names[c] == conveyor.value);
+            if c.is_none() {
+                b.error(
+                    conveyor,
+                    format!(
+                        "`{}` isn't an outgoing conveyor of `{}` (those are {})",
+                        conveyor.value,
+                        name.value,
+                        list(outputs)
+                    ),
+                );
+            }
+            c
+        };
         let routing = match rule.rule.value {
-            raw::OutputRuleKind::ByType => {
-                if rule.weights.is_some() {
-                    self.error(
-                        &rule.rule,
-                        "`weights` only apply to `rule: probability`".to_string(),
-                    );
+            raw::OutputRuleKind::ByCondition => {
+                let routes = match rule.routes.as_ref().map(|r| (&r.value, r)) {
+                    Some((raw::RawRoutes::Conditions(routes), _)) if !routes.is_empty() => routes,
+                    Some((_, at)) => {
+                        self.error(
+                            at,
+                            "`rule: by_condition` takes a list of routes: `- { when: \"rework >= 2\", to: c_scrap }`, ending with `- { to: <conveyor> }` for every other part".to_string(),
+                        );
+                        return None;
+                    }
+                    None => {
+                        self.error(
+                            &rule.rule,
+                            format!(
+                                "`rule: by_condition` needs `routes`: a list of `{{ when: <condition>, to: <conveyor> }}` (one of {}), ending with `{{ to: <conveyor> }}` for every other part",
+                                list(outputs)
+                            ),
+                        );
+                        return None;
+                    }
+                };
+                let mut found = Vec::new();
+                let mut ok = true;
+                for (i, route) in routes.iter().enumerate() {
+                    let last = i + 1 == routes.len();
+                    let to = outgoing(self, &route.to);
+                    let when = match (&route.when, last) {
+                        (None, true) => Some(None),
+                        (None, false) => {
+                            self.error(
+                                &route.to,
+                                "only the last route goes without `when`: a route without one takes every part, so those after it would never be used".to_string(),
+                            );
+                            None
+                        }
+                        (Some(when), true) => {
+                            self.error(
+                                when,
+                                "the last route has no `when`: it takes every part the conditions before it don't, so none is left to chance".to_string(),
+                            );
+                            None
+                        }
+                        (Some(when), false) => {
+                            let text = match &when.value {
+                                Scalar::Number(n) => n.to_string(),
+                                Scalar::Text(t) => t.clone(),
+                            };
+                            match formula::parse(&text, names) {
+                                Ok((expr, FormulaKind::Truth)) => Some(Some(expr)),
+                                Ok((_, kind)) => {
+                                    self.error(
+                                        when,
+                                        format!(
+                                            "`when` is a condition, like `rework >= 2`, but `{}` is {}",
+                                            text.trim(),
+                                            kind.describe()
+                                        ),
+                                    );
+                                    None
+                                }
+                                Err(message) => {
+                                    self.error(when, message);
+                                    None
+                                }
+                            }
+                        }
+                    };
+                    match (when, to) {
+                        (Some(when), Some(to)) => found.push((when, to)),
+                        _ => ok = false,
+                    }
+                }
+                if !ok {
                     return None;
                 }
-                let Some(routes) = &rule.routes else {
+                Routing::ByCondition(found)
+            }
+            raw::OutputRuleKind::ByType => {
+                let routes = match rule.routes.as_ref().map(|r| (&r.value, r)) {
+                    Some((raw::RawRoutes::ByType(routes), _)) => Some(routes),
+                    Some((_, at)) => {
+                        self.error(
+                            at,
+                            "`rule: by_type` takes `routes` as part type -> conveyor, like `{ frame: c_paint }`".to_string(),
+                        );
+                        return None;
+                    }
+                    None => None,
+                };
+                let Some(routes) = routes else {
                     self.error(
                         &rule.rule,
                         format!(
@@ -2215,21 +2330,7 @@ impl Builder {
                 let what = format!("`{}` routes", name.value);
                 for (part_type, conveyor) in &routes.0 {
                     let e = self.part_type(part_type, &part_type.value, types, &what);
-                    let c = outputs
-                        .iter()
-                        .copied()
-                        .find(|&c| conveyor_names[c] == conveyor.value);
-                    if c.is_none() {
-                        self.error(
-                            conveyor,
-                            format!(
-                                "`{}` isn't an outgoing conveyor of `{}` (those are {})",
-                                conveyor.value,
-                                name.value,
-                                list(outputs)
-                            ),
-                        );
-                    }
+                    let c = outgoing(self, conveyor);
                     match (e, c) {
                         (Some(e), Some(c)) => found[e] = Some(c),
                         _ => ok = false,
@@ -2239,17 +2340,6 @@ impl Builder {
                     return None;
                 }
                 Routing::ByType(found)
-            }
-            raw::OutputRuleKind::RoundRobin
-            | raw::OutputRuleKind::FirstAvailable
-            | raw::OutputRuleKind::ShortestQueue
-                if rule.weights.is_some() =>
-            {
-                self.error(
-                    &rule.rule,
-                    "`weights` only apply to `rule: probability`".to_string(),
-                );
-                return None;
             }
             raw::OutputRuleKind::RoundRobin => Routing::RoundRobin,
             raw::OutputRuleKind::FirstAvailable => Routing::FirstAvailable,
