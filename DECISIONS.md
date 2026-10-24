@@ -378,7 +378,14 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **Random draws in formulas** use each object's own `sets` stream, so adding attributes changes no other draw (tested).
 - **At most 8 attributes,** stored inline in each part. This keeps parts `Copy`, with no allocation per part; runs are about 1% slower (warehouse, one thread: 3.61 s vs 3.59 s).
 - **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
-- **Modeling page:** *Part attributes* in the model settings (name, starts at), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
+- **Modeling page:** *Part attributes* under Definitions (name, starts at; in the model settings until the Definitions panel), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
+
+## Definitions in the bar on the left (implemented 2026-10-24)
+
+- **Model settings had grown to everything:** experiment, outputs, part types, attributes, resources, vehicles, paced lines and schedules, one long panel. Model settings now keep the experiment and outputs; the rest moved to a **Definitions** panel in the bar on the left, next to Components and Recent runs.
+- **The list is on the left, the editor on the right:** each definition shows what the model has ("operator", or "none yet") and opens its editor in the panel on the right, like selecting an object. The side panel is 240 px wide, too narrow for schedules with their days or resources with their decisions, and the right panel already fits them.
+- **Same editors as before,** so nothing about editing changed. Paced lines are listed only once there are some: they're made from servers.
+- **Named "Definitions",** not "Resources": resources (operators, tools) are one of the things in it.
 
 ## Runs show when they were asked for (implemented 2026-10-24)
 

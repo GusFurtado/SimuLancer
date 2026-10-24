@@ -78,6 +78,13 @@ def obj(name):
 def click_obj(name):
     b.js(f"{obj(name)}.dispatchEvent(new MouseEvent('click', {{bubbles: true}}))")
 
+def define(item):
+    """Opens a definition (part types, resources, schedules...) from the bar on the left."""
+    if b.js("return document.getElementById('side-definitions').hidden"):
+        b.js("document.getElementById('show-definitions').click()")
+    b.wait(f"return document.getElementById('define-{item}')?.disabled === false", 10)
+    b.js(f"document.getElementById('define-{item}').click()")
+
 def conveyor_length(name):
     click_in_diagram(f"conveyor {name}:")
     b.wait(f"return document.querySelector('.panel h3')?.textContent === {name!r}")
@@ -138,7 +145,7 @@ check(b.js(f"return {obj('packer')} !== null"), "the drawing is saved with the l
 check("Packer after the machine" in b.js("return document.querySelector('.versions').textContent"), "saved as a version")
 
 # Part types: add one, mix it at the source, time it separately at the packer.
-b.js("document.querySelector('.diagram svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+define("part-types")
 b.wait("return document.getElementById('add-part-type') !== null")
 b.js("document.getElementById('add-part-type').click()")
 b.wait("return document.querySelector('[data-type=type_2]') !== null")
@@ -159,16 +166,20 @@ b.wait("return document.getElementById('f-servers-packer-process_time-box')?.tex
 b.wait("return document.querySelector('.field.error') === null && !document.querySelector('.status:not(.ok)')", 10)
 b.screenshot(f"{out}/2b-part-types.png")
 # A shared operator for the machine and the packer, made a decision.
-b.js("document.querySelector('.diagram svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+define("resources")
 b.wait("return document.getElementById('add-resource') !== null")
 b.js("document.getElementById('add-resource').click()")
 b.wait("return document.querySelector('[data-resource=operator]') !== null")
+check(b.js("return document.querySelector('.panel h3').textContent") == "Resources", "a definition opens in the panel")
+check(b.js("return document.getElementById('define-resources').textContent") == "Resourcesoperator", "definitions list what the model has")
+check(b.js("return document.getElementById('delete').disabled"), "a definition isn't deleted from the toolbar")
+b.screenshot(f"{out}/2d-definitions.png")
 for machine in ["machine", "packer"]:
     click_obj(machine)
     b.wait(f"return document.querySelector('.panel h3')?.textContent === '{machine}' && document.querySelector('[data-need=operator]') !== null")
     b.js("const i = document.querySelector('[data-need=operator]'); i.value = '1'; i.dispatchEvent(new Event('change'))")
     b.wait(f"return document.querySelector('[data-need=operator]')?.value === '1'")
-b.js("document.querySelector('.diagram svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+define("resources")
 b.wait("return document.querySelector('[data-expose=\"resources.operator.capacity\"]') !== null")
 b.js("document.querySelector('[data-expose=\"resources.operator.capacity\"]').click()")
 b.wait("return document.querySelector('[data-decision-id=operator_units_available]') !== null", 10)
@@ -176,7 +187,7 @@ b.js("[...document.querySelectorAll('.tabs button')].find(x => x.textContent ===
 b.wait("return document.querySelector('.diagram svg') !== null")
 b.wait("return document.querySelector('.field.error') === null && !document.querySelector('.status:not(.ok)')", 10)
 # A day shift for the packer.
-b.js("document.querySelector('.diagram svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+define("schedules")
 b.wait("return document.getElementById('add-schedule') !== null")
 b.js("document.getElementById('add-schedule').click()")
 b.wait("return document.querySelector('[data-schedule=day_shift]') !== null")
@@ -452,10 +463,13 @@ b.wait("return document.getElementById('f-split-type')?.value === 'carton' && do
 b.go(url + "/modeling?project=bank-branch")
 b.wait("return document.querySelector('[data-connection=teller_line]') !== null", 10)
 # The bank's model calls what flows "customers".
+define("part-types")
+b.wait("return document.getElementById('part-types') !== null")
+check(b.js("return document.getElementById('define-part-types').textContent").startswith("Customer types"), "the model's words in definitions")
 check(b.js("return document.querySelector('#part-types .group-title').textContent") == "Customer types", "the model's words")
 check(b.js("return document.getElementById('add-source').title") == "Where customers come from", "the model's words in tooltips")
 # The staff finish serving after closing.
-b.js("document.querySelector('.diagram svg').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+define("schedules")
 b.wait("return document.querySelector('[data-finish=staff_hours]') !== null")
 check(b.js("return document.querySelector('[data-finish=staff_hours]').checked") is True, "finish work")
 # Customers arrive by time of day: the door's panel shows the periods.
@@ -516,6 +530,7 @@ check(b.js("return !document.getElementById('side-components').hidden"), "compon
 check(b.js("return document.querySelector('#doc-view h2').textContent") == "Business rules", "saved documentation shown")
 # --- Attributes: declared in the model settings, set with formulas checked as you type.
 b.go(url + "/modeling?project=bank-branch")
+define("attributes")
 b.wait("return document.getElementById('add-attribute') !== null", 10)
 b.js("document.getElementById('add-attribute').click()")
 b.wait("return document.querySelector('[data-attribute=attribute_1]') !== null")
