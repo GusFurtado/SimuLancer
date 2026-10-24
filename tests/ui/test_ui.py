@@ -5,7 +5,7 @@ Usage: test_ui.py <server url> <marionette port> <screenshot dir>
 Run by tests/ui/run.sh, which starts the server (on a new, empty data
 folder) and Firefox.
 """
-import json, os, sys, time, urllib.request
+import json, os, re, sys, time, urllib.request
 from marionette import Browser
 
 url, port, out = sys.argv[1].rstrip("/"), int(sys.argv[2]), sys.argv[3]
@@ -321,6 +321,8 @@ b.wait("return document.body.textContent.includes('3D animation: planned')")
 if b.js("return document.getElementById('side-runs').hidden"):
     b.js("document.getElementById('show-runs').click()")
 runs_before = b.js("return document.querySelectorAll('#runs .run-item').length")
+when = b.js("return document.querySelector('#runs .run-item .sub').textContent")
+check(not re.fullmatch(r"\d+-\d+", when) and str(time.localtime().tm_year) in when, f"runs show when they were asked for: {when}")
 b.js("window.confirm = () => true; document.querySelector('#runs .run-item button.current + .trash').click()")
 b.wait(f"return document.querySelectorAll('#runs .run-item').length === {runs_before - 1}")
 check(b.js("return document.querySelector('iframe.report') === null"), "deleting the open run closes its results")

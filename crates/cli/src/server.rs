@@ -284,6 +284,8 @@ struct Job {
     status: Status,
     error: Option<String>,
     files: Vec<String>,
+    /// When it was asked for, in seconds since 1970 (shown as a date).
+    queued_at: u64,
     /// Once done: every measure, one value per replication (for comparisons).
     measures: Option<Arc<Vec<Measure>>>,
 }
@@ -299,6 +301,7 @@ impl Job {
             "progress": { "done": self.progress.load(Ordering::Relaxed), "total": self.total },
             "error": self.error,
             "files": self.files,
+            "queued_at": self.queued_at,
         })
     }
 }
@@ -1219,6 +1222,7 @@ fn enqueue(
         status: Status::Queued,
         error: None,
         files: Vec::new(),
+        queued_at: secs,
         measures: None,
     };
     state.jobs.lock().expect("jobs lock").push(job);
@@ -2054,6 +2058,7 @@ mod tests {
         let (status, run) = call(&app, "POST", "/api/v1/runs", Some(changes)).await;
         assert_eq!(status, StatusCode::ACCEPTED, "{run}");
         assert_eq!(run["label"], "Two cells working (with changes)");
+        assert!(run["queued_at"].as_u64().unwrap() > 1_700_000_000, "{run}");
         let run = wait_for(&app, run["id"].as_str().unwrap()).await;
         let id = run["id"].as_str().unwrap();
         let (_, model) = call(
