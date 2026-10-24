@@ -386,6 +386,8 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **The list is on the left, the editor on the right:** each definition shows what the model has ("operator", or "none yet") and opens its editor in the panel on the right, like selecting an object. The side panel is 240 px wide, too narrow for schedules with their days or resources with their decisions, and the right panel already fits them.
 - **Same editors as before,** so nothing about editing changed. Paced lines are listed only once there are some: they're made from servers.
 - **Named "Definitions",** not "Resources": resources (operators, tools) are one of the things in it.
+- **The experiment is a definition too,** the last item ("20 replications · 28 d"): replications, warm-up, run length, seed, recording an animation and what throughput is counted per. "Model settings" is gone.
+- **No click on empty space:** it used to open the model settings, so a click that missed an object lost what was open. Now the panel on the right keeps the last thing clicked, an object, a connection or a definition, and saving or publishing keeps it too. The page opens on the experiment, and deleting the selected object goes back to it.
 
 ## Runs show when they were asked for (implemented 2026-10-24)
 

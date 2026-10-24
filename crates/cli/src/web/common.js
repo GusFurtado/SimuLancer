@@ -273,7 +273,7 @@ function runResults(container, run, view, onView) {
     body.append(el("div", { class: "card note", id: "no-animation" },
       el("h3", { style: "margin-top: 0" }, "Nothing to animate in this run"),
       el("p", {}, "The animation replays what happened in the first replication, and this model doesn't record it."),
-      el("p", {}, "To turn it on, open the project's Modeling page, click empty space in the diagram, check “Record an animation” in the model settings, and run again. (In the model file it's ", el("code", {}, "outputs: { event_log: jsonl }"), ".)")));
+      el("p", {}, "To turn it on, open the project's Modeling page, check “Record an animation” under Definitions → Experiment, and run again. (In the model file it's ", el("code", {}, "outputs: { event_log: jsonl }"), ".)")));
   } else if (view === "animation") {
     startAnimation(body, run);
   } else {

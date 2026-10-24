@@ -12,7 +12,7 @@ const state = {
   baseLayout: null,
   changes: {},       // unsaved changes: path -> value
   errors: [],        // from POST /check
-  selected: null,    // { section, name } or null (experiment)
+  selected: null,    // { section, name } of an object or connection, or { definition }
   tab: "model",      // "model" | "decisions" | "documentation" | "results"
   draft: null,       // project.yaml's { decisions, results } with unsaved edits
   exposed: null,     // the draft as checked: { decisions, results, decision_problems }
@@ -193,7 +193,8 @@ async function openProject(id, keepMessage = false) {
     baseLayout: data.layout,
     changes: {},
     errors: (data.errors || []).map(e => ({ change: null, message: `${e.file}${e.line ? ":" + e.line : ""}: ${e.message}` })),
-    selected: null,
+    // Opening the page shows the experiment; saving or publishing keeps what was open.
+    selected: keepMessage ? state.selected : { ...EXPERIMENT },
     tab: keepMessage && ["decisions", "documentation"].includes(state.tab) ? state.tab : "model",
     message: keepMessage ? state.message : null,
     saveMessage: "",
@@ -316,7 +317,7 @@ function renderEditor() {
         el("div", { class: "card diagram" }, diagramToolbar(), diagram(tree),
           el("p", { class: "hint" }, state.connect
             ? (state.connect.from ? say(`Now click where parts go from ${state.connect.from}.`) : say("Click the object parts come from."))
-            : "Click an object, conveyor or queue to edit it, drag objects to move them; click empty space for the model settings.")),
+            : "Click an object, conveyor or queue to edit it, and drag objects to move them. What applies to the whole model is under Definitions, in the bar on the left.")),
         versionsCard()),
       el("div", { class: "card panel" }, panel(tree))),
   ].filter(Boolean));
@@ -570,7 +571,7 @@ function deleteSelected() {
     }
     state.layoutChanged = true;
     state.message = { kind: "ok", text: `Deleted ${sel.name}.` };
-    state.selected = null;
+    state.selected = { ...EXPERIMENT };
   });
 }
 
@@ -681,7 +682,18 @@ const DEFINITIONS = [
   ["vehicles", () => "Vehicles", tree => Object.keys(tree.vehicles || {}), vehiclesPanel],
   ["lines", () => "Paced lines", tree => Object.keys(tree.lines || {}), linesPanel],
   ["schedules", () => "Schedules", tree => Object.keys(tree.schedules || {}), schedulesPanel],
+  ["experiment", () => "Experiment", tree => [experimentSummary(tree)], experimentPanel],
 ];
+
+/** What the panel on the right shows when the page opens or the selection is deleted. */
+const EXPERIMENT = { definition: "experiment" };
+
+/** "20 replications · 28 d" */
+function experimentSummary(tree) {
+  const e = tree.experiment || {};
+  const n = e.replications ?? 1;
+  return [`${n} replication${n === 1 ? "" : "s"}`, e.run_length].filter(Boolean).join(" · ");
+}
 
 /** The list of definitions; each opens its editor in the panel on the right. */
 function definitionsPanel() {
@@ -702,7 +714,7 @@ function definitionsPanel() {
         },
       }, el("b", {}, title()), el("span", {}, list.length ? list.join(", ") : "none yet"));
     }),
-    el("p", { class: "hint" }, "Defined once for the whole model; sources, servers and connections use them."),
+    el("p", { class: "hint" }, "Defined once for the whole model; sources, servers and connections use them. The experiment says how the model runs."),
   ];
 }
 
@@ -763,7 +775,6 @@ function diagram(tree) {
   const root = svg("svg", {
     viewBox: `${b.minX - 2} ${b.minZ - 1} ${b.maxX - b.minX + 4} ${b.maxZ - b.minZ + 2}`,
     role: "img", "aria-label": `Diagram of ${tree.name}`, class: state.connect ? "connecting" : "",
-    onclick: () => { if (drag?.moved) return; state.selected = null; state.connect = null; renderEditor(); },
   });
   for (const c of graph.conveyors) {
     const path = layout.paths[c.name];
@@ -964,14 +975,14 @@ function distField(label, path) {
 }
 
 function panel(tree) {
+  if (!state.selected) state.selected = { ...EXPERIMENT };
   const sel = state.selected;
-  if (!sel) return experimentPanel(tree);
   if (sel.definition) {
     const [, title, , editor] = DEFINITIONS.find(([id]) => id === sel.definition);
     return el("div", { class: "definition" }, el("h3", {}, title()), el("div", { class: "kind" }, "Definition"), editor(tree));
   }
   const node = tree[sel.section]?.[sel.name];
-  if (!node) { state.selected = null; return experimentPanel(tree); }
+  if (!node) { state.selected = { ...EXPERIMENT }; renderSide(); return panel(tree); }
   const p = `${sel.section}.${sel.name}`;
   const kind = { sources: "Source", servers: "Server", conveyors: "Conveyor", queues: "Queue", transports: "Transport", sinks: "Sink" }[sel.section];
   const header = [el("h3", {}, sel.name), el("div", { class: "kind" }, kind),
@@ -1228,8 +1239,7 @@ function throughputPerField(tree) {
 }
 
 function experimentPanel(tree) {
-  return el("div", {}, el("h3", {}, "Model settings"), el("div", { class: "kind" }, "Apply to the whole model"),
-    el("div", { class: "group-title" }, "Experiment"),
+  return el("div", { class: "group", id: "experiment" },
     field("Replications", "experiment.replications", "int"),
     field("Warm-up", "experiment.warmup", "text", [], "none"),
     field("Run length (after warm-up)", "experiment.run_length"),
@@ -1240,8 +1250,7 @@ function experimentPanel(tree) {
         onchange: e => setChange("outputs.event_log", e.target.checked ? "jsonl" : null),
       }),
       "Record an animation (replication 1)"),
-    throughputPerField(tree),
-    el("p", { class: "hint" }, "Part types, attributes, resources, vehicles and schedules are under Definitions, in the bar on the left."));
+    throughputPerField(tree));
 }
 
 // --- schedules ----------------------------------------------------------------------------------
