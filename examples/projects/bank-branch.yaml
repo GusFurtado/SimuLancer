@@ -30,12 +30,21 @@ decisions:
           schedules.doors_open.shifts: ["09:00-17:00"]
           schedules.staff_hours.shifts: ["08:45-17:00"]
           sources.door.arrivals_per_hour: { "09:00-12:00": 30, "12:00-14:00": 60, "14:00-17:00": 33 }
+  teller_line_order:
+    label: Teller line
+    choices:
+      priority:
+        label: Priority customers first
+      first_come:
+        label: First come, first served
+        changes: { queues.teller_line.order: first_in }
 
 # What the Simulation page shows, and which way is better.
 results:
   - { label: Served by a teller within 5 minutes, object: teller_line, measure: within target wait, better: higher }
   - { label: Seen by an advisor within 15 minutes, object: advisor_line, measure: within target wait, better: higher }
   - { label: Wait for a teller, object: teller_line, measure: waiting time, better: lower }
+  - { label: Wait for a teller (priority customers), object: teller_line, measure: waiting time of priority, better: lower }
   - { label: Gave up waiting for a teller, object: teller_line, measure: gave up, better: lower }
   - { label: Time in the branch (quick transactions), object: exit, measure: time in system of quick, better: lower }
   - { label: Time in the branch (advice), object: exit, measure: time in system of advice, better: lower }

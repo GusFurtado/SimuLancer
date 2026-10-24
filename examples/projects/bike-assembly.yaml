@@ -29,10 +29,18 @@ decisions:
     min: 4
     max: 12
     step: 2
+  carts:
+    label: Curing carts
+    description: A bike is built on a cart and keeps it until curing ends. Too few, and fitters wait for an empty cart.
+    path: resources.cart.capacity
+    min: 8
+    max: 24
+    step: 2
 
 # What the Simulation page shows, and which way is better.
 results:
   - { label: Bikes shipped per working hour, object: shipping, measure: throughput, better: higher }
   - { label: Lead time, object: shipping, measure: time in system, better: lower }
   - { label: Fitters busy, object: fitter, measure: busy }
-  - { label: Kits waiting for a fitter, object: assembly, measure: waiting for resources, better: lower }
+  - { label: Kits waiting for a fitter or a cart, object: assembly, measure: waiting for resources, better: lower }
+  - { label: Carts in use, object: cart, measure: busy }

@@ -2,13 +2,15 @@
 # ticket at the kiosk, and wait in line for a teller (quick transactions) or
 # an account advisor (longer appointments). When the line at the kiosk is
 # full, newcomers turn around and leave; customers waiting for a teller give
-# up after a while.
+# up after a while. Priority customers (seniors, pregnant women, people with
+# disabilities) go ahead of others in the teller line.
 #
 #                                ┌─ teller_line ──> tellers ──┐
 #   door ── entrance ──> kiosk ──┤                            ├──> exit
 #                                └─ advisor_line ─> advisors ─┘
 #
-# The lines are queues: customers wait in them, first come first served.
+# The lines are queues: customers wait in them, first come first served,
+# except that the teller line serves priority customers first.
 # `parts` names what flows through the model, so pages and reports say
 # "customers".
 
@@ -20,6 +22,7 @@ parts: { one: customer, many: customers }
 
 entities:
   quick: {}       # deposits, withdrawals, payments
+  priority: {}    # the same, for customers served first
   advice: {}      # loans, accounts, investments
 
 schedules:
@@ -37,7 +40,7 @@ resources:
 
 sources:
   door:
-    creates: { quick: 0.85, advice: 0.15 }
+    creates: { quick: 0.75, priority: 0.10, advice: 0.15 }
     arrivals_per_hour:                       # busier at lunchtime
       "10:00-12:00": 40
       "12:00-14:00": 70
@@ -49,7 +52,7 @@ servers:
   kiosk:
     process_time: "uniform(10 s, 25 s)"
     schedule: staff_hours
-    output: { rule: by_type, routes: { quick: teller_line, advice: advisor_line } }
+    output: { rule: by_type, routes: { quick: teller_line, priority: teller_line, advice: advisor_line } }
   tellers:
     capacity: 5                              # counters; open ones depend on tellers on duty
     process_time: "lognormal(mean: 3 min, sd: 1.5 min)"
@@ -63,7 +66,7 @@ servers:
 
 queues:
   entrance:     { from: door,     to: kiosk,    capacity: 5 }
-  teller_line:  { from: kiosk,    to: tellers,  capacity: 15, target_wait: "5 min", patience: "exponential(20 min)" }
+  teller_line:  { from: kiosk,    to: tellers,  capacity: 15, target_wait: "5 min", patience: "exponential(20 min)", order: { by_type: [priority] } }
   advisor_line: { from: kiosk,    to: advisors, capacity: 7, target_wait: "15 min" }
   teller_out:   { from: tellers,  to: exit }
   advisor_out:  { from: advisors, to: exit }
