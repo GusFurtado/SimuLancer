@@ -378,7 +378,7 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **Random draws in formulas** use each object's own `sets` stream, so adding attributes changes no other draw (tested).
 - **At most 8 attributes,** stored inline in each part. This keeps parts `Copy`, with no allocation per part; runs are about 1% slower (warehouse, one thread: 3.61 s vs 3.59 s).
 - **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
-- **Modeling page:** *Part attributes* in the model settings (name, starts at), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
+- **Modeling page:** *Part attributes* under Definitions (name, starts at; in the model settings until the Definitions panel), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
 
 ## Definitions in the bar on the left (implemented 2026-10-24)
 
