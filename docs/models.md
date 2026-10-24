@@ -261,7 +261,7 @@ queues:
 ```
 
 - **Waiting in line:** a queue connects two objects like a conveyor, but parts don't travel: they're at its end as soon as they get on, and leave in the queue's `order`.
-- **Order:** which part goes next. `first_in` (the default), `last_in`, `{ lowest: <attribute> }` (e.g. the earliest due date), `{ highest: <attribute> }`, or `{ by_type: [appointment, walk_in] }` (types not listed come after those listed). Ties go first in, first out. A part is never taken out of service for a more urgent one (no preemption). Shortest job first is `{ lowest: <attribute> }` with the work drawn into an attribute at arrival.
+- **Order:** which part goes next. `first_in` (the default), `last_in`, `{ lowest: <attribute> }` (e.g. the earliest due date), `{ highest: <attribute> }`, or `{ by_type: [appointment, walk_in] }` (types not listed come after those listed). Ties go first in, first out. A part is never taken out of service for a more urgent one (no preemption).
 - **Capacity:** how many parts can wait. Without it, there's no limit. When it's full, the object feeding it is blocked (or a source drops the part, with `when_blocked: drop`), as with a full conveyor.
 - **Drawing:** queues aren't in the layout file; they're drawn straight between their objects, so moving an object never changes a queue.
 - **Giving up:** with `patience`, each part draws how long it will wait as it gets on (one time or distribution, or one per part type: `{ appointment: "30 min", walk_in: "exponential(10 min)" }`). If it's still waiting when that time is up, it leaves and is counted as lost, which makes room in a full queue. The queue reports *gave up*: the share of those that left the line without being served. Parts a queue starts with (`starts_with`) don't give up.

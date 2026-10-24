@@ -321,6 +321,16 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
+## Templates for the modeling features (2026-10-24)
+
+- **Each feature goes where it changes a result,** in an existing template rather than a new one:
+  - **Bike assembly, curing carts** (`takes`/`gives_back`): a bike is built on a cart and keeps it until curing ends. With 16 carts (two oven loads) it ships as many bikes as without carts (19.7 per working hour); with 12, 15.4; with 8, 11.5. "Curing carts" is a decision on the Simulation page and "Carts in use" a result.
+  - **Bank branch, priority customers** (queue `order: { by_type: [priority] }`): 10% of customers, quick transactions served first in the teller line. Their wait for a teller falls from 67 s to 25 s, and the others' rises from 67 s to 72 s. The Simulation page offers "Teller line": priority first or first come, first served.
+  - **Tags** in `templates.yaml` now name the features (attributes, routing by condition, priorities, giving up, carts, CONWIP), so the template search finds them.
+- **Not the warehouse, with due dates:** orders with a promised slot 2 to 6 hours out, picked earliest due first, gave exactly the same results as first come, first served. Orders wait seconds for a picker, so the order of the line never matters (and with the same service times, the start times are the same either way). Late shipments came only from orders still in at closing. A template where the setting changes nothing would teach the wrong thing.
+- **No template for resource `order`:** no current model has several servers competing for one resource.
+- **Docs fixed:** they said shortest job first was `{ lowest: <attribute> }` with the work drawn into an attribute. Process times can't read attributes, so that work wouldn't be the actual service time; the line is gone.
+
 ## Resources held across steps (implemented 2026-10-23, issue #60)
 
 - **One primitive for CONWIP, kanban, pallets, fixtures and beds:** a resource a part takes at one server (`takes`) and gives back at another (`gives_back`). No separate `limits` shorthand (decided on the issue): it would be a second way to say the same thing.
@@ -328,7 +338,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **Parts carry counts,** up to 4 carried resources, inline in each part like attributes (no allocation). Assembly sums what components carried; a split's first part carries it; giving up in a queue gives everything back. A part reaching a sink still carrying units gives them back too, though validation rules that out.
 - **No leaks:** loading checks that each carried resource is given back somewhere and that every way from a `takes` server to a sink passes a `gives_back` server (all outputs, whatever the routing rule, so it's on the safe side). A carried resource can't have a schedule: units in a part's hands can't go off shift.
 - **Checked against push:** a three-station line fed at 1/min (bottleneck at 92%): with 15 cards it ships as much as without (within 0.2%) with 40% less waiting inside the line; the cap is never exceeded.
-- **No template uses it yet:** the assembly line's accumulating conveyors already cap work in process by blocking, so CONWIP changed nothing there (8 to 18 cards: same throughput and lead time), and a decision offering it would mislead.
+- **Not as CONWIP in the assembly line:** its accumulating conveyors already cap work in process by blocking, so cards changed nothing there (8 to 18 cards: same throughput and lead time), and a decision offering it would mislead. The bike-assembly template uses it for curing carts instead (see "Templates for the modeling features").
 
 ## Giving up in queues (implemented 2026-10-23, issue #59)
 

@@ -1,6 +1,8 @@
 # Bike assembly: frames and wheels arrive during two weekday shifts; fitters
 # (a shared resource on the same shifts) assemble a frame and two wheels into
 # a bike; bikes cure in an oven, eight at a time, before shipping.
+# Each bike is built on a curing cart, which it keeps until the oven is
+# done with it, so the carts cap the bikes between assembly and the oven.
 #
 #   frames ──c_frames──┐
 #                      ├──> assembly ──c_bikes──> oven ──c_ship──> shipping
@@ -22,6 +24,7 @@ schedules:
 
 resources:
   fitter: { capacity: 2, schedule: two_shifts }
+  cart: { capacity: 16 }                   # curing carts: a bike on each, from assembly to the end of curing
 
 sources:
   frames: { creates: frame, interarrival: "exponential(3 min)", schedule: two_shifts }
@@ -34,10 +37,12 @@ servers:
     makes: bike
     process_time: "triangular(4 min, 5 min, 7 min)"
     needs: { fitter: 1 }                   # one fitter per bike being assembled
+    takes: { cart: 1 }                     # and a cart, which the bike keeps
     input: { rule: first_come }
   oven:
     batch: 8                               # cures 8 bikes together
     process_time: "20 min"
+    gives_back: [cart]                     # carts come back empty when curing ends
 
 conveyors:
   c_frames: { from: frames, to: assembly, length: "11.6 m", speed: "0.5 m/s", spacing: "0.5 m" }
