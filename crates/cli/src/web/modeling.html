@@ -22,12 +22,16 @@
       <button id="show-components" data-side="components" title="Components" aria-label="Components" aria-controls="side">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
       </button>
+      <button id="show-definitions" data-side="definitions" title="Definitions" aria-label="Definitions" aria-controls="side">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h2M4 12h2M4 18h2M9 6h11M9 12h11M9 18h11"/></svg>
+      </button>
       <button id="show-runs" data-side="runs" title="Recent runs" aria-label="Recent runs" aria-controls="side">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/><path d="M12 7.5V12l3 2"/></svg>
       </button>
     </nav>
     <aside id="side" hidden>
       <section id="side-components" hidden></section>
+      <section id="side-definitions" hidden></section>
       <section id="side-runs" hidden>
         <h2>Recent runs</h2>
         <div class="list" id="runs"></div>

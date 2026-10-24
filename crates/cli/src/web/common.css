@@ -124,6 +124,8 @@
   button.component b { display: block; font-size: 13px; }
   button.component span { display: block; font-size: 12px; color: var(--muted); }
   button.component:hover:not(:disabled) { background: var(--accent-wash); }
+  button.component.current { background: var(--accent-wash); }
+  .definition > .group > .group-title { display: none; }
   button.component.on, button.component.on:hover { background: var(--accent); color: var(--accent-ink); }
   button.component.on span { color: var(--accent-ink); opacity: 0.85; }
 

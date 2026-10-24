@@ -490,7 +490,7 @@ function connectObjects(from, to, kind = "conveyors") {
   if (kind === "transports") {
     const fleets = Object.keys(tree.vehicles || {});
     if (!fleets.length) {
-      state.message = { kind: "error", text: "Add vehicles first (Model settings → Vehicles): they carry parts along transports." };
+      state.message = { kind: "error", text: "Add vehicles first (Definitions → Vehicles, in the bar on the left): they carry parts along transports." };
       return renderEditor();
     }
     const name = freeName(tree, `t_${from}_${to}`.slice(0, 40));
@@ -554,7 +554,7 @@ function deleteConveyor(tree, name) {
 
 function deleteSelected() {
   const sel = state.selected;
-  if (!sel) return;
+  if (!sel?.section) return;
   batch(() => {
     if (isConnection(sel.section)) {
       deleteConveyor(currentTree(), sel.name);
@@ -631,15 +631,15 @@ function rename(section, oldName, newName) {
 function diagramToolbar() {
   const tool = (label, onclick, attrs = {}) => el("button", { onclick, ...attrs }, label);
   return el("div", { class: "toolbar" },
-    tool("Delete", deleteSelected, { id: "delete", disabled: state.selected ? null : true, title: "Delete the selected object or conveyor" }),
+    tool("Delete", deleteSelected, { id: "delete", disabled: state.selected?.section ? null : true, title: "Delete the selected object or conveyor" }),
     el("span", { style: "flex: 1" }),
     tool("↶ Undo", undo, { id: "undo", disabled: state.undo.length ? null : true, title: "Undo (Ctrl+Z)" }),
     tool("↷ Redo", redo, { id: "redo", disabled: state.redo.length ? null : true, title: "Redo (Ctrl+Shift+Z)" }));
 }
 
-// --- side panels: components and recent runs ------------------------------------------------
+// --- side panels: components, definitions and recent runs ----------------------------------
 
-/** The open panel ("components", "runs" or null), remembered in this browser. At first,
+/** The open panel ("components", "definitions", "runs" or null), remembered in this browser. At first,
  *  Components on a wide screen; none on a phone, where the panel covers the diagram. */
 state.side = (() => {
   const first = matchMedia("(max-width: 760px)").matches ? null : "components";
@@ -664,6 +664,43 @@ function renderSide() {
   const panel = document.getElementById("side-components");
   panel.hidden = state.side !== "components";
   panel.replaceChildren(...componentsPanel());
+  const definitions = document.getElementById("side-definitions");
+  definitions.hidden = state.side !== "definitions";
+  definitions.replaceChildren(...definitionsPanel());
+}
+
+/** What the model defines once and objects use: [id, title, names in the model, editor].
+ *  Paced lines are made from servers, so they're listed only once there are some. */
+const DEFINITIONS = [
+  ["part-types", () => say("Part types"), tree => typesOf(tree), partTypesPanel],
+  ["attributes", () => say("Part attributes"), tree => attributesOf(tree), attributesPanel],
+  ["resources", () => "Resources", tree => Object.keys(tree.resources || {}), resourcesPanel],
+  ["vehicles", () => "Vehicles", tree => Object.keys(tree.vehicles || {}), vehiclesPanel],
+  ["lines", () => "Paced lines", tree => Object.keys(tree.lines || {}), linesPanel],
+  ["schedules", () => "Schedules", tree => Object.keys(tree.schedules || {}), schedulesPanel],
+];
+
+/** The list of definitions; each opens its editor in the panel on the right. */
+function definitionsPanel() {
+  const tree = state.baseTree ? currentTree() : null;
+  const items = DEFINITIONS.filter(([id, , names]) => id !== "lines" || (tree && names(tree).length));
+  return [
+    el("h2", {}, "Definitions"),
+    ...items.map(([id, title, names]) => {
+      const list = tree ? names(tree) : [];
+      return el("button", {
+        id: `define-${id}`, class: state.selected?.definition === id ? "component current" : "component",
+        disabled: tree ? null : true,
+        onclick: () => {
+          if (matchMedia("(max-width: 760px)").matches) state.side = null;
+          state.selected = { definition: id };
+          state.connect = null;
+          if (state.tab !== "model") { state.tab = "model"; render(); } else renderEditor();
+        },
+      }, el("b", {}, title()), el("span", {}, list.length ? list.join(", ") : "none yet"));
+    }),
+    el("p", { class: "hint" }, "Defined once for the whole model; sources, servers and connections use them."),
+  ];
 }
 
 /** What can be added to the model, and the ways to connect objects. */
@@ -926,6 +963,10 @@ function distField(label, path) {
 function panel(tree) {
   const sel = state.selected;
   if (!sel) return experimentPanel(tree);
+  if (sel.definition) {
+    const [, title, , editor] = DEFINITIONS.find(([id]) => id === sel.definition);
+    return el("div", { class: "definition" }, el("h3", {}, title()), el("div", { class: "kind" }, "Definition"), editor(tree));
+  }
   const node = tree[sel.section]?.[sel.name];
   if (!node) { state.selected = null; return experimentPanel(tree); }
   const p = `${sel.section}.${sel.name}`;
@@ -1197,12 +1238,7 @@ function experimentPanel(tree) {
       }),
       "Record an animation (replication 1)"),
     throughputPerField(tree),
-    partTypesPanel(tree),
-    attributesPanel(tree),
-    resourcesPanel(tree),
-    vehiclesPanel(tree),
-    linesPanel(tree),
-    schedulesPanel(tree));
+    el("p", { class: "hint" }, "Part types, attributes, resources, vehicles and schedules are under Definitions, in the bar on the left."));
 }
 
 // --- schedules ----------------------------------------------------------------------------------
