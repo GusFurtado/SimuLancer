@@ -12,13 +12,13 @@
 
 templates:
   assembly-line:
-    tags: [manufacturing, assembly line, paced line, shifts, part types, changeovers, rework, failures, resources]
+    tags: [manufacturing, assembly line, paced line, shifts, part types, changeovers, rework, failures, resources, attributes, routing by condition]
   bank-branch:
-    tags: [services, bank, customers, queues, opening hours, part types, routing by type, resources]
+    tags: [services, bank, customers, queues, opening hours, part types, routing by type, resources, priorities, giving up]
   warehouse:
     tags: [logistics, warehouse, inventory, restocking, forklifts, vehicles, picking, shifts, splitting, kits, queues, resources]
   bike-assembly:
-    tags: [manufacturing, assembly, kits, batches, shifts, resources]
+    tags: [manufacturing, assembly, kits, batches, shifts, resources, carts, CONWIP]
   conveyor-line:
     tags: [manufacturing, conveyors, buffers, failures]
   two-cells:
