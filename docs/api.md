@@ -294,10 +294,11 @@ Oldest first. `summary` is what the scenario changes, in words. `?version=` keep
 
 ```json
 { "id": "1791590716-1", "label": "Two cells v2", "project": "two-cells", "version": "v2", "status": "running",
-  "progress": { "done": 12, "total": 30 }, "error": null, "files": [] }
+  "progress": { "done": 12, "total": 30 }, "error": null, "files": [], "queued_at": 1791590716 }
 ```
 
 - `status`: `queued`, `running`, `done` or `failed` (then `error` says why).
+- `queued_at`: when the run was asked for, in seconds since 1970 (UTC). Pages show it as a date and time.
 - Poll `GET /api/v1/runs/{id}` every 0.5–1 s for progress.
 - `GET /api/v1/runs` lists runs newest first.
 

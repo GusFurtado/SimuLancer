@@ -151,18 +151,21 @@ async function loadRuns() {
     },
     r.label, " ",
     r.status === "done" ? null : el("span", { class: r.status === "failed" ? "badge bad" : "badge" }, r.status),
-    el("span", { class: "sub" }, r.id)),
+    el("span", { class: "sub" }, runDate(r))),
     r.status === "done" || r.status === "failed"
-      ? el("button", { class: "trash", title: "Delete this run", "aria-label": `Delete the run ${r.id}`, onclick: () => deleteRun(r) }, trash())
+      ? el("button", { class: "trash", title: "Delete this run", "aria-label": `Delete the run ${r.label} of ${runDate(r)}`, onclick: () => deleteRun(r) }, trash())
       : null)));
 }
 
+/** When a run was asked for, in the browser's local time. */
+const runDate = r => new Date(r.queued_at * 1000).toLocaleString();
+
 /** Deletes a finished run's results, animation included; it can be run again from the model. */
 async function deleteRun(r) {
-  if (!confirm(`Delete the run “${r.label}” (${r.id})? Its results and animation go with it.`)) return;
+  if (!confirm(`Delete the run “${r.label}” of ${runDate(r)}? Its results and animation go with it.`)) return;
   const { ok, data } = await api("DELETE", `runs/${encodeURIComponent(r.id)}`);
   if (!ok) {
-    state.message = { kind: "error", text: data.error || `The run ${r.id} couldn't be deleted.` };
+    state.message = { kind: "error", text: data.error || `The run of ${runDate(r)} couldn't be deleted.` };
   } else if (state.run && state.run.id === r.id) {
     stopAnimation();
     state.run = null;
@@ -276,7 +279,7 @@ function render() {
     el("div", { class: "head" },
       el("div", { class: "titles" },
         el("h2", {}, results ? state.run.label : d?.name || state.project),
-        el("p", {}, results ? `Run ${state.run.id}` : d?.description || "")),
+        el("p", {}, results ? `Run of ${runDate(state.run)}` : d?.description || "")),
     ),
     el("div", { class: "tabs" },
       el("button", { class: state.tab === "model" ? "current" : null, onclick: () => { state.tab = "model"; render(); } }, "Model"),

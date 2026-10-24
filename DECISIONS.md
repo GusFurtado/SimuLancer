@@ -370,6 +370,11 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
 - **Modeling page:** *Part attributes* in the model settings (name, starts at), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
 
+## Runs show when they were asked for (implemented 2026-10-24)
+
+- **A date instead of the id:** *Recent runs*, the results heading and the delete confirmation showed the run id (`1792793570-1`: seconds since 1970 and a counter), which means nothing to a reader. They show the date and time the run was asked for, in the browser's local time and format.
+- **`queued_at` in the API** (seconds since 1970) rather than reading the id: the id's shape stays free to change.
+
 ## Deleting runs (implemented 2026-10-23, issue #53)
 
 Run results piled up without limit: on the LAN server, 19 runs took 140 MB, 98.5% of it the event logs behind the animations. Since the run list lives in memory, results of runs from before a restart couldn't even be reached.
