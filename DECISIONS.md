@@ -380,6 +380,10 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
 - **Modeling page:** *Part attributes* under Definitions (name, starts at; in the model settings until the Definitions panel), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
 
+## The way back to the projects (implemented 2026-10-25)
+
+- **Styled like the page tabs:** the link back was small grey text with a "←" character, unlike the Modeling and Simulation tabs beside it. It now has a line chevron, the tabs' padding and their hover wash, and a thin rule separates it from the project's name, so it reads as navigation, not as part of the title.
+
 ## Definitions in the bar on the left (implemented 2026-10-24)
 
 - **Model settings had grown to everything:** experiment, outputs, part types, attributes, resources, vehicles, paced lines and schedules, one long panel. Model settings now keep the experiment and outputs; the rest moved to a **Definitions** panel in the bar on the left, next to Components and Recent runs.
@@ -414,7 +418,7 @@ Run results piled up without limit: on the LAN server, 19 runs took 140 MB, 98.5
 
 Edits on the Modeling page live in the browser until Save version, so leaving the page used to throw them away silently.
 
-- **Leaving asks first** while anything is unsaved (model, layout, decisions or documentation): closing the tab, reloading, ← Projects and the switch to Simulation. One `beforeunload` handler covers them all, since the page's own links are ordinary navigations. The question is the browser's own ("Leave site? Changes you made may not be saved."); pages can't change its words. The issue also proposed an in-page dialog for the page's links: not built, because the browser's question already covers them and a second dialog would only differ in style.
+- **Leaving asks first** while anything is unsaved (model, layout, decisions or documentation): closing the tab, reloading, the Projects link and the switch to Simulation. One `beforeunload` handler covers them all, since the page's own links are ordinary navigations. The question is the browser's own ("Leave site? Changes you made may not be saved."); pages can't change its words. The issue also proposed an in-page dialog for the page's links: not built, because the browser's question already covers them and a second dialog would only differ in style.
 - **Save version stands out** while something is unsaved: a ring and a dot in the color of changed fields, next to the existing "3 unsaved changes".
 - Nothing is asked when everything is saved, nor right after saving.
 

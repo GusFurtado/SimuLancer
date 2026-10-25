@@ -79,9 +79,10 @@
 
   .shell { display: flex; flex-direction: column; height: 100%; }
   .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; background: var(--surface); box-shadow: 0 1px 0 var(--ring); position: relative; z-index: 1; }
-  .topbar .back { color: var(--muted); text-decoration: none; font-size: 13px; }
-  .topbar .back:hover { color: var(--accent); }
-  .topbar #project-name { font-size: 16px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar .back { display: inline-flex; align-items: center; margin-left: -6px; padding: 6px 12px 6px 6px; border-radius: 8px; color: var(--ink-2); text-decoration: none; font-size: 13px; }
+  .topbar .back:hover { background: var(--accent-wash); color: var(--ink); }
+  .topbar .back svg.icon { margin-right: 4px; vertical-align: 0; }
+  .topbar #project-name { font-size: 16px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-left: 16px; box-shadow: inset 1px 0 0 var(--ring); }
   .topbar .pages { display: flex; gap: 4px; }
   .topbar .pages a { text-decoration: none; color: var(--ink-2); padding: 6px 12px; border-radius: 8px; font-size: 13px; }
   .topbar .pages a:hover { background: var(--accent-wash); }
