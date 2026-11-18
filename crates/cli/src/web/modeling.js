@@ -317,7 +317,7 @@ function renderEditor() {
         el("div", { class: "card diagram" }, diagramToolbar(), diagram(tree),
           el("p", { class: "hint" }, state.connect
             ? (state.connect.from ? say(`Now click where parts go from ${state.connect.from}.`) : say("Click the object parts come from."))
-            : "Click an object, conveyor or queue to edit it, and drag objects to move them. What applies to the whole model is under Definitions, in the bar on the left.")),
+            : "Click an object, conveyor or queue to edit it, and drag objects to move them. Drag from the dot on an object's edge to connect it. What applies to the whole model is under Definitions, in the bar on the left.")),
         versionsCard()),
       el("div", { class: "card panel" }, panel(tree))),
   ].filter(Boolean));
@@ -462,7 +462,9 @@ function moveObject(name, x, z) {
   state.layoutChanged = true;
 }
 
-function addObject(section) {
+/** Adds a source, server or sink: where it was dropped on the diagram (`at`, in meters),
+ *  or, from a click, beyond the objects already there. */
+function addObject(section, at = null) {
   const tree = currentTree();
   const base = { sources: "arrivals", servers: "machine", sinks: "exit" }[section];
   const name = freeName(tree, base);
@@ -477,10 +479,13 @@ function addObject(section) {
     setChange(`${section}.${name}`, defaults);
     const xs = Object.values(state.layout.positions).map(p => p[0]);
     const zs = Object.values(state.layout.positions).map(p => p[1]);
-    state.layout.positions[name] = [xs.length ? Math.max(...xs) + 6 : 0, zs.length ? Math.max(...zs) + 4 : 0];
+    state.layout.positions[name] = at || [xs.length ? Math.max(...xs) + 6 : 0, zs.length ? Math.max(...zs) + 4 : 0];
     state.layoutChanged = true;
     state.selected = { section, name };
-    state.message = { kind: "ok", text: `Added ${name}. Drag it into place, then use “Conveyor” or “Queue” to connect it.` };
+    const connect = section === "sinks" ? "drag to it from the dot on another object's edge" : "drag from the dot on its edge to the next object";
+    state.message = { kind: "ok", text: at
+      ? `Added ${name}. To connect it, ${connect}.`
+      : `Added ${name}. Drag it into place; to connect it, ${connect}.` };
   });
 }
 
@@ -730,6 +735,10 @@ function componentsPanel() {
   };
   const item = (id, name, about, onclick, extra = {}) => el("button", { id, class: "component", onclick, disabled: ready ? null : true, title: about, ...extra },
     el("b", {}, name), el("span", {}, about));
+  // An object can be clicked (it goes beyond the others) or dragged onto the diagram.
+  const add = (section, id, name, about) => item(id, name, about,
+    e => { if (addDrag?.dropped) return; onModel(() => addObject(section))(e); },
+    { "data-add": section, onpointerdown: e => startAddDrag(e, section, name) });
   const connect = (kind, id, name, about) => {
     const on = state.connect?.kind === kind;
     return item(id, on ? `${name}: connecting… (Esc)` : name, about,
@@ -739,15 +748,83 @@ function componentsPanel() {
   return [
     el("h2", {}, "Components"),
     el("h3", {}, "Add"),
-    item("add-source", "Source", say("Where parts come from"), onModel(() => addObject("sources"))),
-    item("add-server", "Server", say("A machine or station that works on parts"), onModel(() => addObject("servers"))),
-    item("add-sink", "Sink", say("Where parts leave"), onModel(() => addObject("sinks"))),
+    add("sources", "add-source", "Source", say("Where parts come from")),
+    add("servers", "add-server", "Server", say("A machine or station that works on parts")),
+    add("sinks", "add-sink", "Sink", say("Where parts leave")),
+    el("p", { class: "hint" }, "Drag one onto the diagram, or click to add it next to the others."),
     el("h3", {}, "Connect"),
     connect("conveyors", "connect", "Conveyor", say("Parts travel along it")),
     connect("queues", "connect-queue", "Queue", say("Parts wait in line, no travel time")),
     connect("transports", "connect-transport", "Transport", say("Vehicles carry parts between them")),
-    el("p", { class: "hint" }, "To connect, click a kind, then an object on the diagram and the next one."),
+    el("p", { class: "hint" }, "To connect, drag from the dot on an object's right edge to the next object. Or click a kind, then an object and the next one."),
   ];
+}
+
+/** Dragging a new object from the Components panel onto the diagram. */
+let addDrag = null;
+
+function startAddDrag(e, section, label) {
+  if (e.button !== 0 || e.currentTarget.disabled) return;
+  const narrow = matchMedia("(max-width: 760px)").matches;
+  const side = document.getElementById("side");
+  const start = [e.clientX, e.clientY];
+  let ghost = null, target = null;
+  addDrag = { section, moved: false, dropped: false };
+  const over = ev => document.elementFromPoint(ev.clientX, ev.clientY)?.closest(".diagram svg") || null;
+  const place = ev => { ghost.style.left = `${ev.clientX}px`; ghost.style.top = `${ev.clientY}px`; };
+  const mark = svgEl => {
+    if (svgEl === target) return;
+    target?.parentElement.classList.remove("drop-target");
+    svgEl?.parentElement.classList.add("drop-target");
+    target = svgEl;
+  };
+  const begin = () => {
+    addDrag.moved = true;
+    if (state.tab !== "model") { state.tab = "model"; render(); }
+    // On a phone the panel covers the diagram: get it out of the way while dragging.
+    if (narrow) side.hidden = true;
+    const svgEl = document.querySelector(".diagram svg");
+    const size = Math.max(18, OBJECT_SIZE * (svgEl?.getScreenCTM()?.a || 25));
+    ghost = el("div", { class: `add-ghost ${section}`, "aria-hidden": "true", style: `--size: ${size}px` },
+      el("div", { class: "shape" }), el("span", {}, label));
+    document.body.append(ghost);
+  };
+  const finish = ev => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", cancel);
+    document.removeEventListener("keydown", esc, true);
+    ghost?.remove();
+    mark(null);
+    const svgEl = ev && addDrag.moved ? over(ev) : null;
+    if (addDrag.moved) {
+      addDrag.dropped = true; // the click that may follow isn't an "add"
+      if (narrow) { if (svgEl) { state.side = null; renderSide(); } else side.hidden = false; }
+    }
+    if (svgEl) {
+      const pt = svgEl.createSVGPoint();
+      pt.x = ev.clientX; pt.y = ev.clientY;
+      const p = pt.matrixTransform(svgEl.getScreenCTM().inverse());
+      const snap = v => Math.round(v * 2) / 2;
+      addObject(section, [snap(p.x), snap(p.y)]);
+    }
+    setTimeout(() => { addDrag = null; }, 0);
+  };
+  const move = ev => {
+    if (!addDrag.moved) {
+      if (Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) < 5) return;
+      begin();
+    }
+    place(ev);
+    mark(over(ev));
+  };
+  const up = ev => finish(ev);
+  const cancel = () => finish(null);
+  const esc = ev => { if (ev.key === "Escape") { ev.stopPropagation(); finish(null); } };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", cancel);
+  document.addEventListener("keydown", esc, true);
 }
 
 let drag = null;
@@ -816,17 +893,132 @@ function diagram(tree) {
       const fill = section === "servers" ? "var(--busy)" : "var(--object)";
       const from = state.connect?.from === name;
       const cls = from ? "selected" : invalid(section, name) ? "invalid" : isSelected(section, name) ? "selected" : "";
-      root.append(svg("rect", {
+      const node = svg("g", { class: isSelected(section, name) ? "node current" : "node" }, svg("rect", {
         x: x - s / 2, y: z - s / 2, width: s, height: s, rx: section === "servers" ? 0.15 : 0.6,
         fill, class: `hit object ${cls}`, "vector-effect": "non-scaling-stroke", "data-object": name,
         onclick: select(section, name),
         onpointerdown: e => startDrag(e, root, name),
       }, svg("title", {}, `${section.slice(0, -1)} ${name}`)));
+      // The handle to drag a connection from: parts leave sources and servers, not sinks.
+      if (section !== "sinks" && !state.connect) node.append(svg("circle", {
+        cx: x + s / 2, cy: z, r: 0.28, class: "handle", "vector-effect": "non-scaling-stroke", "data-handle": name,
+        onpointerdown: e => startConnectDrag(e, name),
+      }, svg("title", {}, `Drag to connect ${name} to the next object`)));
+      root.append(node);
       root.append(svg("text", { x, y: z - s / 2 - 0.35, "text-anchor": "middle", "font-size": 0.7 },
         name + (changedObj(section, name) ? " •" : "")));
     }
   }
   return root;
+}
+
+/** The ways to connect two objects: [section, name, what it is]. */
+const CONNECT_KINDS = [
+  ["conveyors", "Conveyor", () => say("Parts travel along it")],
+  ["queues", "Queue", () => say("Parts wait in line, no travel time")],
+  ["transports", "Transport", () => say("Vehicles carry parts between them")],
+];
+
+/** Dragging from an object's handle to the next object, then choosing how they connect. */
+function startConnectDrag(e, from) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  closeConnectMenu();
+  const [x0, z0] = state.layout.positions[from];
+  const start = [e.clientX, e.clientY];
+  let line = null, moved = false;
+  const current = () => document.querySelector(".diagram svg");
+  const toModel = (s, ev) => {
+    const pt = s.createSVGPoint();
+    pt.x = ev.clientX; pt.y = ev.clientY;
+    return pt.matrixTransform(s.getScreenCTM().inverse());
+  };
+  // Parts go from a source or server to a server or sink.
+  const targetAt = ev => {
+    const name = document.elementFromPoint(ev.clientX, ev.clientY)?.closest("[data-object]")?.dataset.object;
+    return name && name !== from && sectionOf(currentTree(), name) !== "sources" ? name : null;
+  };
+  const mark = name => {
+    for (const r of document.querySelectorAll(".diagram .target")) r.classList.remove("target");
+    if (name) document.querySelector(`.diagram [data-object="${CSS.escape(name)}"]`)?.classList.add("target");
+  };
+  const finish = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", finish);
+    document.removeEventListener("keydown", esc, true);
+    line?.remove();
+    mark(null);
+  };
+  const move = ev => {
+    if (!moved && Math.hypot(ev.clientX - start[0], ev.clientY - start[1]) < 4) return;
+    moved = true;
+    const s = current();
+    if (!s) return;
+    // A check may redraw the diagram while dragging: the preview goes on the current one.
+    if (!line?.isConnected) {
+      line = svg("line", { x1: x0 + OBJECT_SIZE / 2, y1: z0, class: "connect-preview", "vector-effect": "non-scaling-stroke" });
+      s.append(line);
+    }
+    const target = targetAt(ev);
+    const [x, z] = target ? state.layout.positions[target] : (p => [p.x, p.y])(toModel(s, ev));
+    line.setAttribute("x2", x);
+    line.setAttribute("y2", z);
+    mark(target);
+  };
+  const up = ev => {
+    const target = moved ? targetAt(ev) : null;
+    finish();
+    if (target) openConnectMenu(from, target, ev.clientX, ev.clientY);
+  };
+  const esc = ev => { if (ev.key === "Escape") { ev.stopPropagation(); finish(); } };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  window.addEventListener("pointercancel", finish);
+  document.addEventListener("keydown", esc, true);
+}
+
+/** The menu where a dragged connection was dropped: conveyor, queue or transport. */
+let connectMenu = null;
+
+function closeConnectMenu() {
+  if (!connectMenu) return;
+  connectMenu.cleanup();
+  connectMenu.node.remove();
+  connectMenu = null;
+}
+
+function openConnectMenu(from, to, x, y) {
+  const fleets = Object.keys(currentTree().vehicles || {}).length;
+  const choose = kind => () => {
+    closeConnectMenu();
+    const tree = currentTree();
+    if (sectionOf(tree, from) && sectionOf(tree, to)) connectObjects(from, to, kind);
+  };
+  const node = el("div", { class: "connect-menu", role: "menu", "aria-label": `Connect ${from} to ${to}` },
+    el("div", { class: "title" }, `${from} → ${to}`),
+    CONNECT_KINDS.map(([kind, name, about]) => {
+      const off = kind === "transports" && !fleets;
+      return el("button", { role: "menuitem", class: "component", "data-kind": kind, onclick: choose(kind), disabled: off || null },
+        el("b", {}, name), el("span", {}, off ? "Add vehicles first (Definitions → Vehicles)" : about()));
+    }));
+  node.style.left = `${x}px`;
+  node.style.top = `${y}px`;
+  document.body.append(node);
+  // Keep it on the screen.
+  const r = node.getBoundingClientRect();
+  if (r.right > innerWidth - 8) node.style.left = `${Math.max(8, innerWidth - 8 - r.width)}px`;
+  if (r.bottom > innerHeight - 8) node.style.top = `${Math.max(8, innerHeight - 8 - r.height)}px`;
+  const outside = ev => { if (!node.contains(ev.target)) closeConnectMenu(); };
+  const esc = ev => { if (ev.key === "Escape") { ev.stopPropagation(); closeConnectMenu(); } };
+  document.addEventListener("pointerdown", outside, true);
+  document.addEventListener("keydown", esc, true);
+  connectMenu = { node, cleanup: () => {
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("keydown", esc, true);
+  } };
+  node.querySelector("button").focus();
 }
 
 /** Dragging an object: moves it on a 0.5 m grid; its conveyors follow. */

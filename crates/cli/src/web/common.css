@@ -375,6 +375,24 @@
   .toolbar button { padding: 5px 10px; font-size: 13px; }
   .diagram svg .object { cursor: grab; }
   .diagram svg.connecting .object { cursor: crosshair; }
+  /* Dragging a new object from the Components panel onto the diagram. */
+  #side button.component[data-add]:not(:disabled) { cursor: grab; touch-action: none; }
+  .diagram.drop-target { box-shadow: inset 0 0 0 2px var(--accent); }
+  .add-ghost { position: fixed; z-index: 10; pointer-events: none; transform: translate(-50%, -50%); display: grid; justify-items: center; }
+  .add-ghost .shape { width: var(--size); height: var(--size); background: var(--object); border-radius: 50%; box-shadow: 0 0 0 1.5px var(--accent), 0 4px 12px rgba(0, 0, 0, 0.2); opacity: 0.9; }
+  .add-ghost.servers .shape { background: var(--busy); border-radius: calc(var(--size) * 0.125); }
+  .add-ghost span { position: absolute; top: 100%; margin-top: 4px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  /* Dragging a connection from an object's handle to the next object. */
+  .diagram .handle { fill: var(--surface); stroke: var(--accent); stroke-width: 1.5; cursor: crosshair; visibility: hidden; }
+  .diagram g.node:hover .handle, .diagram g.node.current .handle { visibility: visible; }
+  .diagram .target { stroke: var(--accent); stroke-width: 3; }
+  .diagram .connect-preview { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 4; pointer-events: none; }
+  .connect-menu { position: fixed; z-index: 10; width: 230px; background: var(--surface); border-radius: 10px; padding: 6px; box-shadow: 0 0 0 1px var(--ring), 0 8px 24px rgba(0, 0, 0, 0.18); }
+  .connect-menu .title { font-size: 12px; color: var(--muted); padding: 4px 8px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .connect-menu button.component { display: block; width: 100%; text-align: left; box-shadow: none; background: none; padding: 7px 8px; border-radius: 8px; }
+  .connect-menu button.component b { display: block; font-size: 13px; }
+  .connect-menu button.component span { display: block; font-size: 12px; color: var(--muted); }
+  .connect-menu button.component:hover:not(:disabled), .connect-menu button.component:focus-visible { background: var(--accent-wash); }
   .field.dist .params { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-top: 6px; }
   .field.dist .param { display: block; font-size: 11px; color: var(--muted); margin: 0; }
   .field.dist .param input { margin-top: 2px; font-size: 14px; color: var(--ink); }
