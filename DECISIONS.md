@@ -380,6 +380,24 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
 - **Modeling page:** *Part attributes* under Definitions (name, starts at; in the model settings until the Definitions panel), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
 
+## Dragging new objects onto the diagram (implemented 2026-11-18)
+
+*Source*, *Server* and *Sink* in the Components panel only added the object beyond the others (right of and below the rightmost and lowest), so every new object needed a second drag to its place.
+
+- **Drag one onto the diagram** and it lands where it was dropped, on the same 0.5 m grid as moving an object. While dragging, a preview the size of the object at the diagram's scale follows the pointer and the diagram is outlined when a drop would land on it. Dropping elsewhere, or pressing Esc, adds nothing.
+- **A click still adds it**, as before: the drag starts only after the pointer moves 5 px, and the click that follows a drag is ignored.
+- **Pointer events, not HTML drag and drop**, so it works with touch as with a mouse (the items have `touch-action: none`). From another tab the drag switches to the model's diagram; on a phone the panel, which covers the diagram, hides during the drag and closes after a drop.
+- The drop is one change, undone in one step.
+
+## Dragging connections between objects (implemented 2026-11-18)
+
+Connecting took three clicks in two places: a kind in the Components panel, then the two objects on the diagram.
+
+- **A handle on each source and server:** a dot on the right edge, shown on hover and on the selected object (so a touch selects first, then drags). Dragging the object itself still moves it. Sinks have none: parts don't leave them.
+- **Drag it onto the next object:** a dashed line follows the pointer and snaps to an object that can take parts (a server or sink, not itself), which is outlined. Dropped anywhere else, or with Esc, nothing happens.
+- **Then a small menu where it was dropped:** *Conveyor*, *Queue* or *Transport*, with the same words as the Components panel. Transport is greyed out, saying why, until the model has vehicles. A menu rather than always a conveyor, because the bank's lines are queues and the warehouse moves orders by forklift. Esc or a click elsewhere closes it.
+- The connection is made by the same code as the Connect buttons (names, conveyor length from the drawing, selection), and undone in one step. The Connect buttons stay, for keyboards and for anyone used to them.
+
 ## The way back to the projects (implemented 2026-10-25)
 
 - **Styled like the page tabs:** the link back was small grey text with a "←" character, unlike the Modeling and Simulation tabs beside it. It now has a line chevron, the tabs' padding and their hover wash, and a thin rule separates it from the project's name, so it reads as navigation, not as part of the title.

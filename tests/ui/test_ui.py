@@ -132,6 +132,88 @@ check(conveyor_length("c_machine_packer") == before, "undo restores the length")
 b.js("document.getElementById('redo').click()")
 check(conveyor_length("c_machine_packer") == after, "redo applies it again")
 
+# Drag a sink from the Components panel onto the diagram: it lands where it was dropped.
+def drag_new(button):
+    """Presses `button` and moves to a point on the diagram, without letting go.
+    Returns that point in meters, snapped, and whether the drop target shows."""
+    return b.js(f"""
+      const s = document.querySelector('.diagram svg'), box = s.getBoundingClientRect();
+      const [cx, cy] = [box.x + box.width * 0.3, box.y + box.height * 0.8];
+      const pt = s.createSVGPoint(); pt.x = cx; pt.y = cy;
+      const p = pt.matrixTransform(s.getScreenCTM().inverse());
+      const src = document.getElementById({button!r}), from = src.getBoundingClientRect();
+      const at = (x, y) => ({{ clientX: x, clientY: y, bubbles: true, button: 0 }});
+      src.dispatchEvent(new PointerEvent('pointerdown', at(from.x + 10, from.y + 10)));
+      window.dispatchEvent(new PointerEvent('pointermove', at(from.x + 40, from.y + 20)));
+      window.dispatchEvent(new PointerEvent('pointermove', at(cx, cy)));
+      window.dropAt = at(cx, cy);
+      return [Math.round(p.x * 2) / 2, Math.round(p.y * 2) / 2,
+              document.querySelector('.diagram.drop-target') !== null && document.querySelector('.add-ghost') !== null];
+    """)
+
+def let_go():
+    b.js("window.dispatchEvent(new PointerEvent('pointerup', window.dropAt))")
+
+x, z, lit = drag_new("add-sink")
+check(lit, "the diagram lights up and a preview follows the pointer")
+b.screenshot(f"{out}/2a-adding.png")
+let_go()
+b.wait(f"return {obj('exit')} !== null")
+r = b.js(f"const r = {obj('exit')}; return [+r.getAttribute('x') + +r.getAttribute('width') / 2, +r.getAttribute('y') + +r.getAttribute('height') / 2]")
+check([round(v, 2) for v in r] == [x, z], f"dropped where the pointer was: {r} vs {[x, z]}")
+check(b.js("return document.querySelector('.add-ghost') === null && document.querySelector('.drop-target') === null"), "the preview goes away")
+check(b.js("return document.querySelector('.panel h3')?.textContent") == "exit", "the new object is selected")
+b.js("document.getElementById('undo').click()")
+b.wait(f"return {obj('exit')} === null")
+
+drag_new("add-sink")
+b.js("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
+let_go()
+time.sleep(0.3)
+check(b.js(f"return {obj('exit')} === null && document.querySelector('.add-ghost') === null"), "Esc cancels the drag")
+
+# Drag from an object's handle to the next one, then pick how they connect.
+def drag_connection(a, z, then=""):
+    """Drags from `a`'s handle onto `z` (or onto empty space if z is None) and lets go.
+    Returns whether a dashed preview showed and `z` was marked as the target."""
+    to = f"{obj(z)}.getBoundingClientRect()" if z else "(() => { const b = document.querySelector('.diagram svg').getBoundingClientRect(); return { x: b.x + 4, y: b.bottom - 14, width: 0, height: 0 }; })()"
+    return b.js(f"""
+      const h = document.querySelector('[data-handle="{a}"]'), hb = h.getBoundingClientRect(), tb = {to};
+      const at = (x, y) => ({{ clientX: x, clientY: y, bubbles: true, button: 0 }});
+      const [tx, ty] = [tb.x + tb.width / 2, tb.y + tb.height / 2];
+      h.dispatchEvent(new PointerEvent('pointerdown', at(hb.x + hb.width / 2, hb.y + hb.height / 2)));
+      window.dispatchEvent(new PointerEvent('pointermove', at(hb.x + 30, hb.y + 10)));
+      window.dispatchEvent(new PointerEvent('pointermove', at(tx, ty)));
+      const shown = document.querySelector('.connect-preview') !== null && {f"{obj(z)}.classList.contains('target')" if z else "true"};
+      {then}
+      window.dispatchEvent(new PointerEvent('pointerup', at(tx, ty)));
+      return shown && document.querySelector('.connect-preview') === null && document.querySelector('.diagram .target') === null;
+    """)
+
+menu = "document.querySelector('.connect-menu')"
+check(drag_connection("arrivals", "packer"), "a dashed line follows the pointer and the target is marked")
+b.wait(f"return {menu} !== null")
+check(b.js(f"return {menu}.querySelector('.title').textContent") == "arrivals → packer", "the menu says what it connects")
+check(b.js(f"return {menu}.querySelector('[data-kind=transports]').disabled"), "no transport without vehicles")
+b.screenshot(f"{out}/2a-connecting.png")
+b.js("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))")
+check(b.js(f"return {menu} === null"), "Esc closes the menu")
+check(not b.js("return [...document.querySelectorAll('.diagram title')].some(t => t.textContent.startsWith('queue q_arrivals_packer'))"), "and connects nothing")
+
+drag_connection("arrivals", "packer")
+b.wait(f"return {menu} !== null")
+b.js(f"{menu}.querySelector('[data-kind=queues]').click()")
+b.wait("return [...document.querySelectorAll('.diagram title')].some(t => t.textContent === 'queue q_arrivals_packer: arrivals → packer')")
+check(b.js(f"return {menu} === null && document.querySelector('.panel h3')?.textContent") == "q_arrivals_packer", "the new queue is selected")
+b.js("document.getElementById('undo').click()")
+b.wait("return ![...document.querySelectorAll('.diagram title')].some(t => t.textContent.startsWith('queue q_arrivals_packer'))")
+
+drag_connection("machine", "arrivals")
+drag_connection("machine", None)
+time.sleep(0.2)
+check(b.js(f"return {menu} === null"), "no menu over a source or empty space")
+check(b.js("return document.querySelector('[data-handle=\"shipping\"]') === null"), "sinks have no handle")
+
 click_obj("packer")
 b.wait("return document.querySelector('.panel h3')?.textContent === 'packer'")
 set_value("f-servers-packer-process_time-kind", "exponential")
