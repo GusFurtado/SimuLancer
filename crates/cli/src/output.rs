@@ -19,13 +19,13 @@ pub const CONFIDENCE: f64 = 0.95;
 
 const REPORT_TEMPLATE: &str = include_str!("report.html");
 
-/// The checked layout for viewers, in meters (Y up), as JSON: viewers don't
-/// need a YAML parser.
+/// The checked layout, in meters (Y up), as JSON, for the animation and
+/// anything else that draws a run without a YAML parser.
 pub fn write_layout(path: &Path, layout: &Layout) -> io::Result<()> {
     fs::write(path, format!("{}\n", layout_json(layout)))
 }
 
-/// The layout as viewers read it (`layout.json`).
+/// The layout as `layout.json` holds it.
 pub fn layout_json(layout: &Layout) -> serde_json::Value {
     let objects: serde_json::Map<String, serde_json::Value> = layout
         .objects

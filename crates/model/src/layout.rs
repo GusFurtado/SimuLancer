@@ -1,8 +1,8 @@
 //! Layout files (`*.layout.yaml`): where objects and conveyors are drawn.
 //! Queues aren't in the file: they're drawn straight between their objects.
 //!
-//! Only viewers use layouts; the engine never reads them. They're checked
-//! against the model so a viewer can trust every name and path.
+//! Only the diagram and the animation use layouts; the engine never reads them.
+//! They're checked against the model so the pages can trust every name and path.
 
 use serde::Deserialize;
 use serde_saphyr::Spanned;
@@ -58,7 +58,8 @@ pub struct Layout {
 pub struct PlacedObject {
     pub name: String,
     pub position: [f64; 3],
-    /// Optional hint for the viewer's 3D model.
+    /// What the object is, for drawing it (e.g. `machine_small`). Kept for the
+    /// 2D art direction; nothing draws it differently yet.
     pub model: Option<String>,
 }
 
@@ -107,7 +108,7 @@ struct RawConveyorPath {
 }
 
 /// Parses a layout and checks it against `model`. Returns the layout and
-/// warnings (problems that don't stop a viewer, like a drawn conveyor
+/// warnings (problems that don't stop drawing a run, like a drawn conveyor
 /// whose length differs from the model's).
 pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnostic>), LoadError> {
     let raw: RawLayout = parse_yaml(source)?;
@@ -277,7 +278,7 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
             warnings.push(Diagnostic {
                 position: pos(&name.referenced),
                 message: format!(
-                    "conveyor `{}` is drawn {:.2} m long but is {:.2} m in the model; the viewer will stretch its animation to fit",
+                    "conveyor `{}` is drawn {:.2} m long but is {:.2} m in the model; the animation will stretch to fit",
                     c.name, drawn, c.length
                 ),
             });

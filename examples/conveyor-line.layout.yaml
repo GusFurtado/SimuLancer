@@ -1,7 +1,7 @@
-# Visual layout for conveyor-line.yaml. Used only by the viewer; the engine never reads it.
+# Visual layout for conveyor-line.yaml. Used only by the diagram and the animation; the engine never reads it.
 # Kept in a separate file so that moving things around never shows up as a change in the logic.
 # Conveyor lengths are set in the model. If a drawn path's length differs from the model's,
-# the viewer should warn and scale the animation to fit.
+# validation warns and the animation scales to fit.
 
 model: conveyor-line.yaml
 units: m

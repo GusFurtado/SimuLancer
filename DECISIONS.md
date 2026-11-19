@@ -10,9 +10,9 @@ Working name. Separate from the `outliers` workspace.
 | Project type | Open source |
 | MVP focus | Text models, git and CI: diffable models, headless runs, automated tests, reproducible seeds |
 | Engine | Rust |
-| Front end | Godot (visual editor and animation) |
+| Front end | Web pages served by the binary: editor, report and 2D animation (Godot until 2026-11-19; see "No 3D for now") |
 | Model format | Declarative YAML plus a small expression language for logic |
-| Godot in v1 | Viewer/animator only: reads the model and an event log, plays it back, no editing |
+| 3D | None for now: back only once the 2D is good enough to sell (2026-11-19; see "No 3D for now") |
 | License | MIT / Apache-2.0 (dual, Rust convention) |
 | First example domain | Manufacturing (job shop, buffers, breakdowns) |
 
@@ -23,6 +23,8 @@ Working name. Separate from the `outliers` workspace.
 - Rust's advantages over a standalone C++ library: Cargo; ready-made libraries (`rand`/`rand_distr`, `serde` + `toml`/`serde_yaml`, `rayon`, `arrow`/`parquet`); memory safety for outside contributors; PyO3 and WASM available later.
 
 ## Why Godot for the v1 viewer (not Bevy or egui)
+
+*Superseded 2026-11-19: the Godot viewer was removed. See "No 3D for now".*
 
 - The event log is the only connection, so the front end can be replaced later without touching the engine.
 - Godot's scene editor saves the most effort in the 3D work (factory layouts, cameras). Bevy has no editor.
@@ -141,6 +143,8 @@ Working name. Separate from the `outliers` workspace.
 
 ## Viewer (implemented 2026-10-09)
 
+*Removed 2026-11-19, with the `viewer/` folder; its replay test lives on in `tests/replay/` against the web animation. See "No 3D for now". Later sections that mention the Godot viewer or "both replays" describe how things were then.*
+
 - **Folder:** `viewer/`, a Godot 4.7 project in GDScript.
 - **Renderer:** Compatibility, so the same project runs on desktop, Android (Godot Editor app) and, later, web exports.
 - **What it opens:** a results folder. It reads `events.jsonl` and, if present, `layout.json`.
@@ -245,7 +249,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - **Storage:** no database. Models and scenarios are YAML files in a folder, which IT can back up or put in git.
 - **Security:** HTTPS and authentication come from IT's reverse proxy, not built in for v1.
 - **The web UI uses only the public, documented HTTP API**, so anything a user can click, a programmer can script (Python, R, curl). An OpenAPI description will be published. The CLI and its file formats stay the batch/CI interface. A Python package wrapping the engine in-process is a later option.
-- **Animation:** a plain 2D top-down canvas replay (a port of `viewer/scripts/replay.gd`, which is tested against the engine) is the default: instant, about 30 KB, works on tablets. The UI shows a **"3D" button as a placeholder** for a future Godot web export of the viewer, kept so it isn't forgotten. That export is roughly 35–40 MB of WebAssembly (8–10 MB compressed, to be measured), cached by the browser and loaded only on demand. The user judged that acceptable compared with existing DES software, but 2D comes first.
+- **Animation:** a plain 2D top-down canvas replay (a port of `viewer/scripts/replay.gd`, which was tested against the engine) is the default: instant, about 30 KB, works on tablets. The UI showed a **"3D" button as a placeholder** for a future Godot web export of the viewer. *The placeholder was removed on 2026-11-19, when the export was measured (39.5 MB of WebAssembly, 10.1 MB gzipped) and 3D was set aside: see "No 3D for now".*
 - **`serve` as built:** documented in `docs/api.md`.
   - **Endpoints:** list, read, check and save models/scenarios; queue, poll and fetch runs.
   - **Models:** `GET /models/{file}` returns the model as a tree with a scenario's changes applied. Change paths address that tree, which is what forms read and write. Base models are never overwritten through the API; only scenarios are saved.
@@ -264,7 +268,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   - **Edits become scenario changes** at the same paths the API uses. Setting a value back to the base's removes the change. Changed fields and objects are marked, with a reset link.
   - **Validation as you type:** every edit is checked through `POST /check` (debounced). Errors appear under the field they belong to, and the object is outlined in red in the diagram.
   - **Save as scenario** writes an 8-line scenario file through `PUT /models/{file}`. **Run** queues the file (if unchanged) or the unsaved scenario, then shows progress (replications done) and opens the results.
-  - **Results:** the report (the same self-contained `report.html`, in a frame), the **2D animation**, the **"3D" placeholder button** (explains that the Godot web view is planned and loads on demand), and download links.
+  - **Results:** the report (the same self-contained `report.html`, in a frame), the **2D animation**, and download links. (A "3D" placeholder button sat here until 2026-11-19.)
   - **2D animation:** a canvas port of `replay.gd`, with the same conveyor rules and state colors. Play/pause, speed from 1× to 3600×, timeline, wheel/pinch zoom, drag to pan, double-click to fit. The 7.3 MB event log arrives gzipped (0.8 MB).
   - Light and dark mode with the report's tokens. Narrow screens stack the panels.
 - **Browser test** (`tests/ui/`, also a CI job): `run.sh` starts the server on a copy of the examples and a headless Firefox, and `test_ui.py` drives it through Firefox's built-in remote control (Marionette, a ~50-line client, no Selenium) as a user would:
@@ -272,7 +276,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   - enter a bad speed and check the error appears on the field;
   - change a routing rule, run, check the downloads and the report;
   - play the animation and check its clock advances;
-  - open the 3D placeholder, save the scenario.
+  - save the scenario.
 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
@@ -379,6 +383,28 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **At most 8 attributes,** stored inline in each part. This keeps parts `Copy`, with no allocation per part; runs are about 1% slower (warehouse, one thread: 3.61 s vs 3.59 s).
 - **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
 - **Modeling page:** *Part attributes* under Definitions (name, starts at; in the model settings until the Definitions panel), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
+
+## No 3D for now; the Godot viewer is removed (2026-11-19)
+
+3D comes back only once the 2D is good enough to sell. A test of the Godot viewer in the browser worked, but it showed what keeping it costs.
+
+- **The test** (branch `viewer-web`, kept as a record, not merged): the viewer exported for the web, without threads, so no COOP/COEP headers are needed. It reads `?run=<id>` and fetches the run's files from the HTTP API. The export is 39.5 MB of WebAssembly (10.1 MB gzipped) plus a 0.7 MB pack. In headless Chrome with SwiftShader (software rendering, no GPU), it took about 4 s to show a 6 MB event log and 7 s for the warehouse's 34 MB. That was after raising `HTTPRequest`'s download chunk from 64 KB to 16 MB (at 64 KB the warehouse took 19 s) and turning off its gzip handling (the browser already decodes it). Not tried: Firefox, Safari, real GPUs, the tablet. Headless Firefox here has no WebGL2.
+- **Why set it aside anyway:**
+  - **3D sells, it doesn't decide** (§8 of the issues document). People analyze in the top view.
+  - **Bad 3D is worse than good 2D.** Grey boxes with unreadable labels cost credibility with a manager.
+  - **The cost of 3D is content, not rendering:** machine models, conveyors that bend, animated vehicles and people, cameras.
+  - **Two replays meant every feature twice.** Within a month the Godot viewer fell behind on vehicles, part-type colors and shapes.
+- **Removed:** `viewer/` (Godot project, demo, tests), its CI job, and the "3D" placeholder in the results. **Kept:** `layout.json` in the run results (the web animation reads it), and the layout's per-object `model:` field, which now says what the object is, for the 2D art direction.
+- **The replay test moved to the web animation:** `tests/replay/test_replay.py` runs the same checks as the old `test_replay.gd` (exact conveyor positions, accumulation and blocking, routing, kits, batches, shifts) on the `Replay` class in `common.js`, in the browser test's Firefox. Breaking the accumulation rule makes it fail.
+- **Built with 3D in mind, in the data:** the event log and the layout are the boundary, and positions are already in meters with Y up. Reserved for when 3D (or a richer 2D) needs them, not built yet:
+  - each object's **rotation** and **footprint** (width × depth);
+  - **elevation or floor**, for mezzanines and multi-level plants;
+  - **paths for vehicles** through the plant, instead of straight lines (see "Distances are in the model" under Vehicles).
+- **When 3D comes back,** reconsider Godot. With the web app at the center, a 3D view in the same JavaScript (e.g. three.js, vendored into the binary, about 600 KB, no CDN) would reuse the one replay instead of keeping a second one in another language.
+
+## 2D art direction (planned 2026-11-19, not urgent)
+
+A stakeholder seeing the animation for the first time should recognize their plant: a forklift looks like a forklift, not a square. It doesn't need to be realistic, but it needs a consistent art direction that looks good. To be designed: a visual language for objects by what they are (the layout's `model:`), vehicles, parts and people, in light and dark mode, still readable at the diagram's usual scale and keeping server-state colors meaningful.
 
 ## Dragging new objects onto the diagram (implemented 2026-11-18)
 

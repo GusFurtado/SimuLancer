@@ -404,8 +404,7 @@ time.sleep(4)
 clock = b.js("return document.querySelector('.overlay .clock').textContent")
 check(clock.startswith("day 1  00:0") and clock != "day 1  00:00:00", f"animation clock: {clock}")
 b.screenshot(f"{out}/6-animation.png")
-click_text(".results-bar button", "3D")
-b.wait("return document.body.textContent.includes('3D animation: planned')")
+check(b.js("return [...document.querySelectorAll('.results-bar button')].map(x => x.textContent)") == ["Report", "Animation"], "results: report and animation, no 3D placeholder")
 
 # --- Recent runs: the trash deletes the open run and its results. ---------------
 if b.js("return document.getElementById('side-runs').hidden"):

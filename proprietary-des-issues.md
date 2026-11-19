@@ -135,7 +135,7 @@ Use these to evaluate any tool, open-source or commercial:
 
 ## 16. How outliers-sim answers these issues
 
-Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-10-23.
+Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-11-19.
 
 | Issue | What outliers-sim does about it | Status |
 |---|---|---|
@@ -190,7 +190,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Verification is hard | Readable models, a per-part event log, and a replay that reproduces the engine exactly. | done |
 | **8. Animation as a substitute for rigor** | | |
 | The animation is the product | The Simulation page leads with plain-language results and their ranges; each scenario's report and animation are one click below. | done |
-| Effort goes into 3D | Layouts are a small separate file; the 2D replay is the default and 3D is optional. | done |
+| Effort goes into 3D | Layouts are a small separate file, and the animation is 2D; there's no 3D to sink hours into. | done |
 | Animation is slow | Simulation never runs with animation: runs at full speed, then the event log is replayed. | done |
 | **9. The "pseudo-science" pipeline** | | |
 | Models can't be audited | Anyone can read and re-run a model for free, and get identical numbers. | done |
