@@ -159,8 +159,7 @@ function layoutOf(graph, layout) {
   return autoLayout(graph);
 }
 
-/** Columns by distance from the sources; backward conveyors loop around the top
- *  (same as the Godot viewer's automatic layout). */
+/** Columns by distance from the sources; backward conveyors loop around the top. */
 function autoLayout(graph) {
   const depth = {};
   const queue = [...graph.sources];
@@ -265,8 +264,8 @@ function progressText(run) {
     : `Running ${run.label}: ${run.progress.done} of ${run.progress.total} replications`;
 }
 
-/** A finished run's results: the report, the 2D animation, the 3D placeholder
- *  and downloads. `view` is "report", "animation" or "3d"; `onView` switches. */
+/** A finished run's results: the report, the animation and downloads.
+ *  `view` is "report" or "animation"; `onView` switches. */
 function runResults(container, run, view, onView) {
   const file = name => `${API}/runs/${run.id}/files/${name}`;
   if (run.status !== "done") {
@@ -283,7 +282,7 @@ function runResults(container, run, view, onView) {
   const body = el("div");
   container.replaceChildren(
     el("div", { class: "results-bar" },
-      tab("report", "Report"), tab("animation", "Animation"), tab("3d", "3D", "3D animation is planned"),
+      tab("report", "Report"), tab("animation", "Animation"),
       el("span", { class: "spacer" }), ...downloads),
     body);
   if (view === "report") {
@@ -293,20 +292,15 @@ function runResults(container, run, view, onView) {
       el("h3", { style: "margin-top: 0" }, "Nothing to animate in this run"),
       el("p", {}, "The animation replays what happened in the first replication, and this model doesn't record it."),
       el("p", {}, "To turn it on, open the project's Modeling page, check “Record an animation” under Definitions → Experiment, and run again. (In the model file it's ", el("code", {}, "outputs: { event_log: jsonl }"), ".)")));
-  } else if (view === "animation") {
-    startAnimation(body, run);
   } else {
-    body.append(el("div", { class: "card note" },
-      el("h3", { style: "margin-top: 0" }, "3D animation: planned"),
-      el("p", {}, "A 3D view (the Godot viewer, exported for the web) will open here. It downloads about 8–10 MB the first time, so it will load only when you ask for it."),
-      el("p", {}, "Until then, the 2D animation shows the same replay.")));
+    startAnimation(body, run);
   }
 }
 
 // --- 2D animation ----------------------------------------------------------------------------------
 
 /** Rebuilds the simulation state at any time from the event log, with the
- *  engine's conveyor rules (a port of viewer/scripts/replay.gd). */
+ *  engine's conveyor rules; tests/replay/test_replay.py checks it against the engine. */
 class Replay {
   constructor(header, events) {
     this.header = header;

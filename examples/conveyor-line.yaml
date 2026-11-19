@@ -76,7 +76,7 @@ experiment:
   seed: 20261009                  # replication i uses stream i, so the results are reproducible
 
 outputs:
-  event_log: jsonl                # what the Godot viewer reads
+  event_log: jsonl                # what the animation replays
   summary:
     - throughput
     - time_in_system

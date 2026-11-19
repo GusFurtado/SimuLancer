@@ -1,5 +1,5 @@
-# Routing and merging without a layout file: the viewer places objects
-# itself, including a backward loop (rework) and a self-loop (retest).
+# Routing and merging without a layout file: objects are placed
+# automatically, including a backward loop (rework) and a self-loop (retest).
 format: outliers-sim/0.1
 name: routing
 entities: { part: {} }

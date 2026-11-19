@@ -2,7 +2,8 @@
 # Browser test of the web pages: starts `outliers-sim serve` on a fresh data
 # folder (which starts with no projects) and a headless Firefox, then drives
 # an engineer's and a manager's session
-# (tests/ui/test_ui.py). Screenshots go to $SHOTS (default: a temp folder).
+# (tests/ui/test_ui.py), after checking the animation's replay against the
+# engine (tests/replay/test_replay.py). Screenshots go to $SHOTS (default: a temp folder).
 #
 # Needs Firefox and Python 3. Usage: tests/ui/run.sh
 set -euo pipefail
@@ -40,5 +41,10 @@ if [ -z "$ready" ]; then
   cat "$WORK/firefox.log"
   exit 1
 fi
+# The web animation's replay against the engine, on logs the current CLI writes.
+for model in deterministic two-servers routing kits; do
+  "$ROOT/target/release/outliers-sim" run "$ROOT/tests/replay/fixtures/$model.yaml" --output-dir "$WORK/replay/$model" >/dev/null
+done
+python3 "$ROOT/tests/replay/test_replay.py" "http://127.0.0.1:$PORT/" "$MARIONETTE" "$WORK/replay"
 python3 "$ROOT/tests/ui/test_ui.py" "http://127.0.0.1:$PORT/" "$MARIONETTE" "$SHOTS"
 echo "screenshots: $SHOTS"

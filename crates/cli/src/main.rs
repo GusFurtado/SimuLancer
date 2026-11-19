@@ -86,7 +86,7 @@ struct RunArgs {
     /// Which replication to write the event log for (when the model asks for one).
     #[arg(long, default_value_t = 1)]
     log_replication: u32,
-    /// Layout file for viewers [default: <model>.layout.yaml next to the model, if present].
+    /// Layout file for the animation [default: <model>.layout.yaml next to the model, if present].
     #[arg(long)]
     layout: Option<PathBuf>,
 }

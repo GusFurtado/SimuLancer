@@ -1,4 +1,4 @@
-//! What happened to each part, as it happens. The event log and the viewer
+//! What happened to each part, as it happens. The event log and the animation
 //! are built from this; the engine itself doesn't write files.
 
 use crate::SimTime;
