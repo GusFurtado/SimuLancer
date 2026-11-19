@@ -22,7 +22,7 @@ def set_value(element_id, value, event="change"):
     b.js(f"const i = document.getElementById({element_id!r}); i.value = {value!r}; i.dispatchEvent(new Event({event!r}))")
 
 def click_in_diagram(title):
-    b.js(f"""[...document.querySelectorAll('.diagram rect, .diagram polyline.hit')]
+    b.js(f"""[...document.querySelectorAll('.diagram .object, .diagram polyline.hit')]
              .find(r => r.querySelector('title')?.textContent.startsWith({title!r}))
              .dispatchEvent(new MouseEvent('click', {{bubbles: true}}))""")
 
@@ -73,7 +73,7 @@ b.screenshot(f"{out}/1-landing.png")
 
 # --- Build: a new project, drawn in the browser. ---------------------------------
 def obj(name):
-    return f"document.querySelector('rect[data-object=\"{name}\"]')"
+    return f"document.querySelector('[data-object=\"{name}\"]')"
 
 def click_obj(name):
     b.js(f"{obj(name)}.dispatchEvent(new MouseEvent('click', {{bubbles: true}}))")
@@ -159,7 +159,7 @@ check(lit, "the diagram lights up and a preview follows the pointer")
 b.screenshot(f"{out}/2a-adding.png")
 let_go()
 b.wait(f"return {obj('exit')} !== null")
-r = b.js(f"const r = {obj('exit')}; return [+r.getAttribute('x') + +r.getAttribute('width') / 2, +r.getAttribute('y') + +r.getAttribute('height') / 2]")
+r = b.js(f"const r = {obj('exit')}.getBBox(); return [r.x + r.width / 2, r.y + r.height / 2]")
 check([round(v, 2) for v in r] == [x, z], f"dropped where the pointer was: {r} vs {[x, z]}")
 check(b.js("return document.querySelector('.add-ghost') === null && document.querySelector('.drop-target') === null"), "the preview goes away")
 check(b.js("return document.querySelector('.panel h3')?.textContent") == "exit", "the new object is selected")
@@ -184,7 +184,7 @@ def drag_connection(a, z, then=""):
       h.dispatchEvent(new PointerEvent('pointerdown', at(hb.x + hb.width / 2, hb.y + hb.height / 2)));
       window.dispatchEvent(new PointerEvent('pointermove', at(hb.x + 30, hb.y + 10)));
       window.dispatchEvent(new PointerEvent('pointermove', at(tx, ty)));
-      const shown = document.querySelector('.connect-preview') !== null && {f"{obj(z)}.classList.contains('target')" if z else "true"};
+      const shown = document.querySelector('.connect-preview') !== null && {f"{obj(z)}.parentElement.classList.contains('target')" if z else "true"};
       {then}
       window.dispatchEvent(new PointerEvent('pointerup', at(tx, ty)));
       return shown && document.querySelector('.connect-preview') === null && document.querySelector('.diagram .target') === null;
@@ -213,6 +213,13 @@ drag_connection("machine", None)
 time.sleep(0.2)
 check(b.js(f"return {menu} === null"), "no menu over a source or empty space")
 check(b.js("return document.querySelector('[data-handle=\"shipping\"]') === null"), "sinks have no handle")
+
+# Sources and sinks look different; a selected server shows a ring apart from its own color.
+check(b.js(f"return [{obj('arrivals')}.dataset.shape, {obj('machine')}.dataset.shape, {obj('shipping')}.dataset.shape]") == ["circle", "rounded", "diamond"], "a shape per kind of object")
+click_obj("machine")
+b.wait("return document.querySelector('.panel h3')?.textContent === 'machine'")
+ring = b.js(f"const g = {obj('machine')}.parentElement, h = getComputedStyle(g.querySelector('.halo')); return [g.classList.contains('selected'), h.stroke, getComputedStyle({obj('machine')}).stroke]")
+check(ring[0] and ring[1] not in ("none", "") and ring[2] in ("none", ""), f"selection is a ring around the server, not its outline: {ring}")
 
 click_obj("packer")
 b.wait("return document.querySelector('.panel h3')?.textContent === 'packer'")

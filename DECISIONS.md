@@ -398,6 +398,13 @@ Connecting took three clicks in two places: a kind in the Components panel, then
 - **Then a small menu where it was dropped:** *Conveyor*, *Queue* or *Transport*, with the same words as the Components panel. Transport is greyed out, saying why, until the model has vehicles. A menu rather than always a conveyor, because the bank's lines are queues and the warehouse moves orders by forklift. Esc or a click elsewhere closes it.
 - The connection is made by the same code as the Connect buttons (names, conveyor length from the drawing, selection), and undone in one step. The Connect buttons stay, for keyboards and for anyone used to them.
 
+## A shape per kind of object; selection as a ring (implemented 2026-11-18)
+
+Sources and sinks were the same grey circle, and the selection outline was the accent blue, the same as a server's fill, so a selected server barely changed.
+
+- **Shapes:** sources are circles, servers rounded squares, sinks diamonds (an octagon was tried first, but at the diagram's usual scale it read as a circle). One function, `shapePath` in `common.js`, gives an SVG path for each shape; the canvas animation draws the same path through `Path2D`, so the diagram, the drag preview and the animation always agree. The Godot viewer still draws boxes.
+- **Selection, errors and drop targets are a ring with a gap around the shape,** not the shape's own outline, so they show whatever the fill. The ring is a second path drawn 0.25 m outside the shape; the state is a class on the object's group (`selected`, `invalid`, `target`).
+
 ## The way back to the projects (implemented 2026-10-25)
 
 - **Styled like the page tabs:** the link back was small grey text with a "←" character, unlike the Modeling and Simulation tabs beside it. It now has a line chevron, the tabs' padding and their hover wash, and a thin rule separates it from the project's name, so it reads as navigation, not as part of the title.

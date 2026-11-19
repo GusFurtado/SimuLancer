@@ -8,6 +8,25 @@ const STATES = [["busy", "Busy"], ["blocked", "Blocked (output full)"], ["failed
 const OUTPUT_RULES = ["probability", "round_robin", "first_available", "shortest_queue", "by_type", "by_condition"];
 const INPUT_RULES = ["first_come", "priority", "round_robin"];
 const OBJECT_SIZE = 1.2;
+/** How each kind of object is drawn: sources are circles, servers rounded squares, sinks diamonds. */
+const OBJECT_SHAPES = { sources: "circle", servers: "rounded", sinks: "diamond" };
+
+/** An SVG path (also usable as a canvas Path2D) for a shape of width `s` centered on (x, y). */
+function shapePath(shape, x, y, s) {
+  const h = s / 2, f = n => +n.toFixed(4);
+  if (shape === "circle") return `M${f(x - h)},${f(y)}a${f(h)},${f(h)} 0 1,0 ${f(s)},0a${f(h)},${f(h)} 0 1,0 ${f(-s)},0Z`;
+  if (shape === "octagon") {
+    const r = h / Math.cos(Math.PI / 8);
+    return "M" + [...Array(8)].map((_, i) => {
+      const a = Math.PI / 8 + i * Math.PI / 4;
+      return `${f(x + r * Math.cos(a))},${f(y + r * Math.sin(a))}`;
+    }).join("L") + "Z";
+  }
+  if (shape === "diamond") return `M${f(x)},${f(y - h * 1.15)}L${f(x + h * 1.15)},${f(y)}L${f(x)},${f(y + h * 1.15)}L${f(x - h * 1.15)},${f(y)}Z`;
+  const r = shape === "rounded" ? s * 0.125 : 0;
+  return `M${f(x - h + r)},${f(y - h)}H${f(x + h - r)}a${f(r)},${f(r)} 0 0,1 ${f(r)},${f(r)}V${f(y + h - r)}a${f(r)},${f(r)} 0 0,1 ${f(-r)},${f(r)}`
+    + `H${f(x - h + r)}a${f(r)},${f(r)} 0 0,1 ${f(-r)},${f(-r)}V${f(y - h + r)}a${f(r)},${f(r)} 0 0,1 ${f(r)},${f(-r)}Z`;
+}
 /** Part type colors: --type-0 ... --type-5 in common.css. */
 const TYPE_COLORS = 6;
 
@@ -606,9 +625,7 @@ async function startAnimation(container, run) {
     for (const [name, [x, z]] of Object.entries(layout.positions)) {
       const server = replay.servers[name];
       ctx.fillStyle = server ? colors[replay.state(name)] : colors.object;
-      ctx.beginPath();
-      ctx.roundRect(X(x) - s / 2, Y(z) - s / 2, s, s, server ? 4 : s / 2);
-      ctx.fill();
+      ctx.fill(new Path2D(shapePath(OBJECT_SHAPES[server ? "servers" : graph.sinks.includes(name) ? "sinks" : "sources"], X(x), Y(z), s)));
       ctx.fillStyle = colors["ink-2"];
       ctx.fillText(server?.failed ? `${name} (${server.failed})` : name, X(x), Y(z) - s / 2 - 6);
     }

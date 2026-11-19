@@ -786,7 +786,8 @@ function startAddDrag(e, section, label) {
     const svgEl = document.querySelector(".diagram svg");
     const size = Math.max(18, OBJECT_SIZE * (svgEl?.getScreenCTM()?.a || 25));
     ghost = el("div", { class: `add-ghost ${section}`, "aria-hidden": "true", style: `--size: ${size}px` },
-      el("div", { class: "shape" }), el("span", {}, label));
+      svg("svg", { viewBox: "-0.1 -0.1 1.2 1.2" }, svg("path", { d: shapePath(OBJECT_SHAPES[section], 0.5, 0.5, 1) })),
+      el("span", {}, label));
     document.body.append(ghost);
   };
   const finish = ev => {
@@ -891,14 +892,18 @@ function diagram(tree) {
       const [x, z] = layout.positions[name];
       const s = OBJECT_SIZE;
       const fill = section === "servers" ? "var(--busy)" : "var(--object)";
+      const shape = OBJECT_SHAPES[section];
       const from = state.connect?.from === name;
       const cls = from ? "selected" : invalid(section, name) ? "invalid" : isSelected(section, name) ? "selected" : "";
-      const node = svg("g", { class: isSelected(section, name) ? "node current" : "node" }, svg("rect", {
-        x: x - s / 2, y: z - s / 2, width: s, height: s, rx: section === "servers" ? 0.15 : 0.6,
-        fill, class: `hit object ${cls}`, "vector-effect": "non-scaling-stroke", "data-object": name,
-        onclick: select(section, name),
-        onpointerdown: e => startDrag(e, root, name),
-      }, svg("title", {}, `${section.slice(0, -1)} ${name}`)));
+      // Selection, errors and drop targets show as a ring with a gap around the shape,
+      // so they stand out whatever the shape's own color.
+      const node = svg("g", { class: ["node", cls, isSelected(section, name) ? "current" : ""].filter(Boolean).join(" ") },
+        svg("path", { d: shapePath(shape, x, z, s + 0.5), class: "halo", "vector-effect": "non-scaling-stroke" }),
+        svg("path", {
+          d: shapePath(shape, x, z, s), fill, class: "hit object", "data-object": name, "data-shape": shape,
+          onclick: select(section, name),
+          onpointerdown: e => startDrag(e, root, name),
+        }, svg("title", {}, `${section.slice(0, -1)} ${name}`)));
       // The handle to drag a connection from: parts leave sources and servers, not sinks.
       if (section !== "sinks" && !state.connect) node.append(svg("circle", {
         cx: x + s / 2, cy: z, r: 0.28, class: "handle", "vector-effect": "non-scaling-stroke", "data-handle": name,
@@ -941,7 +946,7 @@ function startConnectDrag(e, from) {
   };
   const mark = name => {
     for (const r of document.querySelectorAll(".diagram .target")) r.classList.remove("target");
-    if (name) document.querySelector(`.diagram [data-object="${CSS.escape(name)}"]`)?.classList.add("target");
+    if (name) document.querySelector(`.diagram [data-object="${CSS.escape(name)}"]`)?.parentElement.classList.add("target");
   };
   const finish = () => {
     window.removeEventListener("pointermove", move);
