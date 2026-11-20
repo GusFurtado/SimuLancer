@@ -178,7 +178,7 @@ fn fleets_say_what_their_vehicles_look_like() {
     let (placed, warnings) = load_layout(&layout, &model).unwrap();
     let messages: Vec<&str> = warnings.iter().map(|w| w.message.as_str()).collect();
     assert_eq!(messages.len(), 2, "{messages:?}");
-    assert!(messages.iter().any(|m| m.starts_with("`forklifts` can't be drawn as `lathe`; its vehicles will look like a forklift. A fleet of vehicles can be drawn as: forklift, agv")), "{messages:?}");
+    assert!(messages.iter().any(|m| m.starts_with("`forklifts` can't be drawn as `lathe`; its vehicles will look like a forklift. A fleet of vehicles can be drawn as: forklift, agv, pallet_jack, tugger, truck")), "{messages:?}");
     assert!(
         messages
             .iter()

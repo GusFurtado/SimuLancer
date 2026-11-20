@@ -184,6 +184,13 @@ function stopAt(graph, layout, name) {
   return [x, artFootprint(lookOf(graph, layout, name), x, z).z1 + 0.85];
 }
 
+/** Where the `i`th of `n` vehicles parks, from where they stop at an object:
+ *  side by side, up to three abreast, more rows in front. [dx, dz] in meters. */
+function parkOffset(look, i, n) {
+  const cols = Math.min(3, n), col = i % cols, row = Math.floor(i / cols);
+  return [(col - (cols - 1) / 2) * (look.art.w + 0.3), row * (look.art.d + 1.2)];
+}
+
 /** A transport's route: straight between where vehicles stop at its objects,
  *  moved 0.6 m to the right of the way parts go when another transport runs the
  *  other way. */
@@ -792,10 +799,10 @@ async function startAnimation(container, run) {
         // Parked side by side, up to three abreast, more rows in front. On a
         // trip it pulls out of its spot onto the route over the first quarter
         // and into its spot at the other end over the last.
-        const cols = Math.min(3, vehicles.length), col = i % cols, row = Math.floor(i / cols);
+        const [px, pz] = parkOffset(look, i, vehicles.length);
         const parked = v.from === v.to || f >= 1 ? 1 : Math.max(0, 1 - 4 * f, 4 * f - 3);
-        const x = a[0] + (b[0] - a[0]) * f + parked * (col - (cols - 1) / 2) * (look.art.w + 0.3);
-        const z = a[1] + (b[1] - a[1]) * f + parked * row * (look.art.d + 1.2);
+        const x = a[0] + (b[0] - a[0]) * f + parked * px;
+        const z = a[1] + (b[1] - a[1]) * f + parked * pz;
         things.push([z, () => {
           const turned = { ...look, mirror: left };
           artCanvas(ctx, turned, x, z, colors.object, X, Y, scale);

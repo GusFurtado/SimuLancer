@@ -246,6 +246,71 @@ const ART = (() => {
         { d: C(0.15, 0.3, 0.05), fill: GREEN },
       ],
     },
+    // A walkie pallet jack: the operator walks behind the power unit, the
+    // forks go under the pallet.
+    pallet_jack: {
+      label: "Pallet jack", sections: ["vehicles"], w: 2.1, d: 0.8, h: 1.6, load: [1.62, 0.4, 0.12],
+      shapes: [
+        { d: R(0.15, 0.42, 1.95, 0.5, 0.2), fill: "#000000", op: 0.14 },
+        { d: R(1.1, 0.3, 0.98, 0.08, 0.02), fill: "#3A3D42" },
+        ...person(0.3, 0.74),
+        { d: "M0.5,-0.36L0.84,0.12", stroke: "#2B2D31", sw: 0.07, cap: "round" },
+        { d: R(0.4, -0.44, 0.2, 0.1, 0.04), fill: "#1F2124" },
+        { d: R(0.74, 0.02, 0.4, 0.7, 0.1), fill: "#F2C230", stroke: "#8C6A12", sw: 0.03 },
+        { d: R(0.74, 0.02, 0.4, 0.16, 0.08), fill: "#FFFFFF", op: 0.2 },
+        { d: R(0.8, 0.36, 0.28, 0.08, 0.03), fill: "#2B2D31", op: 0.5 },
+        { d: C(0.94, 0.74, 0.12, 0.06), fill: "#222326" },
+        { d: R(1.1, 0.58, 0.98, 0.1, 0.02), fill: "#4A4E55" },
+        { d: C(1.96, 0.72, 0.05, 0.03), fill: "#222326" },
+      ],
+    },
+    // A tow tractor pulling two carts; what it carries rides on the first cart.
+    tugger: {
+      label: "Tugger train", sections: ["vehicles"], w: 4.6, d: 1.0, h: 1.6, load: [2.3, 0.45, 0.25],
+      shapes: [
+        { d: R(0.1, 0.4, 4.5, 0.65, 0.2), fill: "#000000", op: 0.14 },
+        { d: "M1.4,0.62H1.62M3.0,0.62H3.36", stroke: "#2B2D31", sw: 0.06, cap: "round" },
+        ...[0, 1.6].flatMap(x => [
+          { d: R(x, 0.56, 1.4, 0.18, 0.04), fill: "#6E7781" },
+          { d: R(x, 0.02, 1.4, 0.56, 0.06), fill: "#C3CAD2", stroke: "#6E7781", sw: 0.03 },
+          { d: R(x + 0.06, 0.08, 1.28, 0.44, 0.04), fill: "#FFFFFF", op: 0.18 },
+          { d: C(x + 0.25, 0.84, 0.13, 0.07), fill: "#222326" },
+          { d: C(x + 1.15, 0.84, 0.13, 0.07), fill: "#222326" },
+        ]),
+        { d: R(3.36, 0.3, 1.2, 0.45, 0.1), fill: "#C9971F" },
+        { d: R(3.36, -0.2, 1.2, 0.56, 0.14), fill: "#F2C230", stroke: "#8C6A12", sw: 0.03 },
+        { d: R(3.5, -0.3, 0.36, 0.5, 0.08), fill: "#2B2D31" },
+        { d: R(3.56, -0.62, 0.3, 0.42, 0.1), fill: "#3E5C86" },
+        { d: C(3.71, -0.76, 0.13), fill: "#FFFFFF", stroke: "#9AA0A8", sw: 0.03 },
+        { d: "M3.98,-0.22L4.12,0.02", stroke: "#1F2124", sw: 0.05, cap: "round" },
+        { d: C(3.6, 0.84, 0.2, 0.1), fill: "#222326" },
+        { d: C(3.6, 0.84, 0.08, 0.04), fill: "#9AA0A8" },
+        { d: C(4.32, 0.84, 0.2, 0.1), fill: "#222326" },
+        { d: C(4.32, 0.84, 0.08, 0.04), fill: "#9AA0A8" },
+        { d: C(4.4, -0.24, 0.06), fill: AMBER },
+      ],
+    },
+    // A flatbed truck, cab in front; the load rides on the bed.
+    truck: {
+      label: "Truck", sections: ["vehicles"], w: 6.6, d: 2.4, h: 3.0, load: [2.4, 1.0, 0.3],
+      shapes: [
+        { d: R(0.2, 1.55, 6.4, 0.75, 0.3), fill: "#000000", op: 0.14 },
+        { d: R(0, 1.45, 4.8, 0.3, 0.05), fill: "#4A4E55" },
+        { d: R(0, 0.05, 4.8, 1.45, 0.06), fill: "#9AA3AD", stroke: "#5E646C", sw: 0.04 },
+        { d: "M0,0.4H4.8M0,0.78H4.8M0,1.15H4.8", stroke: "#7D858F", sw: 0.03 },
+        { d: C(0.9, 2.02, 0.4, 0.2), fill: "#222326" },
+        { d: C(1.9, 2.02, 0.4, 0.2), fill: "#222326" },
+        { d: R(4.85, 0.9, 1.7, 0.95, 0.15), fill: "#C9CED5" },
+        { d: R(4.85, -0.85, 1.7, 1.8, 0.25), fill: "#F4F6F8", stroke: "#8F959D", sw: 0.04 },
+        { d: R(5.55, -0.65, 0.85, 0.62, 0.08), fill: SCREEN },
+        { d: C(5.86, -0.4, 0.13), fill: "#2B2D31", op: 0.6 },
+        { d: R(4.85, -0.85, 1.7, 0.3, 0.2), fill: "#FFFFFF", op: 0.4 },
+        { d: R(6.42, 1.2, 0.18, 0.55, 0.05), fill: "#5E646C" },
+        { d: C(6.45, 0.95, 0.08), fill: AMBER },
+        { d: C(5.7, 2.02, 0.4, 0.2), fill: "#222326" },
+        { d: C(5.7, 2.02, 0.15, 0.08), fill: "#9AA0A8" },
+      ],
+    },
     // Parts. "state" is the part type's color where a model has several types
     // (`typed` shapes are drawn only then), else `plain`. `stands`: waits in
     // front of a server rather than on it.

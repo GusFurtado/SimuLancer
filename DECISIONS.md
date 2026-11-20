@@ -438,6 +438,12 @@ The connections and the parts, in the same oblique style as the objects.
 - **The event log's header** says each server's `batch` size and the resources it `needs`, for the animation.
 - **The automatic layout** spaces columns and rows by the widest group, so a new model with a capacity-4 machine doesn't overlap its neighbours. The warehouse template's layout is respaced for its 2, 3 and 8 stations.
 
+## More vehicles, and fleets on the Modeling diagram (implemented 2026-11-20)
+
+- **Three more vehicle looks**: `pallet_jack` (a walkie pallet jack, the operator walking behind), `tugger` (a tow tractor with two carts, the load on the first) and `truck` (a flatbed, the load on the bed). Same safety yellow as the forklift for the industrial ones, so no vehicle reads as a server state color.
+- **Fleets on the Modeling diagram**: each fleet's vehicles are drawn parked at their `home`, side by side as in the animation (the shared `parkOffset`), up to nine; clicking them opens the Vehicles definition. A fleet without a valid home isn't drawn.
+- **Connection labels on top**: the diagram draws conveyor, queue and transport labels after the objects and vehicles, so a parked fleet doesn't hide its transport's label.
+
 ## No 3D for now; the Godot viewer is removed (2026-11-19)
 
 3D comes back only once the 2D is good enough to sell. A test of the Godot viewer in the browser worked, but it showed what keeping it costs.

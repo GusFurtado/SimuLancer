@@ -871,6 +871,9 @@ function diagram(tree) {
     viewBox: `${b.minX - 2} ${b.minZ - 1} ${b.maxX - b.minX + 4} ${b.maxZ - b.minZ + 2}`,
     role: "img", "aria-label": `Diagram of ${tree.name}`, class: state.connect ? "connecting" : "",
   });
+  // Connection labels go on top of everything, so a parked vehicle or a
+  // nearer object doesn't hide them.
+  const labels = [];
   for (const c of graph.conveyors) {
     const path = drawnPath(graph, layout, c, layout.paths[c.name]);
     // A belt's top is raised; the outline, arrow and click area follow it.
@@ -905,11 +908,36 @@ function diagram(tree) {
     const node = tree[c.section][c.name];
     const text = c.transport ? `${c.name} · ${node.by}, ${node.distance}`
       : c.queue ? `${c.name} · ${node.capacity ?? "∞"}` : c.name;
-    root.append(svg("text", { ...label, "font-size": 0.6 }, text + (changedObj(c.section, c.name) ? " •" : "")));
+    labels.push(svg("text", { ...label, "font-size": 0.6 }, text + (changedObj(c.section, c.name) ? " •" : "")));
   }
   // Objects back to front, so a nearer one's drawing goes over a farther one's.
   const names = [...graph.sources, ...graph.servers, ...graph.sinks].sort((m, n) => layout.positions[m][1] - layout.positions[n][1]);
+  // Each fleet's vehicles parked where they start, as the animation shows them
+  // before their first trip; clicking them opens the Vehicles definition.
+  const parked = [];
+  for (const [fleet, v] of Object.entries(tree.vehicles || {})) {
+    if (!layout.positions[v?.home]) continue;
+    const look = artFor("vehicles", layout.fleets?.[fleet]);
+    const [sx, sz] = stopAt(graph, layout, v.home);
+    const n = Math.min(Math.max(1, Math.floor(Number(v.count)) || 1), 9);
+    const g = svg("g", {
+      class: "vehicles", "data-vehicles": fleet, "data-model": look.kind,
+      onclick: e => {
+        e.stopPropagation();
+        if (drag?.moved || state.connect) return;
+        state.selected = { definition: "vehicles" };
+        renderEditor();
+      },
+    }, svg("title", {}, `${fleet}: ${v.count ?? 1} × ${look.art.label.toLowerCase()}, starting at ${v.home}`));
+    for (let i = n - 1; i >= 0; i--) {
+      const [dx, dz] = parkOffset(look, i, n);
+      g.append(artSvg(look, sx + dx, sz + dz, "var(--object)"));
+    }
+    parked.push([sz, g]);
+  }
+  parked.sort((m, n) => m[0] - n[0]);
   for (const name of names) {
+    while (parked.length && parked[0][0] <= layout.positions[name][1]) root.append(parked.shift()[1]);
     const section = sectionIn(graph, name);
     const [x, z] = layout.positions[name];
     const look = lookOf(graph, layout, name);
@@ -938,6 +966,8 @@ function diagram(tree) {
     root.append(svg("text", { x: box.x + box.w / 2, y: box.y - 0.35, "text-anchor": "middle", "font-size": 0.7 },
       name + (capacity > 1 && !look.units ? ` ×${capacity}` : "") + (changedObj(section, name) ? " •" : "")));
   }
+  for (const [, g] of parked) root.append(g);
+  root.append(...labels);
   return root;
 }
 

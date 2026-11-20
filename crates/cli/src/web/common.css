@@ -145,6 +145,7 @@
   /* No font-size here: the diagram is drawn in meters, and each label sets its own size. */
   .diagram text { fill: var(--ink-2); pointer-events: none; font-weight: 600; paint-order: stroke; stroke: var(--surface); stroke-width: 0.16; stroke-linejoin: round; }
   .diagram .hit { cursor: pointer; }
+  .diagram .vehicles { cursor: pointer; }
   .diagram polyline.selected { stroke: var(--accent); stroke-width: 3; }
   .diagram polyline.invalid { stroke: var(--danger); stroke-width: 3; }
   .diagram .halo { fill: none; stroke: none; pointer-events: none; }
