@@ -5,14 +5,14 @@ model: warehouse.yaml
 units: m
 
 objects:
-  trucks:       { position: [0, 0, -5] }
-  unload:       { position: [8, 0, -5], model: machine_small }
-  putaway:      { position: [16, 0, -5], model: machine_small }
-  break_pallet: { position: [24, 0, -5], model: machine_small }
-  orders:       { position: [0, 0, 5] }
-  pick:         { position: [32, 0, 0], model: machine_small }
-  pack:         { position: [40, 0, 0], model: machine_small }
-  dispatch:     { position: [48, 0, 0] }
+  trucks:       { position: [0, 0, -5], model: dock }
+  unload:       { position: [8, 0, -5], model: workstation }
+  putaway:      { position: [16, 0, -5], model: workstation }
+  break_pallet: { position: [24, 0, -5], model: workstation }
+  orders:       { position: [0, 0, 5], model: generic }
+  pick:         { position: [32, 0, 0], model: workstation }
+  pack:         { position: [40, 0, 0], model: workstation }
+  dispatch:     { position: [48, 0, 0], model: dock }
 
 conveyors:
   dock:        { path: [[0.7, 0, -5], [7.3, 0, -5]] }      # 6.6

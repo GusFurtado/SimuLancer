@@ -8,25 +8,6 @@ const STATES = [["busy", "Busy"], ["blocked", "Blocked (output full)"], ["failed
 const OUTPUT_RULES = ["probability", "round_robin", "first_available", "shortest_queue", "by_type", "by_condition"];
 const INPUT_RULES = ["first_come", "priority", "round_robin"];
 const OBJECT_SIZE = 1.2;
-/** How each kind of object is drawn: sources are circles, servers rounded squares, sinks diamonds. */
-const OBJECT_SHAPES = { sources: "circle", servers: "rounded", sinks: "diamond" };
-
-/** An SVG path (also usable as a canvas Path2D) for a shape of width `s` centered on (x, y). */
-function shapePath(shape, x, y, s) {
-  const h = s / 2, f = n => +n.toFixed(4);
-  if (shape === "circle") return `M${f(x - h)},${f(y)}a${f(h)},${f(h)} 0 1,0 ${f(s)},0a${f(h)},${f(h)} 0 1,0 ${f(-s)},0Z`;
-  if (shape === "octagon") {
-    const r = h / Math.cos(Math.PI / 8);
-    return "M" + [...Array(8)].map((_, i) => {
-      const a = Math.PI / 8 + i * Math.PI / 4;
-      return `${f(x + r * Math.cos(a))},${f(y + r * Math.sin(a))}`;
-    }).join("L") + "Z";
-  }
-  if (shape === "diamond") return `M${f(x)},${f(y - h * 1.15)}L${f(x + h * 1.15)},${f(y)}L${f(x)},${f(y + h * 1.15)}L${f(x - h * 1.15)},${f(y)}Z`;
-  const r = shape === "rounded" ? s * 0.125 : 0;
-  return `M${f(x - h + r)},${f(y - h)}H${f(x + h - r)}a${f(r)},${f(r)} 0 0,1 ${f(r)},${f(r)}V${f(y + h - r)}a${f(r)},${f(r)} 0 0,1 ${f(-r)},${f(r)}`
-    + `H${f(x - h + r)}a${f(r)},${f(r)} 0 0,1 ${f(-r)},${f(-r)}V${f(y - h + r)}a${f(r)},${f(r)} 0 0,1 ${f(r)},${f(-r)}Z`;
-}
 /** Part type colors: --type-0 ... --type-5 in common.css. */
 const TYPE_COLORS = 6;
 
@@ -145,8 +126,11 @@ function placeQueues(graph, positions, paths) {
   }
 }
 
-/** Positions (x, z in meters) and conveyor paths, from layout.json or computed. */
+/** Positions (x, z in meters), conveyor paths and what objects look like
+ *  (`drawn`: name -> the layout's `model`), from layout.json or computed. */
 function layoutOf(graph, layout) {
+  const drawn = {};
+  for (const [name, o] of Object.entries(layout?.objects || {})) if (o.model) drawn[name] = o.model;
   if (layout && graph.conveyors.every(c => c.queue || layout.conveyors[c.name]) &&
       [...graph.sources, ...graph.servers, ...graph.sinks].every(n => layout.objects[n])) {
     const positions = {};
@@ -154,10 +138,16 @@ function layoutOf(graph, layout) {
     const paths = {};
     for (const [name, c] of Object.entries(layout.conveyors)) paths[name] = c.path.map(p => [p[0], p[2]]);
     placeQueues(graph, positions, paths);
-    return { positions, paths };
+    return { positions, paths, drawn };
   }
-  return autoLayout(graph);
+  return { ...autoLayout(graph), drawn };
 }
+
+/** The section ("sources", "servers" or "sinks") an object is in. */
+const sectionIn = (graph, name) => graph.sources.includes(name) ? "sources" : graph.servers.includes(name) ? "servers" : "sinks";
+
+/** What an object looks like (see art.js). */
+const lookOf = (graph, layout, name) => artFor(sectionIn(graph, name), layout.drawn?.[name]);
 
 /** Columns by distance from the sources; backward conveyors loop around the top. */
 function autoLayout(graph) {
@@ -201,10 +191,19 @@ function autoLayout(graph) {
   return { positions, paths };
 }
 
-function boundsOf(layout) {
+/** What a layout covers, with room around it: its objects' drawings (and a
+ *  label above each) when `graph` is given, else their positions. */
+function boundsOf(layout, graph) {
   const points = [...Object.values(layout.positions), ...Object.values(layout.paths).flat()];
+  if (graph) {
+    for (const [name, [x, z]] of Object.entries(layout.positions)) {
+      const b = artBox(lookOf(graph, layout, name), x, z);
+      points.push([b.x, b.y - 1], [b.x + b.w, b.y + b.h]);
+    }
+  }
   const xs = points.map(p => p[0]), zs = points.map(p => p[1]);
-  return { minX: Math.min(...xs) - 2, maxX: Math.max(...xs) + 2, minZ: Math.min(...zs) - 2.5, maxZ: Math.max(...zs) + 2 };
+  const m = graph ? 1 : 2;
+  return { minX: Math.min(...xs) - m, maxX: Math.max(...xs) + m, minZ: Math.min(...zs) - (graph ? m : 2.5), maxZ: Math.max(...zs) + m };
 }
 
 // --- the top bar of /modeling and /simulation -------------------------------------
@@ -518,7 +517,7 @@ async function startAnimation(container, run) {
 
   const a = { frame: 0, playing: true, speedIndex: SPEEDS.indexOf(60), view: null, last: performance.now() };
   animation = a;
-  const b = boundsOf(layout);
+  const b = boundsOf(layout, graph);
   const fitView = () => {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     const scale = Math.min(w / (b.maxX - b.minX), h / (b.maxZ - b.minZ)) * 0.92;
@@ -613,15 +612,13 @@ async function startAnimation(container, run) {
       ctx.stroke();
     }
     ctx.setLineDash([]);
-    const s = OBJECT_SIZE * scale;
-    ctx.font = "12px system-ui, sans-serif";
-    ctx.textAlign = "center";
-    for (const [name, [x, z]] of Object.entries(layout.positions)) {
+    // Objects back to front, so a nearer one's drawing goes over a farther one's.
+    const looks = Object.fromEntries(Object.keys(layout.positions).map(n => [n, lookOf(graph, layout, n)]));
+    const order = Object.keys(layout.positions).sort((m, n) => layout.positions[m][1] - layout.positions[n][1]);
+    for (const name of order) {
+      const [x, z] = layout.positions[name];
       const server = replay.servers[name];
-      ctx.fillStyle = server ? colors[replay.state(name)] : colors.object;
-      ctx.fill(new Path2D(shapePath(OBJECT_SHAPES[server ? "servers" : graph.sinks.includes(name) ? "sinks" : "sources"], X(x), Y(z), s)));
-      ctx.fillStyle = colors["ink-2"];
-      ctx.fillText(server?.failed ? `${name} (${server.failed})` : name, X(x), Y(z) - s / 2 - 6);
+      artCanvas(ctx, looks[name], x, z, server ? colors[replay.state(name)] : colors.object, X, Y, scale);
     }
     const p = Math.max(4, 0.32 * scale);
     ctx.fillStyle = colors.part;
@@ -665,13 +662,31 @@ async function startAnimation(container, run) {
         }
       }
     }
+    // Parts in a server sit on top of it.
     for (const [name, sv] of Object.entries(replay.servers)) {
       const [x, z] = layout.positions[name];
+      const top = Y(z) - looks[name].art.h / 2 * scale;
       [...sv.busy, ...sv.blocked, ...sv.waiting].forEach((part, i) => {
         ctx.fillStyle = partColor(part);
-        ctx.fillRect(X(x) - p / 2 + i * (p + 2), Y(z) - p / 2, p, p);
-        ctx.strokeRect(X(x) - p / 2 + i * (p + 2), Y(z) - p / 2, p, p);
+        ctx.fillRect(X(x) - p / 2 + i * (p + 2), top - p / 2, p, p);
+        ctx.strokeRect(X(x) - p / 2 + i * (p + 2), top - p / 2, p, p);
       });
+    }
+    // Names above the drawings, and how many at once where a server takes more than one.
+    ctx.font = "600 12px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    for (const name of order) {
+      const [x, z] = layout.positions[name];
+      const box = artBox(looks[name], x, z);
+      const server = replay.servers[name];
+      const capacity = header.servers.find(s => s.name === name)?.capacity || 1;
+      const label = (server?.failed ? `${name} (${server.failed})` : name) + (capacity > 1 ? ` ×${capacity}` : "");
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = colors.surface;
+      ctx.strokeText(label, X(box.x + box.w / 2), Y(box.y) - 6);
+      ctx.fillStyle = colors["ink-2"];
+      ctx.fillText(label, X(box.x + box.w / 2), Y(box.y) - 6);
     }
 
     clockText.textContent = clock(replay.time);

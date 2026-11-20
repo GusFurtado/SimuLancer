@@ -384,6 +384,18 @@ The first of the modeling-logic issues (#56 to #60): rules can't tell two parts 
 - **Event log:** a `set` event per value set; the header lists attributes with their unit. The 2D and Godot replays ignore it.
 - **Modeling page:** *Part attributes* under Definitions (name, starts at; in the model settings until the Definitions panel), and *Sets* on sources and servers (attribute, formula), checked as you type like any field. Renaming an attribute or a part type rewrites the formulas that name it.
 
+## Objects drawn as what they are (implemented 2026-11-19, issue #74, first part)
+
+The first part of the 2D art direction (direction B of the three explored: oblique, seen from above with the front face showing): sources, servers and sinks drawn as what they are, on the Modeling diagram and in the animation alike.
+
+- **One drawing for both pages:** `art.js` holds each look as data, in its own meters: paths with a fill, a stroke, and `"state"` for the server-state color (with `shade` for front faces). The diagram makes SVG paths from them and the animation fills the same paths on its canvas (`Path2D`), so they can't drift apart.
+- **Oblique:** a look's top is raised by half its height and its front face shows below; plan coordinates don't change, so the model, the layout and dragging stay as they were. Objects are drawn back to front (by z), so a nearer one covers a farther one.
+- **Looks** (the layout's per-object `model:`): servers `machine` (default), `lathe`, `mill`, `oven`, `workstation`, `counter`, `kiosk`; sources and sinks `dock` (default), `door`, `generic`, and `bin` for sinks. The templates use them (the bank has a door, a kiosk and counters; the lines have docks, machines and workstations; the assembly line's scrap goes to a bin). A sink's dock has its trailer on the right, since parts arrive from the left.
+- **The server's color is still its state:** a machine is painted in it; a workstation, counter or kiosk stands on a pad in it. A server that takes several at once says so after its name (`tellers ×5`); drawing five counters is for later.
+- **The Modeling page** has a *Drawn as* field for sources, servers and sinks (a layout change, undone like any other). Selection, errors and drop targets are a ring around the drawing; a transparent box over it takes clicks and drags; the connection handle is on its right edge; the add preview is the default look at the diagram's scale.
+- **Checked:** an unknown look, or one that doesn't fit the object (a source can't be a `bin`), is a warning pointing at the value, and the object is drawn as the default, so an old or hand-written layout never stops a project from opening. `machine_small` (the old placeholder in every template) reads as `machine`. A test keeps the list in Rust (`LOOKS`) and the one `art.js` draws in step.
+- **Not changed yet:** conveyors are still flat grey belts and parts plain squares (next part), vehicles squares, and conveyors still end 0.7 m from an object's position, so a belt runs under a large drawing.
+
 ## No 3D for now; the Godot viewer is removed (2026-11-19)
 
 3D comes back only once the 2D is good enough to sell. A test of the Godot viewer in the browser worked, but it showed what keeping it costs.

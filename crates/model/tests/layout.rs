@@ -1,4 +1,4 @@
-use outliers_sim_model::{Model, load_layout, load_str};
+use outliers_sim_model::{LOOKS, Model, load_layout, load_str};
 
 const MODEL: &str = include_str!("../../../examples/conveyor-line.yaml");
 const LAYOUT: &str = include_str!("../../../examples/conveyor-line.layout.yaml");
@@ -29,7 +29,7 @@ fn example_layout_matches_its_model() {
     assert!(warnings.is_empty(), "{warnings:?}");
     let names: Vec<&str> = layout.objects.iter().map(|o| o.name.as_str()).collect();
     assert_eq!(names, ["arrivals", "lathe", "mill", "shipping"]);
-    assert_eq!(layout.objects[1].model.as_deref(), Some("machine_small"));
+    assert_eq!(layout.objects[1].model.as_deref(), Some("lathe"));
     let c2 = &layout.conveyors[1];
     assert_eq!(c2.path.len(), 3);
     assert!((c2.path_length() - 8.0).abs() < 1e-9);
@@ -102,4 +102,54 @@ fn bad_paths_and_points() {
 fn unknown_keys_are_rejected() {
     let layout = replace(LAYOUT, "units: m", "unit: m");
     assert!(errors(&layout)[0].contains("unknown field `unit`"));
+}
+
+#[test]
+fn looks_that_dont_fit_are_warnings() {
+    // Not a look at all, and a look sources can't have: both drawn as the default.
+    let layout = replace(LAYOUT, "model: lathe", "model: robot");
+    let layout = replace(
+        &layout,
+        "arrivals: { position: [0, 0, 0], model: dock }",
+        "arrivals: { position: [0, 0, 0], model: bin }",
+    );
+    let (placed, warnings) = load_layout(&layout, &model()).unwrap();
+    let messages: Vec<&str> = warnings.iter().map(|w| w.message.as_str()).collect();
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert!(messages.iter().any(|m| m.starts_with("`lathe` can't be drawn as `robot`; it will look like a machine. A server can be drawn as: machine, lathe")), "{messages:?}");
+    assert!(messages.iter().any(|m| m.starts_with("`arrivals` can't be drawn as `bin`; it will look like a dock. A source can be drawn as: dock, door, generic")), "{messages:?}");
+    assert!(
+        warnings.iter().all(|w| w.position.is_some()),
+        "warnings point at the value"
+    );
+    // The value is kept as written.
+    assert_eq!(placed.objects[1].model.as_deref(), Some("robot"));
+}
+
+#[test]
+fn older_look_names_are_read() {
+    let layout = replace(LAYOUT, "model: lathe", "model: machine_small");
+    let (_, warnings) = load_layout(&layout, &model()).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+#[test]
+fn looks_match_what_the_pages_draw() {
+    // Every look the layout accepts is drawn by the web pages, for the same kinds of object.
+    let art = include_str!("../../cli/src/web/art.js");
+    let drawn: Vec<(String, String)> = art
+        .lines()
+        .zip(art.lines().skip(1))
+        .filter_map(|(line, next)| {
+            let name = line.strip_prefix("    ")?.strip_suffix(": {")?;
+            let both = format!("{line} {next}");
+            let sections = both.split("sections: [").nth(1)?.split(']').next()?;
+            Some((name.to_string(), sections.replace(['"', ' '], "")))
+        })
+        .collect();
+    let looks: Vec<(String, String)> = LOOKS
+        .iter()
+        .map(|(name, sections)| (name.to_string(), sections.join(",")))
+        .collect();
+    assert_eq!(drawn, looks);
 }

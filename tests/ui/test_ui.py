@@ -117,7 +117,7 @@ for a, z in [("machine", "packer"), ("packer", "shipping")]:
 before = conveyor_length("c_machine_packer")
 # Drag the packer 4 m to the right: the conveyor's length follows the drawing.
 b.js(f"""
-  const r = {obj('packer')}, box = r.getBoundingClientRect(), px = box.width / 1.2;
+  const r = {obj('packer')}, box = r.getBoundingClientRect(), px = document.querySelector('.diagram svg').getScreenCTM().a;
   const at = (dx) => ({{ clientX: box.x + box.width / 2 + dx, clientY: box.y + box.height / 2, bubbles: true, button: 0 }});
   r.dispatchEvent(new PointerEvent('pointerdown', at(0)));
   window.dispatchEvent(new PointerEvent('pointermove', at(2 * px)));
@@ -159,7 +159,7 @@ check(lit, "the diagram lights up and a preview follows the pointer")
 b.screenshot(f"{out}/2a-adding.png")
 let_go()
 b.wait(f"return {obj('exit')} !== null")
-r = b.js(f"const r = {obj('exit')}.getBBox(); return [r.x + r.width / 2, r.y + r.height / 2]")
+r = b.js(f"return {obj('exit')}.dataset.at.split(',').map(Number)")
 check([round(v, 2) for v in r] == [x, z], f"dropped where the pointer was: {r} vs {[x, z]}")
 check(b.js("return document.querySelector('.add-ghost') === null && document.querySelector('.drop-target') === null"), "the preview goes away")
 check(b.js("return document.querySelector('.panel h3')?.textContent") == "exit", "the new object is selected")
@@ -215,11 +215,19 @@ check(b.js(f"return {menu} === null"), "no menu over a source or empty space")
 check(b.js("return document.querySelector('[data-handle=\"shipping\"]') === null"), "sinks have no handle")
 
 # Sources and sinks look different; a selected server shows a ring apart from its own color.
-check(b.js(f"return [{obj('arrivals')}.dataset.shape, {obj('machine')}.dataset.shape, {obj('shipping')}.dataset.shape]") == ["circle", "rounded", "diamond"], "a shape per kind of object")
+check(b.js(f"return [{obj('arrivals')}.dataset.model, {obj('machine')}.dataset.model, {obj('shipping')}.dataset.model]") == ["dock", "machine", "dock"], "each kind of object has its default look")
 click_obj("machine")
 b.wait("return document.querySelector('.panel h3')?.textContent === 'machine'")
 ring = b.js(f"const g = {obj('machine')}.parentElement, h = getComputedStyle(g.querySelector('.halo')); return [g.classList.contains('selected'), h.stroke, getComputedStyle({obj('machine')}).stroke]")
 check(ring[0] and ring[1] not in ("none", "") and ring[2] in ("none", ""), f"selection is a ring around the server, not its outline: {ring}")
+
+# What an object is drawn as is a layout change, offered for its kind and undone like any other.
+check(b.js("return [...document.getElementById('f-drawn').options].map(o => o.value)") == ["machine", "lathe", "mill", "oven", "workstation", "counter", "kiosk"], "server looks")
+set_value("f-drawn", "lathe")
+b.wait(f"return {obj('machine')}.dataset.model === 'lathe'")
+check(b.js("return document.getElementById('f-drawn').value") == "lathe", "the panel shows the new look")
+b.js("document.getElementById('undo').click()")
+b.wait(f"return {obj('machine')}.dataset.model === 'machine'")
 
 click_obj("packer")
 b.wait("return document.querySelector('.panel h3')?.textContent === 'packer'")
@@ -578,7 +586,7 @@ check(b.js("return document.getElementById('f-capacity').value") == "15", "queue
 check(b.js("return document.getElementById('f-queues-teller_line-patience').value") == "exponential(20 min)", "patience shown")
 check("teller_line · 15" in b.js("return document.querySelector('.diagram svg').textContent"), "capacity on the diagram")
 b.js(f"""
-  const r = {obj('tellers')}, box = r.getBoundingClientRect(), px = box.width / 1.2;
+  const r = {obj('tellers')}, box = r.getBoundingClientRect(), px = document.querySelector('.diagram svg').getScreenCTM().a;
   const at = (dx) => ({{ clientX: box.x + box.width / 2 + dx, clientY: box.y + box.height / 2, bubbles: true, button: 0 }});
   r.dispatchEvent(new PointerEvent('pointerdown', at(0)));
   window.dispatchEvent(new PointerEvent('pointermove', at(3 * px)));

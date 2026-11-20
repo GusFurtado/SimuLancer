@@ -4,11 +4,11 @@ model: two-cells.yaml
 units: m
 
 objects:
-  arrivals: { position: [0, 0, 0] }
-  mill_a:   { position: [8, 0, -3], model: machine_small }
-  mill_b:   { position: [8, 0, 3], model: machine_small }
-  inspect:  { position: [16, 0, 0], model: machine_small }
-  shipping: { position: [24, 0, 0] }
+  arrivals: { position: [0, 0, 0], model: dock }
+  mill_a:   { position: [8, 0, -3], model: mill }
+  mill_b:   { position: [8, 0, 3], model: mill }
+  inspect:  { position: [16, 0, 0], model: workstation }
+  shipping: { position: [24, 0, 0], model: dock }
 
 conveyors:
   c_a:      { path: [[0.7, 0, -0.3], [0.7, 0, -3], [7.3, 0, -3]] }          # 2.7 + 6.6

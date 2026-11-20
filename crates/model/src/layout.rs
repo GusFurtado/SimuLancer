@@ -13,6 +13,26 @@ use crate::units::{DefaultUnits, Dimension, parse_quantity};
 use crate::{Model, parse_yaml};
 use outliers_sim_engine::spec::Node;
 
+/// What a source, server or sink can be drawn as (`model:` in a layout), and
+/// which kinds of object can use it. The web pages draw them
+/// (`crates/cli/src/web/art.js`); a test keeps the two lists in step.
+pub const LOOKS: &[(&str, &[&str])] = &[
+    ("machine", &["servers"]),
+    ("lathe", &["servers"]),
+    ("mill", &["servers"]),
+    ("oven", &["servers"]),
+    ("workstation", &["servers"]),
+    ("counter", &["servers"]),
+    ("kiosk", &["servers"]),
+    ("dock", &["sources", "sinks"]),
+    ("door", &["sources", "sinks"]),
+    ("bin", &["sinks"]),
+    ("generic", &["sources", "sinks"]),
+];
+
+/// Older names for looks, still read.
+const LOOK_ALIASES: &[(&str, &str)] = &[("machine_small", "machine")];
+
 /// Half an object's size plus a gap: where connections start and end.
 const OBJECT_EDGE: f64 = 0.7;
 
@@ -58,8 +78,8 @@ pub struct Layout {
 pub struct PlacedObject {
     pub name: String,
     pub position: [f64; 3],
-    /// What the object is, for drawing it (e.g. `machine_small`). Kept for the
-    /// 2D art direction; nothing draws it differently yet.
+    /// What the object is drawn as (one of [`LOOKS`], e.g. `lathe`), as the
+    /// layout gives it. None: the pages draw the default for its kind.
     pub model: Option<String>,
 }
 
@@ -98,7 +118,7 @@ struct RawLayout {
 #[serde(deny_unknown_fields)]
 struct RawObject {
     position: Spanned<Vec<f64>>,
-    model: Option<String>,
+    model: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,10 +188,44 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
                     pos(&o.position.referenced),
                     "`position`",
                 ) {
+                    if let Some(look) = &o.model {
+                        let section = if spec.sources.iter().any(|s| s.name == *name) {
+                            "sources"
+                        } else if spec.servers.iter().any(|s| s.name == *name) {
+                            "servers"
+                        } else {
+                            "sinks"
+                        };
+                        let value = LOOK_ALIASES
+                            .iter()
+                            .find(|(old, _)| *old == look.value)
+                            .map_or(look.value.as_str(), |(_, new)| new);
+                        if !LOOKS
+                            .iter()
+                            .any(|(l, s)| *l == value && s.contains(&section))
+                        {
+                            let known: Vec<&str> = LOOKS
+                                .iter()
+                                .filter(|(_, s)| s.contains(&section))
+                                .map(|(l, _)| *l)
+                                .collect();
+                            warnings.push(Diagnostic {
+                                position: pos(&look.referenced),
+                                message: format!(
+                                    "`{}` can't be drawn as `{}`; it will look like a {}. A {} can be drawn as: {}",
+                                    name,
+                                    look.value,
+                                    known[0],
+                                    &section[..section.len() - 1],
+                                    known.join(", ")
+                                ),
+                            });
+                        }
+                    }
                     objects.push(PlacedObject {
                         name: name.to_string(),
                         position,
-                        model: o.model.clone(),
+                        model: o.model.as_ref().map(|m| m.value.clone()),
                     });
                 }
             }

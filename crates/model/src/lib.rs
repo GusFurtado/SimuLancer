@@ -18,7 +18,7 @@ use serde::de::DeserializeOwned;
 use serde_saphyr::{MessageFormatter, UserMessageFormatter};
 
 pub use diagnostic::{Diagnostic, LoadError, Position};
-pub use layout::{Layout, PlacedConveyor, PlacedObject, load_layout};
+pub use layout::{LOOKS, Layout, PlacedConveyor, PlacedObject, load_layout};
 pub use raw::{EventLog, SummaryItem};
 pub use scenario::{
     Merged, SCENARIO_FORMAT, Scenario, ScenarioError, is_scenario, load_scenario, merge,
