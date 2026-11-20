@@ -257,7 +257,9 @@ function layoutTree() {
   const conveyors = {};
   // Queues aren't in the layout file: they're drawn between their objects.
   for (const c of graph.conveyors.filter(c => !c.queue)) conveyors[c.name] = { path: state.layout.paths[c.name].map(([x, z]) => [r(x), 0, r(z)]) };
-  return { units: "m", objects, conveyors };
+  const vehicles = {};
+  for (const f of Object.keys(tree.vehicles || {})) if (state.layout.fleets?.[f]) vehicles[f] = { model: state.layout.fleets[f] };
+  return { units: "m", objects, conveyors, ...(Object.keys(vehicles).length ? { vehicles } : {}) };
 }
 
 const scheduleCheck = debounce(async () => {
@@ -1634,6 +1636,7 @@ function vehiclesPanel(tree) {
       el("div", { class: "row", style: "align-items: center" },
         el("input", { value: f, "aria-label": `vehicles ${f}`, "data-fleet": f, onchange: e => renameFleet(f, e.target.value.trim()) }),
         el("button", { style: "flex: 0", onclick: () => deleteFleet(f), title: `Remove ${f}` }, "Remove")),
+      fleetLookField(f),
       field("How many", `vehicles.${f}.count`, "int"),
       field("Speed", `vehicles.${f}.speed`),
       el("div", { class: "row" },
@@ -1657,12 +1660,24 @@ function linesPanel(tree) {
       el("button", { class: "link danger", onclick: () => setChange(`lines.${name}`, null) }, "Remove the line"))));
 }
 
+/** What a fleet's vehicles are drawn as (a layout change, like an object's). */
+function fleetLookField(f) {
+  const look = artFor("vehicles", state.layout.fleets?.[f]);
+  return el("div", { class: "field" },
+    el("label", { for: `f-drawn-${f}` }, "Drawn as"),
+    el("select", {
+      id: `f-drawn-${f}`, "data-fleet-look": f,
+      onchange: e => batch(() => { (state.layout.fleets ||= {})[f] = e.target.value; state.layoutChanged = true; }),
+    }, ...artChoices("vehicles").map(([k, label]) => el("option", { value: k, selected: k === look.kind || null }, label))));
+}
+
 /** Removes vehicles and the transports they carry. */
 function deleteFleet(name) {
   const tree = currentTree();
   batch(() => {
     for (const [t, tr] of Object.entries(tree.transports || {})) if (tr.by === name) deleteConveyor(currentTree(), t);
     setChange(`vehicles.${name}`, null);
+    if (state.layout.fleets?.[name]) { delete state.layout.fleets[name]; state.layoutChanged = true; }
   });
 }
 
@@ -1677,6 +1692,11 @@ function renameFleet(oldName, newName) {
     setChange(`vehicles.${oldName}`, null);
     setChange(`vehicles.${newName}`, clone(tree.vehicles[oldName]));
     for (const [t, tr] of Object.entries(tree.transports || {})) if (tr.by === oldName) setChange(`transports.${t}.by`, newName);
+    if (state.layout.fleets?.[oldName]) {
+      state.layout.fleets[newName] = state.layout.fleets[oldName];
+      delete state.layout.fleets[oldName];
+      state.layoutChanged = true;
+    }
   });
 }
 

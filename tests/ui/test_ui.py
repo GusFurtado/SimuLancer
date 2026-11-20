@@ -559,6 +559,15 @@ b.js("document.querySelector('[data-connection=to_racks]').dispatchEvent(new Mou
 b.wait("return document.querySelector('.panel .kind')?.textContent === 'Transport'")
 check(b.js("return document.getElementById('f-transports-to_racks-by').value") == "forklifts", "carried by forklifts")
 check("to_racks · forklifts, 60 m" in b.js("return document.querySelector('.diagram svg').textContent"), "transport on the diagram")
+# What the forklifts are drawn as is in the layout, chosen with the fleet.
+define("vehicles")
+b.wait("return document.querySelector('[data-fleet-look=forklifts]') !== null")
+check(b.js("return [...document.querySelector('[data-fleet-look=forklifts]').options].map(o => o.value)") == ["forklift", "agv"], "vehicle looks")
+check(b.js("return document.querySelector('[data-fleet-look=forklifts]').value") == "forklift", "the warehouse's forklifts")
+b.js("const s = document.querySelector('[data-fleet-look=forklifts]'); s.value = 'agv'; s.dispatchEvent(new Event('change'))")
+b.wait("return document.querySelector('[data-fleet-look=forklifts]')?.value === 'agv' && document.getElementById('undo').disabled === false")
+b.js("document.getElementById('undo').click()")
+b.wait("return document.querySelector('[data-fleet-look=forklifts]')?.value === 'forklift'")
 click_obj("break_pallet")
 b.wait("return document.getElementById('f-split-type')?.value === 'carton' && document.getElementById('f-split-count').value === '10'")
 

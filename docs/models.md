@@ -294,7 +294,7 @@ transports:
 - **Empty trips** are as long as a transport between the two places (either way); without one, as long as the transport the vehicle is fetching for.
 - **Capacity** (optional) counts parts waiting, carried and delivered; when it's full, the object feeding the transport is blocked.
 - **Results:** the transport reports *waiting for pickup* (from ready to the vehicle's arrival), mean parts and throughput; the vehicles report *busy* (travelling, loading or unloading), *empty travel* and *trips*. Vehicles work around the clock: they have no schedule yet.
-- Transports aren't in layout files: they're drawn straight between their objects, and the animation shows the vehicles moving.
+- Transports aren't in layout files: they're drawn straight between where vehicles stop at their objects, and the animation shows the vehicles moving. What the vehicles look like (a forklift or an AGV) is in the layout file, under `vehicles`.
 
 ## Resources
 
@@ -402,6 +402,8 @@ objects:
   lathe:    { position: [13.5, 0, 0], model: lathe }
 conveyors:
   c1: { path: [[0.5, 0, 0], [12.5, 0, 0]] }   # 12 m
+vehicles:
+  forklifts: { model: forklift }
 ```
 
 - `position` is `[x, y, z]` with Y up: the floor is the X-Z plane.
@@ -415,3 +417,4 @@ conveyors:
 
   Anything else is a warning, not an error: the object is drawn as the default. `machine_small`, from older layouts, means `machine`.
 - Every conveyor has a `path`. Queues and transports aren't listed: they're drawn straight between their objects. A path can start and end under an object's drawing (its position is a fine end point): the drawing stops it at the object's edge.
+- `vehicles` (optional) says what each fleet is drawn as: `forklifts: { model: forklift }`. A fleet can be a `forklift` (the default) or an `agv`. Vehicles stop on the floor in front of an object, drive straight between those stops facing the way they go, and carry their load on the forks or the deck. A fleet the model doesn't have, or a look that isn't one of these, is a warning.

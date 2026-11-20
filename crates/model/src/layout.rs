@@ -13,8 +13,8 @@ use crate::units::{DefaultUnits, Dimension, parse_quantity};
 use crate::{Model, parse_yaml};
 use outliers_sim_engine::spec::Node;
 
-/// What a source, server or sink can be drawn as (`model:` in a layout), and
-/// which kinds of object can use it. The web pages draw them
+/// What a source, server, sink or fleet of vehicles can be drawn as (`model:`
+/// in a layout), and which kinds of object can use it. The web pages draw them
 /// (`crates/cli/src/web/art.js`); a test keeps the two lists in step.
 pub const LOOKS: &[(&str, &[&str])] = &[
     ("machine", &["servers"]),
@@ -28,6 +28,8 @@ pub const LOOKS: &[(&str, &[&str])] = &[
     ("door", &["sources", "sinks"]),
     ("bin", &["sinks"]),
     ("generic", &["sources", "sinks"]),
+    ("forklift", &["vehicles"]),
+    ("agv", &["vehicles"]),
 ];
 
 /// Older names for looks, still read.
@@ -72,6 +74,16 @@ pub struct Layout {
     pub objects: Vec<PlacedObject>,
     /// In model order, queues included (with their computed paths).
     pub conveyors: Vec<PlacedConveyor>,
+    /// Fleets the layout says how to draw, in model order.
+    pub vehicles: Vec<DrawnFleet>,
+}
+
+/// How a fleet's vehicles are drawn.
+#[derive(Debug, Clone)]
+pub struct DrawnFleet {
+    pub name: String,
+    /// One of [`LOOKS`] for vehicles (e.g. `forklift`), as the layout gives it.
+    pub model: String,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +124,14 @@ struct RawLayout {
     objects: OrderedMap<RawObject>,
     #[serde(default)]
     conveyors: OrderedMap<RawConveyorPath>,
+    #[serde(default)]
+    vehicles: OrderedMap<RawFleet>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawFleet {
+    model: Spanned<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -196,31 +216,7 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
                         } else {
                             "sinks"
                         };
-                        let value = LOOK_ALIASES
-                            .iter()
-                            .find(|(old, _)| *old == look.value)
-                            .map_or(look.value.as_str(), |(_, new)| new);
-                        if !LOOKS
-                            .iter()
-                            .any(|(l, s)| *l == value && s.contains(&section))
-                        {
-                            let known: Vec<&str> = LOOKS
-                                .iter()
-                                .filter(|(_, s)| s.contains(&section))
-                                .map(|(l, _)| *l)
-                                .collect();
-                            warnings.push(Diagnostic {
-                                position: pos(&look.referenced),
-                                message: format!(
-                                    "`{}` can't be drawn as `{}`; it will look like a {}. A {} can be drawn as: {}",
-                                    name,
-                                    look.value,
-                                    known[0],
-                                    &section[..section.len() - 1],
-                                    known.join(", ")
-                                ),
-                            });
-                        }
+                        check_look(&mut warnings, name, section, look);
                     }
                     objects.push(PlacedObject {
                         name: name.to_string(),
@@ -349,8 +345,29 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
         }
     }
 
+    // Vehicles: how each fleet is drawn. A fleet the model doesn't have is
+    // left out with a warning, so renaming one never stops a project opening.
+    let mut vehicles = Vec::new();
+    for fleet in &spec.vehicles {
+        if let Some((_, f)) = raw.vehicles.0.iter().find(|(n, _)| n.value == fleet.name) {
+            check_look(&mut warnings, &fleet.name, "vehicles", &f.model);
+            vehicles.push(DrawnFleet {
+                name: fleet.name.clone(),
+                model: f.model.value.clone(),
+            });
+        }
+    }
+    for (name, _) in &raw.vehicles.0 {
+        if !spec.vehicles.iter().any(|f| f.name == name.value) {
+            warnings.push(Diagnostic {
+                position: pos(&name.referenced),
+                message: format!("`{}` isn't a fleet of vehicles in the model; it's ignored", name.value),
+            });
+        }
+    }
+
     if errors.is_empty() {
-        Ok((Layout { objects, conveyors }, warnings))
+        Ok((Layout { objects, conveyors, vehicles }, warnings))
     } else {
         errors.sort_by_key(|d| {
             d.position
@@ -358,4 +375,38 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
         });
         Err(LoadError::Invalid(errors))
     }
+}
+
+/// Warns when `look` isn't one an object in `section` can be drawn as; the
+/// pages then draw the default, so it never stops a project from opening.
+fn check_look(warnings: &mut Vec<Diagnostic>, name: &str, section: &str, look: &Spanned<String>) {
+    let value = LOOK_ALIASES
+        .iter()
+        .find(|(old, _)| *old == look.value)
+        .map_or(look.value.as_str(), |(_, new)| new);
+    if LOOKS.iter().any(|(l, s)| *l == value && s.contains(&section)) {
+        return;
+    }
+    let known: Vec<&str> = LOOKS
+        .iter()
+        .filter(|(_, s)| s.contains(&section))
+        .map(|(l, _)| *l)
+        .collect();
+    let kind = match section {
+        "vehicles" => "fleet of vehicles",
+        _ => &section[..section.len() - 1],
+    };
+    let each = if section == "vehicles" { "its vehicles" } else { "it" };
+    warnings.push(Diagnostic {
+        position: Position::from_location(&look.referenced),
+        message: format!(
+            "`{}` can't be drawn as `{}`; {} will look like a {}. A {} can be drawn as: {}",
+            name,
+            look.value,
+            each,
+            known[0],
+            kind,
+            known.join(", ")
+        ),
+    });
 }

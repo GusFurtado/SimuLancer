@@ -409,6 +409,14 @@ The connections and the parts, in the same oblique style as the objects.
 - **Labels on the diagram** have a halo in the page color, as in the animation, so a name over a belt stays readable.
 - **Not yet:** every part is a box, even a bank's customers (people come with the operators); pallets look like boxes; vehicles are still squares.
 
+## Vehicles drawn as forklifts or AGVs (implemented 2026-11-20, issue #74, third part)
+
+- **A fleet's look is in the layout file**, like an object's: `vehicles: { forklifts: { model: forklift } }`. A fleet can be a `forklift` (the default) or an `agv`; they're in the same `LOOKS` list and `art.js` table as the objects (section `vehicles`), so the sync test covers them. The Vehicles panel under Definitions has a *Drawn as* field per fleet; renaming or removing a fleet carries its look along. A look that doesn't fit, or a fleet the model doesn't have, is a warning, never an error, so renaming a fleet in the model file never stops a project opening.
+- **The forklift** is drawn from its side, as the oblique view shows it: yellow body and counterweight, wheels, a driver under the overhead guard, the mast and the forks. That's the view that reads as a forklift at a glance. Vehicles face right and are mirrored going left; one going straight up or down keeps the way it last faced. A load sits on the forks (or the AGV's deck), as a box with the type sticker.
+- **Where vehicles go:** they stop on the floor in front of an object (`stopAt`, 0.85 m past its footprint), not at its position, which is under its drawing. A transport is drawn between those stops on both pages, so the dashed route is where the vehicles drive. Parts waiting for pickup, and delivered parts waiting to be taken, stand a little way along the route, clear of the vehicles.
+- **Parking:** vehicles at the same object park side by side (up to three abreast, more rows in front), each in its own spot. On a trip a vehicle pulls out of its spot onto the route over the first quarter and into its spot at the other end over the last, so a vehicle mid-trip is always on the route.
+- **Not yet:** vehicles have no other looks (tugger, pallet jack, truck); there's no drawing for a fleet on the Modeling diagram, only its route.
+
 ## No 3D for now; the Godot viewer is removed (2026-11-19)
 
 3D comes back only once the 2D is good enough to sell. A test of the Godot viewer in the browser worked, but it showed what keeping it costs.

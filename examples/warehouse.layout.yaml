@@ -18,3 +18,6 @@ conveyors:
   dock:        { path: [[0.7, 0, -5], [7.3, 0, -5]] }      # 6.6
   to_pack:     { path: [[32.7, 0, 0], [39.3, 0, 0]] }      # 6.6
   to_dispatch: { path: [[40.7, 0, 0], [47.3, 0, 0]] }      # 6.6
+
+vehicles:
+  forklifts: { model: forklift }
