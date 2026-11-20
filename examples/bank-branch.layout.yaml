@@ -7,8 +7,8 @@ units: m
 objects:
   door:     { position: [0, 0, 0], model: door }
   kiosk:    { position: [5, 0, 0], model: kiosk }
-  tellers:  { position: [12, 0, -4], model: counter }
-  advisors: { position: [12, 0, 4], model: counter }
+  tellers:  { position: [12, 0, -5.5], model: counter }    # 5 counters, two rows
+  advisors: { position: [12, 0, 4.5], model: counter }     # 3 desks
   exit:     { position: [18, 0, 0], model: door }
 
 entities:

@@ -106,7 +106,7 @@ const ART = (() => {
       ],
     },
     oven: {
-      label: "Oven", sections: ["servers"], w: 3.0, d: 2.4, h: 1.8,
+      label: "Oven", sections: ["servers"], w: 3.0, d: 2.4, h: 1.8, holds: true,
       shapes: [
         ...housing(3.0, 2.4, 1.8),
         { d: R(0.35, 1.62, 2.3, 0.62, 0.06), fill: "#000000", op: 0.2 },
@@ -301,8 +301,44 @@ function artChoices(section) {
   return Object.entries(ART).filter(([, a]) => a.sections.includes(section)).map(([k, a]) => [k, a.label]);
 }
 
+// A server that works on several parts at once is drawn as that many units
+// (`look.units`), side by side, up to four abreast, more rows behind; units in a
+// row 0.3 m apart, rows 1.2 m apart, so people stand between them. A look that
+// `holds` many parts (an oven) stays one drawing, and so does a server with more
+// than ART_MAX_UNITS.
+const ART_MAX_UNITS = 12;
+
+/** Whether `units` of a look are drawn one by one. */
+const artGroups = (look, units) => units > 1 && units <= ART_MAX_UNITS && !look.art.holds;
+
+/** Where the units of a look go for an object at (x, z): one (x, z) each, the
+ *  front row first, left to right, all centered on (x, z). */
+function artUnits(look, x, z) {
+  const n = look.units || 1;
+  if (n < 2) return [[x, z]];
+  const rows = Math.ceil(n / 4), cols = Math.ceil(n / rows);
+  const [dx, dz] = [look.art.w + 0.3, look.art.d + 1.2];
+  const at = [];
+  for (let r = 0; r < rows; r++) {
+    const k = Math.min(cols, n - r * cols);
+    for (let c = 0; c < k; c++) at.push([x + (c - (k - 1) / 2) * dx, z + ((rows - 1) / 2 - r) * dz]);
+  }
+  return at;
+}
+
+/** One unit of a look. */
+const artUnit = look => look.units ? { ...look, units: 0 } : look;
+
 /** Where a look's drawing goes for an object at (x, z): its top-left corner and size. */
 function artBox(look, x, z) {
+  if (look.units > 1) {
+    const boxes = artUnits(look, x, z).map(([ux, uz]) => artBox(artUnit(look), ux, uz));
+    const x0 = Math.min(...boxes.map(b => b.x)), y0 = Math.min(...boxes.map(b => b.y));
+    return {
+      x: x0, y: y0, w: Math.max(...boxes.map(b => b.x + b.w)) - x0, h: Math.max(...boxes.map(b => b.y + b.h)) - y0,
+      top: Math.min(...boxes.map(b => b.top)), mirror: look.mirror,
+    };
+  }
   const { art, mirror } = look;
   const [ax, az] = art.anchor || [art.w / 2, art.d / 2];
   const left = x - (mirror ? art.w - ax : ax);
@@ -311,6 +347,11 @@ function artBox(look, x, z) {
 
 /** The look's drawing as an SVG group, `fill` being the state color. */
 function artSvg(look, x, z, fill) {
+  if (look.units > 1) {
+    const g = svg("g", { class: "art", "aria-hidden": "true" });
+    artUnits(look, x, z).reverse().forEach(([ux, uz]) => g.append(artSvg(artUnit(look), ux, uz, fill)));
+    return g;
+  }
   const b = artBox(look, x, z);
   const t = `translate(${+b.x.toFixed(3)},${+b.top.toFixed(3)})` + (b.mirror ? ` translate(${look.art.w},0) scale(-1,1)` : "");
   const g = svg("g", { transform: t, class: "art", "aria-hidden": "true" });
@@ -336,6 +377,10 @@ const artPath = d => {
 /** Draws the look on a canvas whose meters map to pixels by `X`, `Y` and
  *  `scale`; without its staff when not `staffed` (off shift). */
 function artCanvas(ctx, look, x, z, fill, X, Y, scale, staffed = true) {
+  if (look.units > 1) {
+    artUnits(look, x, z).reverse().forEach(([ux, uz]) => artCanvas(ctx, artUnit(look), ux, uz, fill, X, Y, scale, staffed));
+    return;
+  }
   const b = artBox(look, x, z);
   ctx.save();
   ctx.translate(X(b.x), Y(b.top));
@@ -347,6 +392,13 @@ function artCanvas(ctx, look, x, z, fill, X, Y, scale, staffed = true) {
 
 /** An object's footprint on the floor: { x0, z0, x1, z1 }. */
 function artFootprint(look, x, z) {
+  if (look.units > 1) {
+    const fs = artUnits(look, x, z).map(([ux, uz]) => artFootprint(artUnit(look), ux, uz));
+    return {
+      x0: Math.min(...fs.map(f => f.x0)), z0: Math.min(...fs.map(f => f.z0)),
+      x1: Math.max(...fs.map(f => f.x1)), z1: Math.max(...fs.map(f => f.z1)),
+    };
+  }
   const b = artBox(look, x, z);
   return { x0: b.x, z0: b.top, x1: b.x + look.art.w, z1: b.top + look.art.d };
 }

@@ -936,7 +936,7 @@ function diagram(tree) {
     root.append(node);
     const capacity = section === "servers" ? Number(tree.servers[name]?.capacity) || 1 : 1;
     root.append(svg("text", { x: box.x + box.w / 2, y: box.y - 0.35, "text-anchor": "middle", "font-size": 0.7 },
-      name + (capacity > 1 ? ` ×${capacity}` : "") + (changedObj(section, name) ? " •" : "")));
+      name + (capacity > 1 && !look.units ? ` ×${capacity}` : "") + (changedObj(section, name) ? " •" : "")));
   }
   return root;
 }

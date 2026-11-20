@@ -102,7 +102,16 @@ function graphOf(tree) {
     servers: Object.keys(tree.servers || {}),
     sinks: Object.keys(tree.sinks || {}),
     conveyors: [...connections("conveyors"), ...connections("queues"), ...connections("transports")],
+    units: Object.fromEntries(Object.entries(tree.servers || {}).map(([n, s]) => [n, unitsOf(s?.capacity, s?.batch)])),
   };
+}
+
+/** How many units a server is drawn as: one per batch (or part) it works on at
+ *  once. A capacity that isn't a number yet counts as one. */
+function unitsOf(capacity, batch) {
+  const b = Number(batch) > 0 ? Number(batch) : 1;
+  const c = capacity === undefined || capacity === null ? b : Number(capacity);
+  return Number.isFinite(c) ? Math.max(1, Math.floor(c / b)) : 1;
 }
 
 /** A queue's path: straight between its objects' edges, moved 0.5 m to the
@@ -149,8 +158,13 @@ function layoutOf(graph, layout) {
 /** The section ("sources", "servers" or "sinks") an object is in. */
 const sectionIn = (graph, name) => graph.sources.includes(name) ? "sources" : graph.servers.includes(name) ? "servers" : "sinks";
 
-/** What an object looks like (see art.js). */
-const lookOf = (graph, layout, name) => artFor(sectionIn(graph, name), layout.drawn?.[name]);
+/** What an object looks like (see art.js): a server working on several parts
+ *  at once is that many units. */
+function lookOf(graph, layout, name) {
+  const look = artFor(sectionIn(graph, name), layout.drawn?.[name]);
+  const units = graph.units?.[name] || 1;
+  return artGroups(look, units) ? { ...look, units } : look;
+}
 
 /** A connection's path as drawn: cut where it runs under the objects at its
  *  ends, so a belt stops at a machine's edge and its parts stay in sight. */
@@ -213,9 +227,17 @@ function autoLayout(graph) {
     const d = depth[name] ?? 0;
     (columns[d] ||= []).push(name);
   }
+  // Columns 10 m apart and objects 6 m apart in a column, more where a server
+  // drawn as several units needs the room.
+  const size = n => artBox(lookOf(graph, {}, n), 0, 0);
   const positions = {};
+  let at = 0, before = null;
   for (const [d, names] of Object.entries(columns)) {
-    names.forEach((n, i) => (positions[n] = [d * 10, (i - (names.length - 1) / 2) * 6]));
+    const w = Math.max(...names.map(n => size(n).w));
+    if (before !== null) at += Math.max(10, (before + w) / 2 + 6);
+    before = w;
+    const pitch = Math.max(6, ...names.map(n => size(n).h + 3));
+    names.forEach((n, i) => (positions[n] = [at, (i - (names.length - 1) / 2) * pitch]));
   }
   const top = Math.min(0, ...Object.values(positions).map(p => p[1]));
   const gap = OBJECT_SIZE / 2 + 0.2;
@@ -528,6 +550,7 @@ async function startAnimation(container, run) {
   const replay = new Replay(header, lines);
   const graph = {
     sources: header.sources, servers: header.servers.map(s => s.name), sinks: header.sinks,
+    units: Object.fromEntries(header.servers.map(s => [s.name, unitsOf(s.capacity, s.batch)])),
     conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to, queue: Boolean(c.queue || c.transport), transport: Boolean(c.transport) })),
   };
   const layout = layoutOf(graph, layoutFile);
@@ -566,6 +589,9 @@ async function startAnimation(container, run) {
   const typeLooks = (header.entities || ["part"]).map(t => artFor("entities", layout.types?.[t]));
   // Which way each vehicle faces (true: left), kept while it stands still.
   const facing = new Map();
+  // Which unit of a server each part is on, kept while it's there, so a part
+  // doesn't move when another leaves: server → [part or null per slot].
+  const slots = new Map();
   const a = { frame: 0, playing: true, speedIndex: SPEEDS.indexOf(60), view: null, last: performance.now() };
   animation = a;
   const b = boundsOf(layout, graph);
@@ -678,23 +704,48 @@ async function startAnimation(container, run) {
     const looks = Object.fromEntries(Object.keys(layout.positions).map(n => [n, lookOf(graph, layout, n)]));
     for (const name of Object.keys(layout.positions)) {
       const [x, z] = layout.positions[name];
-      const f = artFootprint(looks[name], x, z);
       const server = replay.servers[name];
-      const state = server && replay.state(name);
-      things.push([(f.z0 + f.z1) / 2, () => {
-        artCanvas(ctx, looks[name], x, z, server ? colors[state] : colors.object, X, Y, scale, state !== "off");
-      }]);
-      // Parts in a server sit on top of it, side by side; people stand in front.
-      if (server) {
-        const held = [...server.busy, ...server.blocked, ...server.waiting];
+      if (!server) {
+        const f = artFootprint(looks[name], x, z);
+        things.push([(f.z0 + f.z1) / 2, () => artCanvas(ctx, looks[name], x, z, colors.object, X, Y, scale)]);
+        continue;
+      }
+      // Each unit has its own parts and state. Off shift or failed is the
+      // whole server's; staff that a resource stands for (`needs`) are there
+      // only while the unit works.
+      const unit = artUnit(looks[name]);
+      const units = artUnits(looks[name], x, z);
+      const info = header.servers.find(s => s.name === name);
+      const working = [...server.busy, ...server.blocked];
+      const kept = (slots.get(name) || []).map(p => working.includes(p) ? p : null);
+      for (const p of working) {
+        if (kept.includes(p)) continue;
+        const free = kept.indexOf(null);
+        if (free >= 0) kept[free] = p; else kept.push(p);
+      }
+      slots.set(name, kept);
+      const perUnit = Math.max(1, Math.ceil(Math.max(kept.length, info?.capacity || 1) / units.length));
+      const on = units.map(() => []);
+      kept.forEach((p, i) => p !== null && on[Math.min(units.length - 1, Math.floor(i / perUnit))].push(p));
+      server.waiting.forEach((p, i) => on[i % units.length].push(p));
+      const whole = replay.state(name);
+      units.forEach(([ux, uz], k) => {
+        const f = artFootprint(unit, ux, uz);
+        const held = on[k];
+        const state = whole === "off" || whole === "failed" ? whole
+          : held.some(p => server.blocked.includes(p)) ? "blocked"
+          : held.some(p => server.busy.includes(p)) ? "busy" : "idle";
+        const staffed = state !== "off" && (!info?.needs?.length || held.length > 0);
+        things.push([(f.z0 + f.z1) / 2, () => artCanvas(ctx, unit, ux, uz, colors[state], X, Y, scale, staffed)]);
+        // Parts in a server sit on top of it, side by side; people stand in front.
         const step = Math.max(0.6, 9 / scale);
         held.forEach((id, i) => {
           const look = partLook(id);
-          const at = x + (i - (held.length - 1) / 2) * Math.max(step, look.art.w + 0.1);
+          const at = ux + (i - (held.length - 1) / 2) * Math.max(step, look.art.w + 0.1);
           if (look.art.stands) part(at, f.z1 + 0.3, 0, id);
-          else things.push([(f.z0 + f.z1) / 2 + 0.01, () => artPartCanvas(ctx, look, at, z, looks[name].art.h / 2, typeOf(id), X, Y, scale)]);
+          else things.push([(f.z0 + f.z1) / 2 + 0.01, () => artPartCanvas(ctx, look, at, uz, unit.art.h / 2, typeOf(id), X, Y, scale)]);
         });
-      }
+      });
     }
     // How much room a part takes in a line: its own size, and enough to tell
     // parts apart zoomed out.
@@ -779,7 +830,7 @@ async function startAnimation(container, run) {
       const box = artBox(looks[name], x, z);
       const server = replay.servers[name];
       const capacity = header.servers.find(s => s.name === name)?.capacity || 1;
-      const label = (server?.failed ? `${name} (${server.failed})` : name) + (capacity > 1 ? ` ×${capacity}` : "");
+      const label = (server?.failed ? `${name} (${server.failed})` : name) + (capacity > 1 && !looks[name].units ? ` ×${capacity}` : "");
       ctx.lineWidth = 3;
       ctx.strokeStyle = colors.surface;
       ctx.strokeText(label, X(box.x + box.w / 2), Y(box.y) - 6);

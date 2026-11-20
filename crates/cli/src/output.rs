@@ -5,7 +5,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use outliers_sim_engine::spec::{Node, Spec, WhenBlocked};
+use outliers_sim_engine::spec::{Node, ServerKind, Spec, WhenBlocked};
 use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{Observer, SimTime, TraceEvent};
 use outliers_sim_model::{DrawnAs, Layout, Model};
@@ -284,6 +284,8 @@ impl<'a, W: Write> EventLog<'a, W> {
             "servers": spec.servers.iter().map(|s| json!({
                 "name": s.name,
                 "capacity": s.capacity,
+                "batch": match s.kind { ServerKind::Batch(n) => Some(n), _ => None },
+                "needs": s.needs.iter().map(|&(r, _)| &spec.resources[r].name).collect::<Vec<_>>(),
                 "failures": s.failures.iter().map(|f| &f.name).collect::<Vec<_>>(),
                 "schedule": s.schedule.map(|i| &spec.schedules[i].name),
             })).collect::<Vec<_>>(),

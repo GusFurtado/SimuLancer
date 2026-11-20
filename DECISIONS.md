@@ -426,7 +426,17 @@ The connections and the parts, in the same oblique style as the objects.
 - **A queue longer than its drawing** draws the parts that fit, one more at its start, and a count of the rest (`+139`). Before, the rest were all drawn on the same spot, and with hundreds of parts their shadows piled up into a black smudge.
 - **Staff go home:** the operators drawn on a workstation or counter (shapes marked `staff`) aren't drawn while their server is off shift, so a closed branch has empty counters.
 - **The bank and warehouse templates** draw customers as people and pallets as pallets.
-- **Not done here:** resources (a technician, a picker) aren't drawn moving around, because the event log doesn't say where they are; a server that takes several at once is still one drawing with `×N` in its name.
+- **Not done here:** resources (a technician, a picker) aren't drawn moving around, because the event log doesn't say where they are; a server that takes several at once is still one drawing with `×N` in its name (drawn as units since, see below).
+
+## A server drawn as one unit per slot (implemented 2026-11-20)
+
+- **A server that works on several parts at once is drawn as that many units**: capacity 5 counters are five counters. One unit per batch for a batch server (capacity 16 with `batch: 8` is two ovens). Units stand side by side, up to four abreast, more rows behind (0.3 m apart in a row, 1.2 m between rows so people fit), centered on the object's position. The `×N` in the name stays only where the server is still one drawing.
+- **Still one drawing:** a look that holds many parts at once (`oven`, flagged `holds` in `art.js`), and a server with more than 12 units, which would swamp the layout.
+- **The group is the object's drawing everywhere**: its box and footprint are the union of the units', so belts and queues stop at the group's edge, vehicles stop in front of it, the label goes above it, and the Modeling diagram selects and drags the whole group.
+- **Each unit has its own state and parts.** A part keeps its unit while it's there (the animation remembers which), so it doesn't jump when another leaves; the front row fills first. Off shift and failed are the whole server's. Components collected for a kit are spread over the units.
+- **Staff that a resource stands for** (a server that `needs` one) are drawn only on the units working, so five counters with three tellers on duty show at most three tellers. A server without `needs` keeps its operator while on shift.
+- **The event log's header** says each server's `batch` size and the resources it `needs`, for the animation.
+- **The automatic layout** spaces columns and rows by the widest group, so a new model with a capacity-4 machine doesn't overlap its neighbours. The warehouse template's layout is respaced for its 2, 3 and 8 stations.
 
 ## No 3D for now; the Godot viewer is removed (2026-11-19)
 
