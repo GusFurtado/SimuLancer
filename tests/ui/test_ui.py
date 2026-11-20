@@ -574,6 +574,10 @@ b.wait("return document.getElementById('f-split-type')?.value === 'carton' && do
 # --- Queues: a capacity, no length; dragging redraws them without changing the model.
 b.go(url + "/modeling?project=bank-branch")
 b.wait("return document.querySelector('[data-connection=teller_line]') !== null", 10)
+# A server with capacity 5 is five counters, without "×5" in its name.
+units = "return document.querySelector('[data-object=%s]').parentNode.querySelectorAll(':scope > g.art > g.art').length"
+check(b.js(units % "tellers") == 5 and b.js(units % "advisors") == 3, "servers drawn as their units")
+check(b.js("return [...document.querySelectorAll('.diagram svg text')].map(t => t.textContent).filter(t => t.startsWith('tellers'))") == ["tellers"], "no ×N where units are drawn")
 # The bank's model calls what flows "customers".
 define("part-types")
 b.wait("return document.getElementById('part-types') !== null")

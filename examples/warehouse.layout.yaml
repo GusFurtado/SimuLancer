@@ -6,18 +6,18 @@ units: m
 
 objects:
   trucks:       { position: [0, 0, -5], model: dock }
-  unload:       { position: [8, 0, -5], model: workstation }
-  putaway:      { position: [16, 0, -5], model: workstation }
-  break_pallet: { position: [24, 0, -5], model: workstation }
+  unload:       { position: [9.75, 0, -5], model: workstation }    # 2 units
+  putaway:      { position: [21, 0, -5], model: workstation }      # 3 units
+  break_pallet: { position: [33, 0, -5], model: workstation }
   orders:       { position: [0, 0, 5], model: generic }
-  pick:         { position: [32, 0, 0], model: workstation }
-  pack:         { position: [40, 0, 0], model: workstation }
-  dispatch:     { position: [48, 0, 0], model: dock }
+  pick:         { position: [40, 0, 0], model: workstation }       # 8 units, two rows
+  pack:         { position: [54.3, 0, 0], model: workstation }     # 2 units
+  dispatch:     { position: [64, 0, 0], model: dock }
 
 conveyors:
   dock:        { path: [[0.7, 0, -5], [7.3, 0, -5]] }      # 6.6
-  to_pack:     { path: [[32.7, 0, 0], [39.3, 0, 0]] }      # 6.6
-  to_dispatch: { path: [[40.7, 0, 0], [47.3, 0, 0]] }      # 6.6
+  to_pack:     { path: [[45.3, 0, 0], [51.9, 0, 0]] }      # 6.6
+  to_dispatch: { path: [[56.7, 0, 0], [63.3, 0, 0]] }      # 6.6
 
 vehicles:
   forklifts: { model: forklift }
