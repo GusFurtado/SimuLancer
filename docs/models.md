@@ -263,7 +263,7 @@ queues:
 - **Waiting in line:** a queue connects two objects like a conveyor, but parts don't travel: they're at its end as soon as they get on, and leave in the queue's `order`.
 - **Order:** which part goes next. `first_in` (the default), `last_in`, `{ lowest: <attribute> }` (e.g. the earliest due date), `{ highest: <attribute> }`, or `{ by_type: [appointment, walk_in] }` (types not listed come after those listed). Ties go first in, first out. A part is never taken out of service for a more urgent one (no preemption).
 - **Capacity:** how many parts can wait. Without it, there's no limit. When it's full, the object feeding it is blocked (or a source drops the part, with `when_blocked: drop`), as with a full conveyor.
-- **Drawing:** queues aren't in the layout file; they're drawn straight between their objects, so moving an object never changes a queue.
+- **Drawing:** queues aren't in the layout file; they're drawn straight between their objects, as a lane painted on the floor where parts wait, so moving an object never changes a queue.
 - **Giving up:** with `patience`, each part draws how long it will wait as it gets on (one time or distribution, or one per part type: `{ appointment: "30 min", walk_in: "exponential(10 min)" }`). If it's still waiting when that time is up, it leaves and is counted as lost, which makes room in a full queue. The queue reports *gave up*: the share of those that left the line without being served. Parts a queue starts with (`starts_with`) don't give up.
 - **Service level:** with `target_wait`, the queue also reports *within target wait*, the share of parts that waited at most that long ("95% served within 5 minutes").
 - **Results:** mean and most parts waiting; *gave up* (with `patience`); *waiting time* (the mean), *waiting time (90th percentile)* and *longest wait*; *waiting time of* each part type when several wait there; the share of time full (for a limited queue); and throughput. The percentile comes from a histogram with bins 1% apart, so it's within about half a percent of the exact value.
@@ -414,4 +414,4 @@ conveyors:
   | Sink | `dock` (the default), `door`, `bin`, `generic` |
 
   Anything else is a warning, not an error: the object is drawn as the default. `machine_small`, from older layouts, means `machine`.
-- Every conveyor has a `path`. Queues and transports aren't listed: they're drawn straight between their objects.
+- Every conveyor has a `path`. Queues and transports aren't listed: they're drawn straight between their objects. A path can start and end under an object's drawing (its position is a fine end point): the drawing stops it at the object's edge.

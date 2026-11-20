@@ -394,7 +394,20 @@ The first part of the 2D art direction (direction B of the three explored: obliq
 - **The server's color is still its state:** a machine is painted in it; a workstation, counter or kiosk stands on a pad in it. A server that takes several at once says so after its name (`tellers ×5`); drawing five counters is for later.
 - **The Modeling page** has a *Drawn as* field for sources, servers and sinks (a layout change, undone like any other). Selection, errors and drop targets are a ring around the drawing; a transparent box over it takes clicks and drags; the connection handle is on its right edge; the add preview is the default look at the diagram's scale.
 - **Checked:** an unknown look, or one that doesn't fit the object (a source can't be a `bin`), is a warning pointing at the value, and the object is drawn as the default, so an old or hand-written layout never stops a project from opening. `machine_small` (the old placeholder in every template) reads as `machine`. A test keeps the list in Rust (`LOOKS`) and the one `art.js` draws in step.
-- **Not changed yet:** conveyors are still flat grey belts and parts plain squares (next part), vehicles squares, and conveyors still end 0.7 m from an object's position, so a belt runs under a large drawing.
+- **Not changed yet:** conveyors were still flat grey belts and parts plain squares, and a belt ran under a large drawing (changed in the next section); vehicles are squares.
+
+## Belts, queue lanes and boxes (implemented 2026-11-19, issue #74, second part)
+
+The connections and the parts, in the same oblique style as the objects.
+
+- **Conveyors are roller belts:** a 0.9 m bed whose top is raised by half its 0.7 m height, with a front face, side rails, rollers and a shadow. A belt is a stack of strokes along its path (`ART_BELT` in `art.js`); a dashed thick stroke makes the rollers, so a belt of any shape, with bends and diagonals, needs no special drawing. The diagram draws them as SVG polylines, the animation strokes the same list on its canvas.
+- **Queues are lanes painted on the floor** (`ART_LANE`): a pale yellow band with two edge lines, where parts wait on the floor. A queue isn't a machine and has no travel time, so it shouldn't look like a belt. Transports stay a dashed route until vehicles get their drawings.
+- **Parts are cardboard boxes** (0.5 m across, 0.4 m high), on a belt's top, on the floor in a lane, on top of a server. Where a model has several part types, a sticker on top in the type's color tells them apart; the box itself stays kraft, so it always reads as a box. A box never gets smaller than 7 pixels across, so parts stay visible zoomed out.
+- **Connections stop at an object's edge:** a path is cut where it runs under the footprint of the object at either end (`drawnPath`), so a belt butts against a machine instead of running under it, and the parts at its head stay in sight. The layout's path, and the length checked against the model, don't change; the animation spreads the model's length over the drawn part.
+- **Back to front:** belts and lanes go down first, then objects, parts and vehicles are sorted together by depth, so a part entering a machine from behind goes under it and one in front goes over it.
+- **Two queues between the same objects in opposite directions** are 0.5 m apart each way (was 0.3), so their lanes don't overlap.
+- **Labels on the diagram** have a halo in the page color, as in the animation, so a name over a belt stays readable.
+- **Not yet:** every part is a box, even a bank's customers (people come with the operators); pallets look like boxes; vehicles are still squares.
 
 ## No 3D for now; the Godot viewer is removed (2026-11-19)
 
