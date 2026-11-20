@@ -187,3 +187,47 @@ fn fleets_say_what_their_vehicles_look_like() {
     );
     assert_eq!(placed.vehicles.len(), 1, "the unknown fleet is left out");
 }
+
+#[test]
+fn part_types_say_what_their_parts_look_like() {
+    let model = load_str(include_str!("../../../examples/bank-branch.yaml")).unwrap();
+    let layout = include_str!("../../../examples/bank-branch.layout.yaml");
+    let (placed, warnings) = load_layout(layout, &model).unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let looks: Vec<(&str, &str)> = placed
+        .entities
+        .iter()
+        .map(|t| (t.name.as_str(), t.model.as_str()))
+        .collect();
+    assert_eq!(
+        looks,
+        [
+            ("quick", "person"),
+            ("priority", "person"),
+            ("advice", "person")
+        ]
+    );
+
+    // A look parts can't have, and a part type the model doesn't have: warnings.
+    let layout = replace(
+        layout,
+        "advice:   { model: person }",
+        "advice:   { model: forklift }\n  walk_in: { model: person }",
+    );
+    let (placed, warnings) = load_layout(&layout, &model).unwrap();
+    let messages: Vec<&str> = warnings.iter().map(|w| w.message.as_str()).collect();
+    assert_eq!(messages.len(), 2, "{messages:?}");
+    assert!(
+        messages.iter().any(|m| m.starts_with(
+            "`advice` can't be drawn as `forklift`; its parts will look like a box. A part type can be drawn as: box, pallet, person"
+        )),
+        "{messages:?}"
+    );
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.starts_with("`walk_in` isn't a part type in the model")),
+        "{messages:?}"
+    );
+    assert_eq!(placed.entities.len(), 3, "the unknown type is left out");
+}

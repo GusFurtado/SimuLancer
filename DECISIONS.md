@@ -417,6 +417,17 @@ The connections and the parts, in the same oblique style as the objects.
 - **Parking:** vehicles at the same object park side by side (up to three abreast, more rows in front), each in its own spot. On a trip a vehicle pulls out of its spot onto the route over the first quarter and into its spot at the other end over the last, so a vehicle mid-trip is always on the route.
 - **Not yet:** vehicles have no other looks (tugger, pallet jack, truck); there's no drawing for a fleet on the Modeling diagram, only its route.
 
+## Parts drawn as boxes, pallets or people; staff off shift (implemented 2026-11-20, issue #74, fourth part)
+
+- **A part type's look is in the layout file**, like a fleet's: `entities: { quick: { model: person } }`, keyed by the model's part types (`entities`). A part type can be a `box` (the default), a `pallet` or a `person`, in the same `LOOKS` list and `art.js` table (section `entities`). The Part types definition has a *Drawn as* select beside each type; renaming or removing a type carries its look along. A look that doesn't fit, or a type the model doesn't have, is a warning.
+- **The type's color** is the sticker on a box or pallet (only where a model has several types; one type stays plain) and a person's shirt (with a neutral blue when there's one type). So the legend still reads the same.
+- **People stand in front of a server** (the customer at the counter, at the kiosk), drawn in depth order with everything else; boxes and pallets still sit on it.
+- **Lines use each part's own size**: a queue of pallets is spaced by pallet, a line of people by person.
+- **A queue longer than its drawing** draws the parts that fit, one more at its start, and a count of the rest (`+139`). Before, the rest were all drawn on the same spot, and with hundreds of parts their shadows piled up into a black smudge.
+- **Staff go home:** the operators drawn on a workstation or counter (shapes marked `staff`) aren't drawn while their server is off shift, so a closed branch has empty counters.
+- **The bank and warehouse templates** draw customers as people and pallets as pallets.
+- **Not done here:** resources (a technician, a picker) aren't drawn moving around, because the event log doesn't say where they are; a server that takes several at once is still one drawing with `×N` in its name.
+
 ## No 3D for now; the Godot viewer is removed (2026-11-19)
 
 3D comes back only once the 2D is good enough to sell. A test of the Godot viewer in the browser worked, but it showed what keeping it costs.

@@ -257,9 +257,14 @@ function layoutTree() {
   const conveyors = {};
   // Queues aren't in the layout file: they're drawn between their objects.
   for (const c of graph.conveyors.filter(c => !c.queue)) conveyors[c.name] = { path: state.layout.paths[c.name].map(([x, z]) => [r(x), 0, r(z)]) };
-  const vehicles = {};
+  const vehicles = {}, entities = {};
   for (const f of Object.keys(tree.vehicles || {})) if (state.layout.fleets?.[f]) vehicles[f] = { model: state.layout.fleets[f] };
-  return { units: "m", objects, conveyors, ...(Object.keys(vehicles).length ? { vehicles } : {}) };
+  for (const t of typesOf(tree)) if (state.layout.types?.[t]) entities[t] = { model: state.layout.types[t] };
+  return {
+    units: "m", objects, conveyors,
+    ...(Object.keys(vehicles).length ? { vehicles } : {}),
+    ...(Object.keys(entities).length ? { entities } : {}),
+  };
 }
 
 const scheduleCheck = debounce(async () => {
@@ -1778,7 +1783,8 @@ function partTypesPanel(tree) {
     wordsField(tree),
     ...types.map(t => el("div", { class: "row", style: "margin-bottom: 6px; align-items: center" },
       el("input", { value: t, "aria-label": `part type ${t}`, "data-type": t, onchange: e => renamePartType(t, e.target.value.trim()) }),
-      el("button", { style: "flex: 0", disabled: types.length < 2 ? true : null, onclick: () => setChange(`entities.${t}`, null),
+      typeLookSelect(t),
+      el("button", { style: "flex: 0", disabled: types.length < 2 ? true : null, onclick: () => deletePartType(t),
         title: types.length < 2 ? say("A model needs at least one part type") : `Remove ${t}` }, "Remove"))),
     el("button", { id: "add-part-type", onclick: () => setChange(`entities.${freeTypeName(types)}`, {}) }, say("+ Part type")));
 }
@@ -1798,6 +1804,22 @@ function wordsField(tree) {
     errorFor("parts") ? el("div", { class: "message" }, errorFor("parts").message) : null);
 }
 
+/** What a part type's parts are drawn as (a layout change, like an object's). */
+function typeLookSelect(t) {
+  const look = artFor("entities", state.layout.types?.[t]);
+  return el("select", {
+    "aria-label": `${t} drawn as`, title: "Drawn as", "data-type-look": t, style: "flex: 0 0 auto; width: auto",
+    onchange: e => batch(() => { (state.layout.types ||= {})[t] = e.target.value; state.layoutChanged = true; }),
+  }, ...artChoices("entities").map(([k, label]) => el("option", { value: k, selected: k === look.kind || null }, label)));
+}
+
+function deletePartType(t) {
+  batch(() => {
+    setChange(`entities.${t}`, null);
+    if (state.layout.types?.[t]) { delete state.layout.types[t]; state.layoutChanged = true; }
+  });
+}
+
 function freeTypeName(types) {
   for (let i = types.length + 1; ; i++) if (!types.includes(`type_${i}`)) return `type_${i}`;
 }
@@ -1813,6 +1835,11 @@ function renamePartType(oldName, newName) {
   const renameKey = obj => Object.fromEntries(Object.entries(obj).map(([k, v]) => [k === oldName ? newName : k, v]));
   batch(() => {
     setChange("entities", renameKey(tree.entities));
+    if (state.layout.types?.[oldName]) {
+      state.layout.types[newName] = state.layout.types[oldName];
+      delete state.layout.types[oldName];
+      state.layoutChanged = true;
+    }
     for (const [name, src] of Object.entries(tree.sources || {})) {
       if (src.creates === oldName) setChange(`sources.${name}.creates`, newName);
       else if (src.creates && typeof src.creates === "object" && oldName in src.creates) setChange(`sources.${name}.creates`, renameKey(src.creates));

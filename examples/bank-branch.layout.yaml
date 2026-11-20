@@ -10,3 +10,8 @@ objects:
   tellers:  { position: [12, 0, -4], model: counter }
   advisors: { position: [12, 0, 4], model: counter }
   exit:     { position: [18, 0, 0], model: door }
+
+entities:
+  quick:    { model: person }
+  priority: { model: person }
+  advice:   { model: person }

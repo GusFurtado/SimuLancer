@@ -21,3 +21,6 @@ conveyors:
 
 vehicles:
   forklifts: { model: forklift }
+
+entities:
+  pallet: { model: pallet }
