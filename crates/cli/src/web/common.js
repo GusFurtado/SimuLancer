@@ -126,11 +126,13 @@ function placeQueues(graph, positions, paths) {
   }
 }
 
-/** Positions (x, z in meters), conveyor paths and what objects look like
- *  (`drawn`: name -> the layout's `model`), from layout.json or computed. */
+/** Positions (x, z in meters), conveyor paths and what objects and vehicles
+ *  look like (`drawn` and `fleets`: name -> the layout's `model`), from
+ *  layout.json or computed. */
 function layoutOf(graph, layout) {
-  const drawn = {};
+  const drawn = {}, fleets = {};
   for (const [name, o] of Object.entries(layout?.objects || {})) if (o.model) drawn[name] = o.model;
+  for (const [name, f] of Object.entries(layout?.vehicles || {})) if (f.model) fleets[name] = f.model;
   if (layout && graph.conveyors.every(c => c.queue || layout.conveyors[c.name]) &&
       [...graph.sources, ...graph.servers, ...graph.sinks].every(n => layout.objects[n])) {
     const positions = {};
@@ -138,9 +140,9 @@ function layoutOf(graph, layout) {
     const paths = {};
     for (const [name, c] of Object.entries(layout.conveyors)) paths[name] = c.path.map(p => [p[0], p[2]]);
     placeQueues(graph, positions, paths);
-    return { positions, paths, drawn };
+    return { positions, paths, drawn, fleets };
   }
-  return { ...autoLayout(graph), drawn };
+  return { ...autoLayout(graph), drawn, fleets };
 }
 
 /** The section ("sources", "servers" or "sinks") an object is in. */
@@ -152,12 +154,31 @@ const lookOf = (graph, layout, name) => artFor(sectionIn(graph, name), layout.dr
 /** A connection's path as drawn: cut where it runs under the objects at its
  *  ends, so a belt stops at a machine's edge and its parts stay in sight. */
 function drawnPath(graph, layout, c, points) {
+  if (c.transport) return transportPath(graph, layout, c);
   const footprint = name => {
     const p = layout.positions[name];
     return p && artFootprint(lookOf(graph, layout, name), p[0], p[1]);
   };
   const cut = cutUnder(points, footprint(c.from));
   return cutUnder([...cut].reverse(), footprint(c.to)).reverse();
+}
+
+/** Where vehicles stop at an object: on the floor in front of it. */
+function stopAt(graph, layout, name) {
+  const [x, z] = layout.positions[name];
+  return [x, artFootprint(lookOf(graph, layout, name), x, z).z1 + 0.85];
+}
+
+/** A transport's route: straight between where vehicles stop at its objects,
+ *  moved 0.6 m to the right of the way parts go when another transport runs the
+ *  other way. */
+function transportPath(graph, layout, c) {
+  const [a, b] = [stopAt(graph, layout, c.from), stopAt(graph, layout, c.to)];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+  if (len < 0.01) return [a, [a[0] + 0.01, a[1]]];
+  const reverse = graph.conveyors.some(o => o.transport && o.from === c.to && o.to === c.from);
+  const [ox, oz] = reverse ? [-(b[1] - a[1]) / len * 0.6, (b[0] - a[0]) / len * 0.6] : [0, 0];
+  return [[a[0] + ox, a[1] + oz], [b[0] + ox, b[1] + oz]];
 }
 
 /** The path from where it leaves the rectangle `r` it starts in (unchanged if it
@@ -506,7 +527,7 @@ async function startAnimation(container, run) {
   const replay = new Replay(header, lines);
   const graph = {
     sources: header.sources, servers: header.servers.map(s => s.name), sinks: header.sinks,
-    conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to, queue: Boolean(c.queue || c.transport) })),
+    conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to, queue: Boolean(c.queue || c.transport), transport: Boolean(c.transport) })),
   };
   const layout = layoutOf(graph, layoutFile);
   const paths = {};
@@ -541,6 +562,8 @@ async function startAnimation(container, run) {
           : null)),
     el("div", { class: "player" }, play, speed, slider, fit));
 
+  // Which way each vehicle faces (true: left), kept while it stands still.
+  const facing = new Map();
   const a = { frame: 0, playing: true, speedIndex: SPEEDS.indexOf(60), view: null, last: performance.now() };
   animation = a;
   const b = boundsOf(layout, graph);
@@ -667,30 +690,47 @@ async function startAnimation(container, run) {
       // A queue's parts stand one behind the other from its end; those that
       // don't fit the drawing pile up at its start.
       const step = Math.max(0.6, 9 / scale);
+      // On a transport, parts wait a little way along the route, clear of
+      // where the vehicles stop: picked up at its start, delivered at its end.
+      const clear = path.transport ? Math.min(1.8, path.drawn / 3) : 0;
       replay.belt(name).forEach((meters, i) => {
-        const [x, z] = path.queue ? pointOn(path, Math.max(0, path.drawn - i * step)) : pointOn(path, meters);
+        const [x, z] = path.queue ? pointOn(path, Math.max(0, path.drawn - clear - i * step)) : pointOn(path, meters);
         part(x, z, path.queue ? 0 : BELT_TOP, items[i].part);
       });
-      // Parts waiting for a vehicle, where they'll be picked up.
       replay.conveyors[name].pickup.forEach((id, i) => {
-        const [x, z] = pointOn(path, Math.min(path.drawn, i * step));
+        const [x, z] = pointOn(path, Math.min(path.drawn, clear + i * step));
         part(x, z, 0, id);
       });
     }
-    // Vehicles, between objects, with what they carry.
-    const vs = Math.max(6, 0.55 * scale);
-    for (const fleet of Object.values(replay.vehicles)) {
-      for (const v of fleet) {
-        const a = layout.positions[v.from], b = layout.positions[v.to];
-        if (!a || !b) continue;
+    // Vehicles drive between where they stop at objects, facing the way they
+    // go, with what they carry. Each parks in its own spot beside the others,
+    // so those at the same object don't cover each other.
+    for (const [fleet, vehicles] of Object.entries(replay.vehicles)) {
+      const look = artFor("vehicles", layout.fleets?.[fleet]);
+      vehicles.forEach((v, i) => {
+        if (!layout.positions[v.from] || !layout.positions[v.to]) return;
+        const [a, b] = [stopAt(graph, layout, v.from), stopAt(graph, layout, v.to)];
         const f = v.until > v.start ? Math.max(0, Math.min(1, (replay.time - v.start) / (v.until - v.start))) : 1;
-        const [x, z] = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f + 0.9];
+        const key = `${fleet}/${i}`;
+        if (Math.abs(b[0] - a[0]) > 0.01) facing.set(key, b[0] < a[0]);
+        const left = facing.get(key) ?? false;
+        // Parked side by side, up to three abreast, more rows in front. On a
+        // trip it pulls out of its spot onto the route over the first quarter
+        // and into its spot at the other end over the last.
+        const cols = Math.min(3, vehicles.length), col = i % cols, row = Math.floor(i / cols);
+        const parked = v.from === v.to || f >= 1 ? 1 : Math.max(0, 1 - 4 * f, 4 * f - 3);
+        const x = a[0] + (b[0] - a[0]) * f + parked * (col - (cols - 1) / 2) * (look.art.w + 0.3);
+        const z = a[1] + (b[1] - a[1]) * f + parked * row * (look.art.d + 1.2);
         things.push([z, () => {
-          ctx.fillStyle = colors["ink-2"];
-          ctx.fillRect(X(x) - vs / 2, Y(z) - vs / 2, vs, vs);
-          if (v.part !== null) artPartCanvas(ctx, x, z, 0.3, typeOf(v.part), X, Y, scale);
+          const turned = { ...look, mirror: left };
+          artCanvas(ctx, turned, x, z, colors.object, X, Y, scale);
+          if (v.part !== null) {
+            const [lx, lz, lh] = look.art.load;
+            const dx = lx - look.art.w / 2;
+            artPartCanvas(ctx, x + (left ? -dx : dx), z + lz - look.art.d / 2, lh, typeOf(v.part), X, Y, scale, 5);
+          }
         }]);
-      }
+      });
     }
     things.sort((m, n) => m[0] - n[0]).forEach(([, draw]) => draw());
     // Names above the drawings, and how many at once where a server takes more than one.

@@ -42,11 +42,17 @@ pub fn layout_json(layout: &Layout) -> serde_json::Value {
         .iter()
         .map(|c| (c.name.clone(), json!({ "path": c.path })))
         .collect();
+    let vehicles: serde_json::Map<String, serde_json::Value> = layout
+        .vehicles
+        .iter()
+        .map(|f| (f.name.clone(), json!({ "model": f.model })))
+        .collect();
     json!({
         "format": "outliers-sim-layout/0.1",
         "units": "m",
         "objects": objects,
         "conveyors": conveyors,
+        "vehicles": vehicles,
     })
 }
 

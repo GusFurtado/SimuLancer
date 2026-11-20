@@ -200,11 +200,54 @@ const ART = (() => {
         { d: "M0.4,0.7H1.0M0.8,0.5L1.0,0.7L0.8,0.9", stroke: "#5C5B57", sw: 0.1, cap: "round" },
       ],
     },
+    // Vehicles face right (forks first); the animation mirrors them going left.
+    // `load` is where what they carry sits: [x, depth, height] in their meters.
+    forklift: {
+      label: "Forklift", sections: ["vehicles"], w: 2.9, d: 1.1, h: 2.2, load: [2.43, 0.53, 0.1],
+      shapes: [
+        { d: R(0.15, 0.3, 2.75, 0.95, 0.3), fill: "#000000", op: 0.14 },
+        { d: R(1.82, -0.95, 0.14, 1.05, 0.02), fill: "#2E3136" },
+        { d: R(1.96, 0.16, 0.94, 0.14, 0.03), fill: "#4A4E55" },
+        { d: R(1.96, 0.72, 0.94, 0.14, 0.03), fill: "#4A4E55" },
+        { d: R(0.05, 0.6, 1.77, 0.4, 0.12), fill: "#C9971F" },
+        { d: R(0.05, -0.5, 1.77, 1.1, 0.14), fill: "#F2C230", stroke: "#8C6A12", sw: 0.03 },
+        { d: R(0.05, -0.5, 0.42, 1.1, 0.14), fill: "#000000", op: 0.1 },
+        { d: C(0.45, 0.96, 0.28, 0.14), fill: "#222326" },
+        { d: C(0.45, 0.96, 0.1, 0.05), fill: "#9AA0A8" },
+        { d: C(1.5, 0.96, 0.28, 0.14), fill: "#222326" },
+        { d: C(1.5, 0.96, 0.1, 0.05), fill: "#9AA0A8" },
+        { d: R(0.72, -0.2, 0.4, 0.5, 0.08), fill: "#2B2D31" },
+        { d: R(0.68, -0.48, 0.12, 0.62, 0.04), fill: "#1F2124" },
+        { d: R(0.84, -0.72, 0.3, 0.42, 0.1), fill: "#3E5C86" },
+        { d: C(0.99, -0.86, 0.13), fill: "#FFFFFF", stroke: "#9AA0A8", sw: 0.03 },
+        { d: "M1.3,-0.12L1.42,0.12", stroke: "#1F2124", sw: 0.05, cap: "round" },
+        { d: "M0.62,0.5V-0.05M1.58,0.5V-0.05", stroke: "#2B2D31", sw: 0.07, cap: "round" },
+        { d: R(0.58, -0.97, 1.04, 0.94, 0.06), fill: "#2B2D31", op: 0.3, stroke: "#2B2D31", sw: 0.07 },
+        { d: "M0.58,-0.66H1.62M0.58,-0.35H1.62", stroke: "#2B2D31", sw: 0.04 },
+        { d: C(1.1, -1.0, 0.07), fill: AMBER },
+        { d: R(1.82, -0.15, 0.14, 1.05, 0.02), fill: "#3A3D42" },
+        { d: R(1.82, -0.95, 0.14, 0.12, 0.02), fill: "#3A3D42" },
+        { d: R(1.96, -0.35, 0.07, 1.3, 0.02), fill: "#55595F" },
+      ],
+    },
+    // A low automated guided vehicle that carries loads on its deck.
+    agv: {
+      label: "AGV", sections: ["vehicles"], w: 1.4, d: 1.0, h: 0.4, load: [0.7, 0.5, 0.4],
+      shapes: [
+        { d: R(0.1, 0.25, 1.4, 0.9, 0.2), fill: "#000000", op: 0.14 },
+        { d: R(0, 0.75, 1.4, 0.21, 0.08), fill: "#5E626A" },
+        { d: R(0.12, 0.82, 1.16, 0.04, 0.02), fill: "#4FA3FF" },
+        { d: R(0, -0.2, 1.4, 1.0, 0.15), fill: "#E3E6EA", stroke: "#8F959D", sw: 0.03 },
+        { d: R(0.17, -0.07, 1.06, 0.74, 0.06), fill: "#C5CAD1" },
+        { d: C(1.24, 0.3, 0.09), fill: "#2B2D31" },
+        { d: C(0.15, 0.3, 0.05), fill: GREEN },
+      ],
+    },
   };
 })();
 
 /** What an object looks like when its layout doesn't say. */
-const ART_DEFAULT = { sources: "dock", servers: "machine", sinks: "dock" };
+const ART_DEFAULT = { sources: "dock", servers: "machine", sinks: "dock", vehicles: "forklift" };
 /** Older names, still read. */
 const ART_ALIASES = { machine_small: "machine" };
 
