@@ -105,7 +105,7 @@ function graphOf(tree) {
   };
 }
 
-/** A queue's path: straight between its objects' edges, moved 0.3 m to the
+/** A queue's path: straight between its objects' edges, moved 0.5 m to the
  *  right of the way parts go when a queue runs the other way (same as the
  *  server's layout). */
 function queuePath(a, b, reverse) {
@@ -114,7 +114,7 @@ function queuePath(a, b, reverse) {
   const len = Math.hypot(dx, dz);
   if (len <= 2 * edge) return [a, [a[0] + 0.01, a[1]]];
   const [ux, uz] = [dx / len, dz / len];
-  const [ox, oz] = reverse ? [-uz * 0.3, ux * 0.3] : [0, 0];
+  const [ox, oz] = reverse ? [-uz * 0.5, ux * 0.5] : [0, 0];
   return [[a[0] + ux * edge + ox, a[1] + uz * edge + oz], [b[0] - ux * edge + ox, b[1] - uz * edge + oz]];
 }
 
@@ -148,6 +148,32 @@ const sectionIn = (graph, name) => graph.sources.includes(name) ? "sources" : gr
 
 /** What an object looks like (see art.js). */
 const lookOf = (graph, layout, name) => artFor(sectionIn(graph, name), layout.drawn?.[name]);
+
+/** A connection's path as drawn: cut where it runs under the objects at its
+ *  ends, so a belt stops at a machine's edge and its parts stay in sight. */
+function drawnPath(graph, layout, c, points) {
+  const footprint = name => {
+    const p = layout.positions[name];
+    return p && artFootprint(lookOf(graph, layout, name), p[0], p[1]);
+  };
+  const cut = cutUnder(points, footprint(c.from));
+  return cutUnder([...cut].reverse(), footprint(c.to)).reverse();
+}
+
+/** The path from where it leaves the rectangle `r` it starts in (unchanged if it
+ *  doesn't start in it or never leaves it). */
+function cutUnder(points, r) {
+  const inside = ([x, z]) => r && x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1;
+  if (!inside(points[0])) return points;
+  const k = points.findIndex(p => !inside(p));
+  if (k < 0) return points;
+  const [a, b] = [points[k - 1], points[k]];
+  const [dx, dz] = [b[0] - a[0], b[1] - a[1]];
+  const t = Math.min(
+    dx > 0 ? (r.x1 - a[0]) / dx : dx < 0 ? (r.x0 - a[0]) / dx : Infinity,
+    dz > 0 ? (r.z1 - a[1]) / dz : dz < 0 ? (r.z0 - a[1]) / dz : Infinity);
+  return [[a[0] + dx * t, a[1] + dz * t], ...points.slice(k)];
+}
 
 /** Columns by distance from the sources; backward conveyors loop around the top. */
 function autoLayout(graph) {
@@ -485,7 +511,7 @@ async function startAnimation(container, run) {
   const layout = layoutOf(graph, layoutFile);
   const paths = {};
   for (const c of header.conveyors) {
-    const points = layout.paths[c.name];
+    const points = drawnPath(graph, layout, c, layout.paths[c.name]);
     const cumulative = [0];
     for (let i = 1; i < points.length; i++) {
       cumulative.push(cumulative[i - 1] + Math.hypot(points[i][0] - points[i - 1][0], points[i][1] - points[i - 1][1]));
@@ -493,7 +519,7 @@ async function startAnimation(container, run) {
     const drawn = cumulative[cumulative.length - 1];
     // Queues have no length: their parts line up back from the end, drawn.
     const straight = Boolean(c.queue || c.transport);
-    paths[c.name] = { points, cumulative, queue: straight, drawn, scale: straight ? 1 : drawn / c.length };
+    paths[c.name] = { points, cumulative, queue: straight, transport: Boolean(c.transport), drawn, scale: straight ? 1 : drawn / c.length };
   }
 
   const canvas = el("canvas", { "aria-label": "Animation of the run" });
@@ -595,55 +621,60 @@ async function startAnimation(container, run) {
     ctx.clearRect(0, 0, w, h);
     const { scale, x: ox, y: oy } = a.view;
     const X = x => ox + x * scale, Y = z => oy + z * scale;
-    const colors = Object.fromEntries(["belt", "object", "part", "ink-2", "busy", "blocked", "failed", "idle", "off", "surface"].map(n => [n, cssVar(`--${n}`)]));
+    const colors = Object.fromEntries(["object", "muted", "ink-2", "busy", "blocked", "failed", "idle", "off", "surface"].map(n => [n, cssVar(`--${n}`)]));
     const typed = (header.entities || []).length > 1;
     const typeColors = [...Array(TYPE_COLORS).keys()].map(i => cssVar(`--type-${i}`));
-    const partColor = part => typed ? typeColors[replay.typeOf(part) % TYPE_COLORS] : colors.part;
+    // The sticker that tells part types apart, where there is more than one.
+    const typeOf = part => typed ? typeColors[replay.typeOf(part) % TYPE_COLORS] : null;
 
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = colors.belt;
-    ctx.lineWidth = Math.max(3, 0.6 * scale);
+    // Floor first: queue lanes, transport routes and belts.
     for (const path of Object.values(paths)) {
-      ctx.setLineDash(path.queue ? [0.3 * scale, 0.3 * scale] : []);
-      ctx.lineWidth = path.queue ? Math.max(1.5, 0.15 * scale) : Math.max(3, 0.6 * scale);
-      ctx.beginPath();
-      path.points.forEach(([x, z], i) => (i ? ctx.lineTo(X(x), Y(z)) : ctx.moveTo(X(x), Y(z))));
-      ctx.stroke();
+      if (path.transport) {
+        ctx.strokeStyle = colors.muted;
+        ctx.lineWidth = Math.max(1.5, 0.12 * scale);
+        ctx.lineCap = "round";
+        ctx.setLineDash([0.08 * scale, 0.4 * scale]);
+        ctx.beginPath();
+        path.points.forEach(([x, z], i) => (i ? ctx.lineTo(X(x), Y(z)) : ctx.moveTo(X(x), Y(z))));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else {
+        artLineCanvas(ctx, path.points, path.queue ? ART_LANE : ART_BELT, X, Y, scale);
+      }
     }
-    ctx.setLineDash([]);
-    // Objects back to front, so a nearer one's drawing goes over a farther one's.
+    // Then everything standing on it, back to front, so nearer things go over
+    // farther ones: objects (with the parts they hold), parts on belts and in
+    // queues, vehicles.
+    const things = [];
     const looks = Object.fromEntries(Object.keys(layout.positions).map(n => [n, lookOf(graph, layout, n)]));
-    const order = Object.keys(layout.positions).sort((m, n) => layout.positions[m][1] - layout.positions[n][1]);
-    for (const name of order) {
+    for (const name of Object.keys(layout.positions)) {
       const [x, z] = layout.positions[name];
-      const server = replay.servers[name];
-      artCanvas(ctx, looks[name], x, z, server ? colors[replay.state(name)] : colors.object, X, Y, scale);
+      const f = artFootprint(looks[name], x, z);
+      things.push([(f.z0 + f.z1) / 2, () => {
+        const server = replay.servers[name];
+        artCanvas(ctx, looks[name], x, z, server ? colors[replay.state(name)] : colors.object, X, Y, scale);
+        // Parts in a server sit on top of it, side by side.
+        if (server) {
+          const held = [...server.busy, ...server.blocked, ...server.waiting];
+          const step = Math.max(0.55, 9 / scale);
+          held.forEach((part, i) => artPartCanvas(ctx, x + (i - (held.length - 1) / 2) * step, z, looks[name].art.h / 2, typeOf(part), X, Y, scale));
+        }
+      }]);
     }
-    const p = Math.max(4, 0.32 * scale);
-    ctx.fillStyle = colors.part;
-    ctx.strokeStyle = colors.surface;
-    ctx.lineWidth = 1;
+    const part = (x, z, lift, id) => things.push([z, () => artPartCanvas(ctx, x, z, lift, typeOf(id), X, Y, scale)]);
     for (const [name, path] of Object.entries(paths)) {
       const items = replay.conveyors[name].belt;
-      const step = 0.45;
+      // A queue's parts stand one behind the other from its end; those that
+      // don't fit the drawing pile up at its start.
+      const step = Math.max(0.6, 9 / scale);
       replay.belt(name).forEach((meters, i) => {
-        // A queue's parts stand one behind the other from its end; those that
-        // don't fit the drawing pile up at its start.
         const [x, z] = path.queue ? pointOn(path, Math.max(0, path.drawn - i * step)) : pointOn(path, meters);
-        ctx.fillStyle = partColor(items[i].part);
-        ctx.fillRect(X(x) - p / 2, Y(z) - p / 2, p, p);
-        ctx.strokeRect(X(x) - p / 2, Y(z) - p / 2, p, p);
+        part(x, z, path.queue ? 0 : BELT_TOP, items[i].part);
       });
-    }
-    // Parts waiting for a vehicle, beside where they'll be picked up.
-    for (const [name, path] of Object.entries(paths)) {
-      const waiting = replay.conveyors[name].pickup;
-      waiting.forEach((part, i) => {
-        const [x, z] = pointOn(path, Math.min(path.drawn, i * 0.45));
-        ctx.fillStyle = partColor(part);
-        ctx.fillRect(X(x) - p / 2, Y(z) - p / 2, p, p);
-        ctx.strokeRect(X(x) - p / 2, Y(z) - p / 2, p, p);
+      // Parts waiting for a vehicle, where they'll be picked up.
+      replay.conveyors[name].pickup.forEach((id, i) => {
+        const [x, z] = pointOn(path, Math.min(path.drawn, i * step));
+        part(x, z, 0, id);
       });
     }
     // Vehicles, between objects, with what they carry.
@@ -654,29 +685,19 @@ async function startAnimation(container, run) {
         if (!a || !b) continue;
         const f = v.until > v.start ? Math.max(0, Math.min(1, (replay.time - v.start) / (v.until - v.start))) : 1;
         const [x, z] = [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f + 0.9];
-        ctx.fillStyle = colors["ink-2"];
-        ctx.fillRect(X(x) - vs / 2, Y(z) - vs / 2, vs, vs);
-        if (v.part !== null) {
-          ctx.fillStyle = partColor(v.part);
-          ctx.fillRect(X(x) - p / 2, Y(z) - p / 2 - vs / 2, p, p);
-        }
+        things.push([z, () => {
+          ctx.fillStyle = colors["ink-2"];
+          ctx.fillRect(X(x) - vs / 2, Y(z) - vs / 2, vs, vs);
+          if (v.part !== null) artPartCanvas(ctx, x, z, 0.3, typeOf(v.part), X, Y, scale);
+        }]);
       }
     }
-    // Parts in a server sit on top of it.
-    for (const [name, sv] of Object.entries(replay.servers)) {
-      const [x, z] = layout.positions[name];
-      const top = Y(z) - looks[name].art.h / 2 * scale;
-      [...sv.busy, ...sv.blocked, ...sv.waiting].forEach((part, i) => {
-        ctx.fillStyle = partColor(part);
-        ctx.fillRect(X(x) - p / 2 + i * (p + 2), top - p / 2, p, p);
-        ctx.strokeRect(X(x) - p / 2 + i * (p + 2), top - p / 2, p, p);
-      });
-    }
+    things.sort((m, n) => m[0] - n[0]).forEach(([, draw]) => draw());
     // Names above the drawings, and how many at once where a server takes more than one.
     ctx.font = "600 12px system-ui, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    for (const name of order) {
+    for (const name of Object.keys(layout.positions)) {
       const [x, z] = layout.positions[name];
       const box = artBox(looks[name], x, z);
       const server = replay.servers[name];

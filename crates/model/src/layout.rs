@@ -37,7 +37,7 @@ const LOOK_ALIASES: &[(&str, &str)] = &[("machine_small", "machine")];
 const OBJECT_EDGE: f64 = 0.7;
 
 /// A queue's path: straight from one object's edge to the other's, moved
-/// 0.3 m to the right of the way parts go when a queue runs the other way.
+/// 0.5 m to the right of the way parts go when a queue runs the other way.
 pub fn queue_path(a: [f64; 3], b: [f64; 3], reverse: bool) -> Vec<[f64; 3]> {
     let (dx, dz) = (b[0] - a[0], b[2] - a[2]);
     let len = dx.hypot(dz);
@@ -47,7 +47,7 @@ pub fn queue_path(a: [f64; 3], b: [f64; 3], reverse: bool) -> Vec<[f64; 3]> {
     }
     let (ux, uz) = (dx / len, dz / len);
     let (ox, oz) = if reverse {
-        (-uz * 0.3, ux * 0.3)
+        (-uz * 0.5, ux * 0.5)
     } else {
         (0.0, 0.0)
     };

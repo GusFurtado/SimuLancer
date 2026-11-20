@@ -865,19 +865,23 @@ function diagram(tree) {
     role: "img", "aria-label": `Diagram of ${tree.name}`, class: state.connect ? "connecting" : "",
   });
   for (const c of graph.conveyors) {
-    const path = layout.paths[c.name];
-    const points = path.map(p => p.join(",")).join(" ");
+    const path = drawnPath(graph, layout, c, layout.paths[c.name]);
+    // A belt's top is raised; the outline, arrow and click area follow it.
+    const lift = c.queue ? 0 : BELT_TOP;
+    const points = path.map(([x, z]) => `${+x.toFixed(3)},${+(z - lift).toFixed(3)}`).join(" ");
     const cls = invalid(c.section, c.name) ? "invalid" : isSelected(c.section, c.name) ? "selected" : "";
-    // Conveyors are belts; queues are dashed lines (no length, no travel).
-    root.append(svg("polyline", c.transport
-      ? { points, fill: "none", stroke: "var(--accent)", "stroke-width": 0.14, "stroke-dasharray": "0.08 0.3", "stroke-linecap": "round" }
-      : c.queue
-      ? { points, fill: "none", stroke: "var(--muted)", "stroke-width": 0.18, "stroke-dasharray": "0.35 0.3", "stroke-linecap": "round" }
-      : { points, fill: "none", stroke: "var(--belt)", "stroke-width": 0.5, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    // Conveyors are belts, queues are lanes painted on the floor, transports a dashed route.
+    root.append(c.transport
+      ? svg("polyline", { points, fill: "none", stroke: "var(--accent)", "stroke-width": 0.14, "stroke-dasharray": "0.08 0.3", "stroke-linecap": "round" })
+      : artLineSvg(path, c.queue ? ART_LANE : ART_BELT));
     if (cls) root.append(svg("polyline", { points, fill: "none", class: cls, "vector-effect": "non-scaling-stroke", "stroke-linejoin": "round" }));
+    // The way parts go: an arrow a little before the end.
     const last = path.slice(-2);
+    const seg = Math.hypot(last[1][0] - last[0][0], last[1][1] - last[0][1]) || 1;
+    const back = Math.min(0.6, seg / 2);
+    const tip = [last[1][0] - (last[1][0] - last[0][0]) / seg * back, last[1][1] - (last[1][1] - last[0][1]) / seg * back - lift];
     const angle = Math.atan2(last[1][1] - last[0][1], last[1][0] - last[0][0]) * 180 / Math.PI;
-    root.append(svg("polygon", { points: "0,-0.35 0.5,0 0,0.35", fill: "var(--muted)", transform: `translate(${last[1][0]},${last[1][1]}) rotate(${angle})` }));
+    root.append(svg("polygon", { points: "-0.25,-0.28 0.2,0 -0.25,0.28", fill: c.transport ? "var(--accent)" : c.queue ? "#B98A12" : "#FFFFFF", "fill-opacity": c.queue ? 1 : 0.85, transform: `translate(${+tip[0].toFixed(3)},${+tip[1].toFixed(3)}) rotate(${+angle.toFixed(1)})` }));
     root.append(svg("polyline", { points, fill: "none", stroke: "transparent", "stroke-width": 1.4, class: "hit", onclick: select(c.section, c.name), "data-connection": c.name },
       svg("title", {}, `${c.transport ? "transport" : c.queue ? "queue" : "conveyor"} ${c.name}: ${c.from} → ${c.to}`)));
     // The label goes on the longest segment, away from the objects at the ends.
@@ -889,8 +893,8 @@ function diagram(tree) {
     // opposite directions (a loop) keep their labels apart.
     const dz = next[1] - mid[1];
     const label = Math.abs(dz) > Math.abs(next[0] - mid[0])
-      ? { x: mid[0] + (dz > 0 ? -0.45 : 0.45), y: mid[1] + dz * 0.4, "text-anchor": dz > 0 ? "end" : "start", "dominant-baseline": "middle" }
-      : { x: (mid[0] + next[0]) / 2, y: (mid[1] + next[1]) / 2 - 0.45, "text-anchor": "middle" };
+      ? { x: mid[0] + (dz > 0 ? -0.65 : 0.65), y: mid[1] + dz * 0.4 - lift, "text-anchor": dz > 0 ? "end" : "start", "dominant-baseline": "middle" }
+      : { x: (mid[0] + next[0]) / 2, y: (mid[1] + next[1]) / 2 - 0.65 - lift, "text-anchor": "middle" };
     const node = tree[c.section][c.name];
     const text = c.transport ? `${c.name} · ${node.by}, ${node.distance}`
       : c.queue ? `${c.name} · ${node.capacity ?? "∞"}` : c.name;

@@ -260,7 +260,109 @@ function artCanvas(ctx, look, x, z, fill, X, Y, scale) {
   ctx.translate(X(b.x), Y(b.top));
   ctx.scale(scale, scale);
   if (b.mirror) { ctx.translate(look.art.w, 0); ctx.scale(-1, 1); }
-  for (const s of look.art.shapes) {
+  artShapesCanvas(ctx, look.art.shapes, fill);
+  ctx.restore();
+}
+
+/** An object's footprint on the floor: { x0, z0, x1, z1 }. */
+function artFootprint(look, x, z) {
+  const b = artBox(look, x, z);
+  return { x0: b.x, z0: b.top, x1: b.x + look.art.w, z1: b.top + look.art.d };
+}
+
+// Connections are drawn as strokes along their path, in meters: `w` wide, moved
+// `dy` down (negative is up), `off` to the right of the way parts go, dashed by
+// `dash`. A dashed thick stroke makes the rollers.
+
+/** How high a belt's top is drawn above the floor: half its 0.7 m height. */
+const BELT_TOP = 0.35;
+const ART_BELT = [
+  { dy: 0.14, w: 1.0, color: "#000000", op: 0.1 },
+  { dy: 0, w: 0.9, color: "#5E626A" },
+  { dy: -BELT_TOP / 2, w: 0.9, color: "#5E626A" },
+  { dy: -BELT_TOP, w: 0.9, color: "#464A51" },
+  { dy: -BELT_TOP, w: 0.72, color: "#80848D" },
+  { dy: -BELT_TOP, w: 0.72, color: "#B0B5BD", dash: [0.08, 0.22] },
+];
+/** A queue: a lane painted on the floor, where parts wait in line. */
+const ART_LANE = [
+  { w: 0.9, color: "#E8B730", op: 0.16 },
+  { off: -0.42, w: 0.06, color: "#D9A21B" },
+  { off: 0.42, w: 0.06, color: "#D9A21B" },
+];
+
+/** The polyline moved `off` meters to the right of its direction (corners mitered). */
+function artOffset(points, off) {
+  if (!off || points.length < 2) return points;
+  const normal = (a, b) => {
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [-(b[1] - a[1]) / len, (b[0] - a[0]) / len];
+  };
+  return points.map((p, i) => {
+    const n0 = normal(points[Math.max(0, i - 1)], points[Math.max(1, i)]);
+    const n1 = normal(points[Math.min(i, points.length - 2)], points[Math.min(i + 1, points.length - 1)]);
+    const [nx, nz] = [n0[0] + n1[0], n0[1] + n1[1]];
+    const k = off / Math.max(0.3, (nx * n0[0] + nz * n0[1]));
+    return [p[0] + nx * k, p[1] + nz * k];
+  });
+}
+
+const artPoints = (points, s) => artOffset(points, s.off).map(([x, z]) => [x, z + (s.dy || 0)]);
+
+/** A connection's strokes as an SVG group. */
+function artLineSvg(points, strokes) {
+  const g = svg("g", { class: "art", "aria-hidden": "true" });
+  for (const s of strokes) {
+    const attrs = {
+      points: artPoints(points, s).map(([x, z]) => `${+x.toFixed(3)},${+z.toFixed(3)}`).join(" "),
+      fill: "none", stroke: s.color, "stroke-width": s.w, "stroke-linejoin": "round",
+    };
+    if (s.op !== undefined) attrs["stroke-opacity"] = s.op;
+    if (s.dash) attrs["stroke-dasharray"] = s.dash.join(" ");
+    g.append(svg("polyline", attrs));
+  }
+  return g;
+}
+
+/** Draws a connection's strokes on a canvas whose meters map to pixels by `X`, `Y` and `scale`. */
+function artLineCanvas(ctx, points, strokes, X, Y, scale) {
+  ctx.save();
+  ctx.translate(X(0), Y(0));
+  ctx.scale(scale, scale);
+  ctx.lineJoin = "round";
+  ctx.lineCap = "butt";
+  for (const s of strokes) {
+    ctx.globalAlpha = s.op ?? 1;
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = s.w;
+    ctx.setLineDash(s.dash || []);
+    ctx.beginPath();
+    artPoints(points, s).forEach(([x, z], i) => (i ? ctx.lineTo(x, z) : ctx.moveTo(x, z)));
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/** A part: a cardboard box, 0.5 m across and 0.4 m high. Where a model has more
+ *  than one part type, a sticker on top in the type's color tells them apart. */
+const ART_BOX = (() => {
+  const R = artRect;
+  return {
+    w: 0.5, d: 0.5, h: 0.4,
+    shapes: [
+      { d: R(0.06, 0.1, 0.5, 0.48, 0.05), fill: "#000000", op: 0.14 },
+      { d: R(0, 0.24, 0.5, 0.26, 0.04), fill: "#A98252" },
+      { d: R(0.22, 0.3, 0.06, 0.2), fill: "#C9AE7E" },
+      { d: R(0, -0.2, 0.5, 0.5, 0.05), fill: "#D2AA73", stroke: "#8E6A3E", sw: 0.03 },
+      { d: R(0.22, -0.185, 0.06, 0.47), fill: "#EFDDB8" },
+    ],
+    sticker: { d: R(0.11, -0.1, 0.28, 0.3, 0.04), fill: "state", stroke: "#FFFFFF", sw: 0.03, sop: 0.8 },
+  };
+})();
+
+/** Draws shapes (as in ART) at the canvas's current transform. */
+function artShapesCanvas(ctx, shapes, fill) {
+  for (const s of shapes) {
     const p = artPath(s.d);
     if (s.fill) {
       ctx.globalAlpha = s.op ?? 1;
@@ -276,5 +378,18 @@ function artCanvas(ctx, look, x, z, fill, X, Y, scale) {
       ctx.stroke(p);
     }
   }
+  ctx.globalAlpha = 1;
+}
+
+/** Draws a part standing at (x, z), its bottom `lift` meters above the floor
+ *  (on a belt or a machine), with a sticker in `type` color if given. It never
+ *  gets smaller than `minPx` across, so parts stay visible zoomed out. */
+function artPartCanvas(ctx, x, z, lift, type, X, Y, scale, minPx = 7) {
+  const k = Math.max(scale, minPx / ART_BOX.w);
+  ctx.save();
+  ctx.translate(X(x), Y(z - lift));
+  ctx.scale(k, k);
+  ctx.translate(-ART_BOX.w / 2, -ART_BOX.d / 2);
+  artShapesCanvas(ctx, type ? [...ART_BOX.shapes, ART_BOX.sticker] : ART_BOX.shapes, type);
   ctx.restore();
 }
