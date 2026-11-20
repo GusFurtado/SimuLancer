@@ -550,7 +550,11 @@ fn layout_text(tree: &Value, model_file: &str) -> String {
                 items.retain(|_, v| v.as_object().is_none_or(|o| !o.is_empty()));
             }
         }
-        if map.get("vehicles").and_then(Value::as_object).is_some_and(|v| v.is_empty()) {
+        if map
+            .get("vehicles")
+            .and_then(Value::as_object)
+            .is_some_and(|v| v.is_empty())
+        {
             map.remove("vehicles");
         }
     }

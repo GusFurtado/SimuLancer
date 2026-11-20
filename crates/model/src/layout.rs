@@ -361,13 +361,23 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
         if !spec.vehicles.iter().any(|f| f.name == name.value) {
             warnings.push(Diagnostic {
                 position: pos(&name.referenced),
-                message: format!("`{}` isn't a fleet of vehicles in the model; it's ignored", name.value),
+                message: format!(
+                    "`{}` isn't a fleet of vehicles in the model; it's ignored",
+                    name.value
+                ),
             });
         }
     }
 
     if errors.is_empty() {
-        Ok((Layout { objects, conveyors, vehicles }, warnings))
+        Ok((
+            Layout {
+                objects,
+                conveyors,
+                vehicles,
+            },
+            warnings,
+        ))
     } else {
         errors.sort_by_key(|d| {
             d.position
@@ -384,7 +394,10 @@ fn check_look(warnings: &mut Vec<Diagnostic>, name: &str, section: &str, look: &
         .iter()
         .find(|(old, _)| *old == look.value)
         .map_or(look.value.as_str(), |(_, new)| new);
-    if LOOKS.iter().any(|(l, s)| *l == value && s.contains(&section)) {
+    if LOOKS
+        .iter()
+        .any(|(l, s)| *l == value && s.contains(&section))
+    {
         return;
     }
     let known: Vec<&str> = LOOKS
@@ -396,7 +409,11 @@ fn check_look(warnings: &mut Vec<Diagnostic>, name: &str, section: &str, look: &
         "vehicles" => "fleet of vehicles",
         _ => &section[..section.len() - 1],
     };
-    let each = if section == "vehicles" { "its vehicles" } else { "it" };
+    let each = if section == "vehicles" {
+        "its vehicles"
+    } else {
+        "it"
+    };
     warnings.push(Diagnostic {
         position: Position::from_location(&look.referenced),
         message: format!(

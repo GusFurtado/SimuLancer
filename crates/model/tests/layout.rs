@@ -161,14 +161,29 @@ fn fleets_say_what_their_vehicles_look_like() {
     let (placed, warnings) = load_layout(layout, &model).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(placed.vehicles.len(), 1);
-    assert_eq!((placed.vehicles[0].name.as_str(), placed.vehicles[0].model.as_str()), ("forklifts", "forklift"));
+    assert_eq!(
+        (
+            placed.vehicles[0].name.as_str(),
+            placed.vehicles[0].model.as_str()
+        ),
+        ("forklifts", "forklift")
+    );
 
     // A look vehicles can't have, and a fleet the model doesn't have: warnings.
-    let layout = replace(layout, "forklifts: { model: forklift }", "forklifts: { model: lathe }\n  tuggers: { model: agv }");
+    let layout = replace(
+        layout,
+        "forklifts: { model: forklift }",
+        "forklifts: { model: lathe }\n  tuggers: { model: agv }",
+    );
     let (placed, warnings) = load_layout(&layout, &model).unwrap();
     let messages: Vec<&str> = warnings.iter().map(|w| w.message.as_str()).collect();
     assert_eq!(messages.len(), 2, "{messages:?}");
     assert!(messages.iter().any(|m| m.starts_with("`forklifts` can't be drawn as `lathe`; its vehicles will look like a forklift. A fleet of vehicles can be drawn as: forklift, agv")), "{messages:?}");
-    assert!(messages.iter().any(|m| m.starts_with("`tuggers` isn't a fleet of vehicles in the model")), "{messages:?}");
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.starts_with("`tuggers` isn't a fleet of vehicles in the model")),
+        "{messages:?}"
+    );
     assert_eq!(placed.vehicles.len(), 1, "the unknown fleet is left out");
 }
