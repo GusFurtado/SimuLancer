@@ -4,11 +4,11 @@ model: bike-assembly.yaml
 units: m
 
 objects:
-  frames:   { position: [0, 0, -3] }
-  wheels:   { position: [0, 0, 3] }
-  assembly: { position: [10, 0, 0], model: machine_small }
-  oven:     { position: [20, 0, 0], model: machine_small }
-  shipping: { position: [28, 0, 0] }
+  frames:   { position: [0, 0, -3], model: dock }
+  wheels:   { position: [0, 0, 3], model: dock }
+  assembly: { position: [10, 0, 0], model: workstation }
+  oven:     { position: [20, 0, 0], model: oven }
+  shipping: { position: [28, 0, 0], model: dock }
 
 conveyors:
   c_frames: { path: [[0.7, 0, -3], [10, 0, -3], [10, 0, -0.7]] }   # 9.3 + 2.3

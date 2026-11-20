@@ -7,10 +7,10 @@ model: conveyor-line.yaml
 units: m
 
 objects:
-  arrivals: { position: [0, 0, 0] }
-  lathe:    { position: [13.5, 0, 0], model: machine_small }
-  mill:     { position: [21, 0, 4], model: machine_small }
-  shipping: { position: [21, 0, 12] }
+  arrivals: { position: [0, 0, 0], model: dock }
+  lathe:    { position: [13.5, 0, 0], model: lathe }
+  mill:     { position: [21, 0, 4], model: mill }
+  shipping: { position: [21, 0, 12], model: dock }
 
 conveyors:
   c1: { path: [[0.5, 0, 0], [12.5, 0, 0]] }               # 12 m

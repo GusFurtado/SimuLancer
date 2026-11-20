@@ -251,7 +251,7 @@ function layoutTree() {
   const objects = {};
   for (const name of [...graph.sources, ...graph.servers, ...graph.sinks]) {
     const [x, z] = state.layout.positions[name];
-    const model = state.baseLayout?.objects?.[name]?.model;
+    const model = state.layout.drawn?.[name];
     objects[name] = model ? { position: [r(x), 0, r(z)], model } : { position: [r(x), 0, r(z)] };
   }
   const conveyors = {};
@@ -392,6 +392,8 @@ function fillLayout(graph) {
   }
   for (const c of graph.conveyors) if (!c.queue && !L.paths[c.name]) L.paths[c.name] = route(c.from, c.to);
   for (const name of Object.keys(L.positions)) if (!names.includes(name)) delete L.positions[name];
+  L.drawn ||= {};
+  for (const name of Object.keys(L.drawn)) if (!names.includes(name)) delete L.drawn[name];
   for (const name of Object.keys(L.paths)) if (!graph.conveyors.some(c => c.name === name)) delete L.paths[name];
   placeQueues(graph, L.positions, L.paths);
 }
@@ -573,6 +575,7 @@ function deleteSelected() {
       }
       setChange(`${sel.section}.${sel.name}`, null);
       delete state.layout.positions[sel.name];
+      if (state.layout.drawn) delete state.layout.drawn[sel.name];
     }
     state.layoutChanged = true;
     state.message = { kind: "ok", text: `Deleted ${sel.name}.` };
@@ -629,6 +632,10 @@ function rename(section, oldName, newName) {
       }
       state.layout.positions[newName] = state.layout.positions[oldName];
       delete state.layout.positions[oldName];
+      if (state.layout.drawn?.[oldName]) {
+        state.layout.drawn[newName] = state.layout.drawn[oldName];
+        delete state.layout.drawn[oldName];
+      }
       renameInDraft(`${section}.${oldName}`, `${section}.${newName}`, oldName, newName);
     }
     state.layoutChanged = true;
@@ -784,9 +791,12 @@ function startAddDrag(e, section, label) {
     // On a phone the panel covers the diagram: get it out of the way while dragging.
     if (narrow) side.hidden = true;
     const svgEl = document.querySelector(".diagram svg");
-    const size = Math.max(18, OBJECT_SIZE * (svgEl?.getScreenCTM()?.a || 25));
-    ghost = el("div", { class: `add-ghost ${section}`, "aria-hidden": "true", style: `--size: ${size}px` },
-      svg("svg", { viewBox: "-0.1 -0.1 1.2 1.2" }, svg("path", { d: shapePath(OBJECT_SHAPES[section], 0.5, 0.5, 1) })),
+    const scale = Math.max(12, svgEl?.getScreenCTM()?.a || 25);
+    const look = artFor(section);
+    const box = artBox(look, 0, 0);
+    ghost = el("div", { class: "add-ghost", "aria-hidden": "true", style: `transform: translate(${box.x * scale}px, ${box.y * scale}px)` },
+      svg("svg", { width: box.w * scale, height: box.h * scale, viewBox: `${box.x} ${box.y} ${box.w} ${box.h}` },
+        artSvg(look, 0, 0, section === "servers" ? "var(--busy)" : "var(--object)")),
       el("span", {}, label));
     document.body.append(ghost);
   };
@@ -834,7 +844,7 @@ function diagram(tree) {
   const graph = graphOf(tree);
   fillLayout(graph);
   const layout = state.layout;
-  const b = drag?.bounds || boundsOf(layout);
+  const b = drag?.bounds || boundsOf(layout, graph);
   const select = (section, name) => e => {
     e.stopPropagation();
     if (drag?.moved) return;
@@ -886,33 +896,36 @@ function diagram(tree) {
       : c.queue ? `${c.name} · ${node.capacity ?? "∞"}` : c.name;
     root.append(svg("text", { ...label, "font-size": 0.6 }, text + (changedObj(c.section, c.name) ? " •" : "")));
   }
-  const objects = [["sources", graph.sources], ["servers", graph.servers], ["sinks", graph.sinks]];
-  for (const [section, names] of objects) {
-    for (const name of names) {
-      const [x, z] = layout.positions[name];
-      const s = OBJECT_SIZE;
-      const fill = section === "servers" ? "var(--busy)" : "var(--object)";
-      const shape = OBJECT_SHAPES[section];
-      const from = state.connect?.from === name;
-      const cls = from ? "selected" : invalid(section, name) ? "invalid" : isSelected(section, name) ? "selected" : "";
-      // Selection, errors and drop targets show as a ring with a gap around the shape,
-      // so they stand out whatever the shape's own color.
-      const node = svg("g", { class: ["node", cls, isSelected(section, name) ? "current" : ""].filter(Boolean).join(" ") },
-        svg("path", { d: shapePath(shape, x, z, s + 0.5), class: "halo", "vector-effect": "non-scaling-stroke" }),
-        svg("path", {
-          d: shapePath(shape, x, z, s), fill, class: "hit object", "data-object": name, "data-shape": shape,
-          onclick: select(section, name),
-          onpointerdown: e => startDrag(e, root, name),
-        }, svg("title", {}, `${section.slice(0, -1)} ${name}`)));
-      // The handle to drag a connection from: parts leave sources and servers, not sinks.
-      if (section !== "sinks" && !state.connect) node.append(svg("circle", {
-        cx: x + s / 2, cy: z, r: 0.28, class: "handle", "vector-effect": "non-scaling-stroke", "data-handle": name,
-        onpointerdown: e => startConnectDrag(e, name),
-      }, svg("title", {}, `Drag to connect ${name} to the next object`)));
-      root.append(node);
-      root.append(svg("text", { x, y: z - s / 2 - 0.35, "text-anchor": "middle", "font-size": 0.7 },
-        name + (changedObj(section, name) ? " •" : "")));
-    }
+  // Objects back to front, so a nearer one's drawing goes over a farther one's.
+  const names = [...graph.sources, ...graph.servers, ...graph.sinks].sort((m, n) => layout.positions[m][1] - layout.positions[n][1]);
+  for (const name of names) {
+    const section = sectionIn(graph, name);
+    const [x, z] = layout.positions[name];
+    const look = lookOf(graph, layout, name);
+    const box = artBox(look, x, z);
+    const fill = section === "servers" ? "var(--busy)" : "var(--object)";
+    const from = state.connect?.from === name;
+    const cls = from ? "selected" : invalid(section, name) ? "invalid" : isSelected(section, name) ? "selected" : "";
+    // Selection, errors and drop targets show as a ring around the drawing; a
+    // transparent box over it takes the clicks and drags.
+    const node = svg("g", { class: ["node", cls, isSelected(section, name) ? "current" : ""].filter(Boolean).join(" ") },
+      svg("rect", { x: box.x - 0.25, y: box.y - 0.25, width: box.w + 0.5, height: box.h + 0.5, rx: 0.4, class: "halo", "vector-effect": "non-scaling-stroke" }),
+      artSvg(look, x, z, fill),
+      svg("rect", {
+        x: box.x, y: box.y, width: box.w, height: box.h, rx: 0.2, fill: "transparent",
+        class: "hit object", "data-object": name, "data-model": look.kind, "data-at": `${x},${z}`,
+        onclick: select(section, name),
+        onpointerdown: e => startDrag(e, root, name),
+      }, svg("title", {}, `${section.slice(0, -1)} ${name}`)));
+    // The handle to drag a connection from: parts leave sources and servers, not sinks.
+    if (section !== "sinks" && !state.connect) node.append(svg("circle", {
+      cx: box.x + box.w, cy: box.y + box.h / 2, r: 0.28, class: "handle", "vector-effect": "non-scaling-stroke", "data-handle": name,
+      onpointerdown: e => startConnectDrag(e, name),
+    }, svg("title", {}, `Drag to connect ${name} to the next object`)));
+    root.append(node);
+    const capacity = section === "servers" ? Number(tree.servers[name]?.capacity) || 1 : 1;
+    root.append(svg("text", { x: box.x + box.w / 2, y: box.y - 0.35, "text-anchor": "middle", "font-size": 0.7 },
+      name + (capacity > 1 ? ` ×${capacity}` : "") + (changedObj(section, name) ? " •" : "")));
   }
   return root;
 }
@@ -963,7 +976,8 @@ function startConnectDrag(e, from) {
     if (!s) return;
     // A check may redraw the diagram while dragging: the preview goes on the current one.
     if (!line?.isConnected) {
-      line = svg("line", { x1: x0 + OBJECT_SIZE / 2, y1: z0, class: "connect-preview", "vector-effect": "non-scaling-stroke" });
+      const box = artBox(lookOf(graphOf(currentTree()), state.layout, from), x0, z0);
+      line = svg("line", { x1: box.x + box.w, y1: box.y + box.h / 2, class: "connect-preview", "vector-effect": "non-scaling-stroke" });
       s.append(line);
     }
     const target = targetAt(ev);
@@ -1036,7 +1050,7 @@ function startDrag(e, root, name) {
   };
   const start = toModel(e);
   const [x0, z0] = state.layout.positions[name];
-  drag = { name, moved: false, before: snapshot(), bounds: boundsOf(state.layout) };
+  drag = { name, moved: false, before: snapshot(), bounds: boundsOf(state.layout, graphOf(currentTree())) };
   const move = ev => {
     const p = toModel(ev);
     const snap = v => Math.round(v * 2) / 2;
@@ -1189,6 +1203,15 @@ function panel(tree) {
         el("input", { id: "f-name", value: sel.name, onchange: e => rename(sel.section, sel.name, e.target.value.trim()) }),
         el("button", { style: "flex: 0", onclick: deleteSelected, title: `Delete ${sel.name}` }, "Delete")))];
   const graph = graphOf(tree);
+  if (["sources", "servers", "sinks"].includes(sel.section)) {
+    const look = lookOf(graph, state.layout, sel.name);
+    header.push(el("div", { class: "field" },
+      el("label", { for: "f-drawn" }, "Drawn as"),
+      el("select", {
+        id: "f-drawn",
+        onchange: e => batch(() => { state.layout.drawn[sel.name] = e.target.value; state.layoutChanged = true; }),
+      }, ...artChoices(sel.section).map(([k, label]) => el("option", { value: k, selected: k === look.kind || null }, label)))));
+  }
   const outputs = graph.conveyors.filter(c => c.from === sel.name).map(c => c.name);
   const inputs = graph.conveyors.filter(c => c.to === sel.name).map(c => c.name);
   switch (sel.section) {

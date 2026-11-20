@@ -389,3 +389,29 @@ outputs:
 
 - `summary` lists which measures to report; all of them by default.
 - `throughput_per` sets what every throughput is counted per. `hour`, `day` and `week` are calendar time: a line that works 80 hours a week and ships 1,900 machines a week reports 11.3 /h. A schedule's name counts per hour of that schedule's working time instead: the same line reports 23.8 /working h with `throughput_per: two_shifts`.
+
+## Layout files
+
+A model's drawing lives next to it in `<model>.layout.yaml`. The engine never reads it, so moving things around never changes a result. The Modeling page writes it as you draw.
+
+```yaml
+model: conveyor-line.yaml
+units: m
+objects:
+  arrivals: { position: [0, 0, 0], model: dock }
+  lathe:    { position: [13.5, 0, 0], model: lathe }
+conveyors:
+  c1: { path: [[0.5, 0, 0], [12.5, 0, 0]] }   # 12 m
+```
+
+- `position` is `[x, y, z]` with Y up: the floor is the X-Z plane.
+- `model` is what the object is drawn as. Leave it out for the default.
+
+  | Object | Can be drawn as |
+  |---|---|
+  | Source | `dock` (a truck at a dock, the default), `door`, `generic` |
+  | Server | `machine` (the default), `lathe`, `mill`, `oven`, `workstation` (a bench with an operator), `counter` (a service desk), `kiosk` |
+  | Sink | `dock` (the default), `door`, `bin`, `generic` |
+
+  Anything else is a warning, not an error: the object is drawn as the default. `machine_small`, from older layouts, means `machine`.
+- Every conveyor has a `path`. Queues and transports aren't listed: they're drawn straight between their objects.
