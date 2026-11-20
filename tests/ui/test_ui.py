@@ -580,6 +580,13 @@ b.wait("return document.getElementById('part-types') !== null")
 check(b.js("return document.getElementById('define-part-types').textContent").startswith("Customer types"), "the model's words in definitions")
 check(b.js("return document.querySelector('#part-types .group-title').textContent") == "Customer types", "the model's words")
 check(b.js("return document.getElementById('add-source').title") == "Where customers come from", "the model's words in tooltips")
+# Customers are drawn as people, a layout change chosen with the type.
+check(b.js("return [...document.querySelectorAll('[data-type-look]')].map(s => s.value)") == ["person", "person", "person"], "customers drawn as people")
+check(b.js("return [...document.querySelector('[data-type-look=quick]').options].map(o => o.value)") == ["box", "pallet", "person"], "part looks")
+b.js("const s = document.querySelector('[data-type-look=quick]'); s.value = 'box'; s.dispatchEvent(new Event('change'))")
+b.wait("return document.querySelector('[data-type-look=quick]')?.value === 'box' && document.getElementById('undo').disabled === false")
+b.js("document.getElementById('undo').click()")
+b.wait("return document.querySelector('[data-type-look=quick]')?.value === 'person'")
 # The staff finish serving after closing.
 define("schedules")
 b.wait("return document.querySelector('[data-finish=staff_hours]') !== null")

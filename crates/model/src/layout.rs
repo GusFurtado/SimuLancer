@@ -13,8 +13,8 @@ use crate::units::{DefaultUnits, Dimension, parse_quantity};
 use crate::{Model, parse_yaml};
 use outliers_sim_engine::spec::Node;
 
-/// What a source, server, sink or fleet of vehicles can be drawn as (`model:`
-/// in a layout), and which kinds of object can use it. The web pages draw them
+/// What a source, server, sink, fleet of vehicles or part type can be drawn
+/// as (`model:` in a layout), and which kinds of thing can use it. The web pages draw them
 /// (`crates/cli/src/web/art.js`); a test keeps the two lists in step.
 pub const LOOKS: &[(&str, &[&str])] = &[
     ("machine", &["servers"]),
@@ -30,6 +30,9 @@ pub const LOOKS: &[(&str, &[&str])] = &[
     ("generic", &["sources", "sinks"]),
     ("forklift", &["vehicles"]),
     ("agv", &["vehicles"]),
+    ("box", &["entities"]),
+    ("pallet", &["entities"]),
+    ("person", &["entities"]),
 ];
 
 /// Older names for looks, still read.
@@ -75,14 +78,17 @@ pub struct Layout {
     /// In model order, queues included (with their computed paths).
     pub conveyors: Vec<PlacedConveyor>,
     /// Fleets the layout says how to draw, in model order.
-    pub vehicles: Vec<DrawnFleet>,
+    pub vehicles: Vec<DrawnAs>,
+    /// Part types the layout says how to draw, in model order.
+    pub entities: Vec<DrawnAs>,
 }
 
-/// How a fleet's vehicles are drawn.
+/// How a fleet's vehicles, or a part type's parts, are drawn.
 #[derive(Debug, Clone)]
-pub struct DrawnFleet {
+pub struct DrawnAs {
+    /// The fleet or part type.
     pub name: String,
-    /// One of [`LOOKS`] for vehicles (e.g. `forklift`), as the layout gives it.
+    /// One of [`LOOKS`] (e.g. `forklift`, `person`), as the layout gives it.
     pub model: String,
 }
 
@@ -125,12 +131,14 @@ struct RawLayout {
     #[serde(default)]
     conveyors: OrderedMap<RawConveyorPath>,
     #[serde(default)]
-    vehicles: OrderedMap<RawFleet>,
+    vehicles: OrderedMap<RawLook>,
+    #[serde(default)]
+    entities: OrderedMap<RawLook>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawFleet {
+struct RawLook {
     model: Spanned<String>,
 }
 
@@ -345,29 +353,42 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
         }
     }
 
-    // Vehicles: how each fleet is drawn. A fleet the model doesn't have is
-    // left out with a warning, so renaming one never stops a project opening.
-    let mut vehicles = Vec::new();
-    for fleet in &spec.vehicles {
-        if let Some((_, f)) = raw.vehicles.0.iter().find(|(n, _)| n.value == fleet.name) {
-            check_look(&mut warnings, &fleet.name, "vehicles", &f.model);
-            vehicles.push(DrawnFleet {
-                name: fleet.name.clone(),
-                model: f.model.value.clone(),
-            });
+    // Vehicles and part types: how each fleet or type is drawn. One the model
+    // doesn't have is left out with a warning, so renaming it in the model
+    // file never stops a project opening.
+    let mut drawn = |section: &str, names: Vec<&str>, raw: &OrderedMap<RawLook>, what: &str| {
+        let mut placed = Vec::new();
+        for name in &names {
+            if let Some((_, l)) = raw.0.iter().find(|(n, _)| n.value == *name) {
+                check_look(&mut warnings, name, section, &l.model);
+                placed.push(DrawnAs {
+                    name: name.to_string(),
+                    model: l.model.value.clone(),
+                });
+            }
         }
-    }
-    for (name, _) in &raw.vehicles.0 {
-        if !spec.vehicles.iter().any(|f| f.name == name.value) {
-            warnings.push(Diagnostic {
-                position: pos(&name.referenced),
-                message: format!(
-                    "`{}` isn't a fleet of vehicles in the model; it's ignored",
-                    name.value
-                ),
-            });
+        for (name, _) in &raw.0 {
+            if !names.contains(&name.value.as_str()) {
+                warnings.push(Diagnostic {
+                    position: pos(&name.referenced),
+                    message: format!("`{}` isn't {what} in the model; it's ignored", name.value),
+                });
+            }
         }
-    }
+        placed
+    };
+    let vehicles = drawn(
+        "vehicles",
+        spec.vehicles.iter().map(|f| f.name.as_str()).collect(),
+        &raw.vehicles,
+        "a fleet of vehicles",
+    );
+    let entities = drawn(
+        "entities",
+        spec.entities.iter().map(String::as_str).collect(),
+        &raw.entities,
+        "a part type",
+    );
 
     if errors.is_empty() {
         Ok((
@@ -375,6 +396,7 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
                 objects,
                 conveyors,
                 vehicles,
+                entities,
             },
             warnings,
         ))
@@ -405,14 +427,10 @@ fn check_look(warnings: &mut Vec<Diagnostic>, name: &str, section: &str, look: &
         .filter(|(_, s)| s.contains(&section))
         .map(|(l, _)| *l)
         .collect();
-    let kind = match section {
-        "vehicles" => "fleet of vehicles",
-        _ => &section[..section.len() - 1],
-    };
-    let each = if section == "vehicles" {
-        "its vehicles"
-    } else {
-        "it"
+    let (kind, each) = match section {
+        "vehicles" => ("fleet of vehicles", "its vehicles"),
+        "entities" => ("part type", "its parts"),
+        _ => (&section[..section.len() - 1], "it"),
     };
     warnings.push(Diagnostic {
         position: Position::from_location(&look.referenced),

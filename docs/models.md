@@ -404,6 +404,8 @@ conveyors:
   c1: { path: [[0.5, 0, 0], [12.5, 0, 0]] }   # 12 m
 vehicles:
   forklifts: { model: forklift }
+entities:
+  part: { model: box }
 ```
 
 - `position` is `[x, y, z]` with Y up: the floor is the X-Z plane.
@@ -418,3 +420,4 @@ vehicles:
   Anything else is a warning, not an error: the object is drawn as the default. `machine_small`, from older layouts, means `machine`.
 - Every conveyor has a `path`. Queues and transports aren't listed: they're drawn straight between their objects. A path can start and end under an object's drawing (its position is a fine end point): the drawing stops it at the object's edge.
 - `vehicles` (optional) says what each fleet is drawn as: `forklifts: { model: forklift }`. A fleet can be a `forklift` (the default) or an `agv`. Vehicles stop on the floor in front of an object, drive straight between those stops facing the way they go, and carry their load on the forks or the deck. A fleet the model doesn't have, or a look that isn't one of these, is a warning.
+- `entities` (optional) says what each part type is drawn as: `customer: { model: person }`. A part type can be a `box` (the default), a `pallet` or a `person`. Where a model has several part types, a box or pallet gets a sticker in the type's color and a person a shirt in it. People wait in front of a server rather than on it. A part type the model doesn't have, or a look that isn't one of these, is a warning.

@@ -8,7 +8,7 @@ use std::path::Path;
 use outliers_sim_engine::spec::{Node, Spec, WhenBlocked};
 use outliers_sim_engine::stats::Summary;
 use outliers_sim_engine::{Observer, SimTime, TraceEvent};
-use outliers_sim_model::{Layout, Model};
+use outliers_sim_model::{DrawnAs, Layout, Model};
 use serde::Serialize;
 use serde_json::json;
 
@@ -42,17 +42,19 @@ pub fn layout_json(layout: &Layout) -> serde_json::Value {
         .iter()
         .map(|c| (c.name.clone(), json!({ "path": c.path })))
         .collect();
-    let vehicles: serde_json::Map<String, serde_json::Value> = layout
-        .vehicles
-        .iter()
-        .map(|f| (f.name.clone(), json!({ "model": f.model })))
-        .collect();
+    let looks = |drawn: &[DrawnAs]| -> serde_json::Map<String, serde_json::Value> {
+        drawn
+            .iter()
+            .map(|d| (d.name.clone(), json!({ "model": d.model })))
+            .collect()
+    };
     json!({
         "format": "outliers-sim-layout/0.1",
         "units": "m",
         "objects": objects,
         "conveyors": conveyors,
-        "vehicles": vehicles,
+        "vehicles": looks(&layout.vehicles),
+        "entities": looks(&layout.entities),
     })
 }
 

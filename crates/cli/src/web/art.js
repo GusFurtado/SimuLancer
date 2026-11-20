@@ -54,6 +54,9 @@ const ART = (() => {
       : [{ d: C(x, y - 0.98, 0.16), fill: "#C99A72" }, { d: R(x - 0.16, y - 1.15, 0.32, 0.14, 0.07), fill: "#4A3628" }]),
   ];
 
+  /** Staff: hidden while their server is off shift. */
+  const staff = shapes => shapes.map(s => ({ ...s, staff: true }));
+
   /** A floor pad in the state color, for servers that aren't a machine. */
   const pad = (w, d) => [{ d: R(0, 0, w, d, 0.3), fill: "state", stroke: "#000000", sop: 0.15, sw: 0.05 }];
 
@@ -126,14 +129,14 @@ const ART = (() => {
         { d: R(1.0, -0.28, 0.55, 0.55, 0.03), fill: KRAFT, stroke: KRAFT_EDGE, sw: 0.03 },
         { d: R(1.07, -0.21, 0.41, 0.41), fill: "#9C7547" },
         { d: R(1.95, -0.18, 0.3, 0.24, 0.04), fill: "#3A3D42" },
-        ...person(1.3, 1.62),
+        ...staff(person(1.3, 1.62)),
       ],
     },
     counter: {
       label: "Service counter", sections: ["servers"], w: 2.6, d: 1.8, h: 1.0,
       shapes: [
         ...pad(2.6, 1.8),
-        ...person(1.3, 0.55, { shirt: "#4B5D73", vest: false, helmet: false }),
+        ...staff(person(1.3, 0.55, { shirt: "#4B5D73", vest: false, helmet: false })),
         { d: R(0.15, 0.8, 2.3, 0.55, 0.04), fill: "#B49A72" },
         { d: R(0.15, 0.25, 2.3, 0.6, 0.05), fill: "#D8C3A0", stroke: "#9C8463", sw: 0.04 },
         { d: R(0.95, -0.05, 0.7, 0.32, 0.03), fill: "#3A3D42" },
@@ -243,11 +246,45 @@ const ART = (() => {
         { d: C(0.15, 0.3, 0.05), fill: GREEN },
       ],
     },
+    // Parts. "state" is the part type's color where a model has several types
+    // (`typed` shapes are drawn only then), else `plain`. `stands`: waits in
+    // front of a server rather than on it.
+    box: {
+      label: "Box", sections: ["entities"], w: 0.5, d: 0.5, h: 0.4,
+      shapes: [
+        { d: R(0.06, 0.1, 0.5, 0.48, 0.05), fill: "#000000", op: 0.14 },
+        { d: R(0, 0.24, 0.5, 0.26, 0.04), fill: "#A98252" },
+        { d: R(0.22, 0.3, 0.06, 0.2), fill: "#C9AE7E" },
+        { d: R(0, -0.2, 0.5, 0.5, 0.05), fill: KRAFT, stroke: KRAFT_EDGE, sw: 0.03 },
+        { d: R(0.22, -0.185, 0.06, 0.47), fill: "#EFDDB8" },
+        { d: R(0.11, -0.1, 0.28, 0.3, 0.04), fill: "state", stroke: "#FFFFFF", sw: 0.03, sop: 0.8, typed: true },
+      ],
+    },
+    // A wooden pallet with four cartons, shrink-wrapped.
+    pallet: {
+      label: "Pallet", sections: ["entities"], w: 1.2, d: 1.0, h: 1.0,
+      shapes: [
+        { d: R(0.1, 0.2, 1.2, 0.95, 0.05), fill: "#000000", op: 0.14 },
+        { d: R(0, 0.9, 1.2, 0.1), fill: "#8E6534" },
+        { d: "M0.08,0.93h0.22v0.07h-0.22ZM0.49,0.93h0.22v0.07h-0.22ZM0.9,0.93h0.22v0.07h-0.22Z", fill: "#5E4120" },
+        { d: R(0.02, 0.5, 1.16, 0.42, 0.03), fill: "#A98252" },
+        { d: "M0.6,0.5V0.92M0.02,0.71H1.18", stroke: "#7A5A33", sw: 0.03 },
+        { d: R(0.02, -0.48, 1.16, 0.98, 0.04), fill: KRAFT, stroke: KRAFT_EDGE, sw: 0.03 },
+        { d: "M0.6,-0.48V0.5M0.02,0.01H1.18", stroke: KRAFT_EDGE, sw: 0.03 },
+        { d: R(0.02, -0.48, 1.16, 1.4, 0.04), fill: "#FFFFFF", op: 0.12 },
+        { d: R(0.4, -0.22, 0.4, 0.44, 0.05), fill: "state", stroke: "#FFFFFF", sw: 0.04, sop: 0.8, typed: true },
+      ],
+    },
+    // A person standing, the shirt in the type's color.
+    person: {
+      label: "Person", sections: ["entities"], w: 0.6, d: 0.5, h: 2.2, plain: "#5B7FA6", stands: true,
+      shapes: person(0.3, 0.35, { shirt: "state", vest: false, helmet: false }),
+    },
   };
 })();
 
 /** What an object looks like when its layout doesn't say. */
-const ART_DEFAULT = { sources: "dock", servers: "machine", sinks: "dock", vehicles: "forklift" };
+const ART_DEFAULT = { sources: "dock", servers: "machine", sinks: "dock", vehicles: "forklift", entities: "box" };
 /** Older names, still read. */
 const ART_ALIASES = { machine_small: "machine" };
 
@@ -296,14 +333,15 @@ const artPath = d => {
   return p;
 };
 
-/** Draws the look on a canvas whose meters map to pixels by `X`, `Y` and `scale`. */
-function artCanvas(ctx, look, x, z, fill, X, Y, scale) {
+/** Draws the look on a canvas whose meters map to pixels by `X`, `Y` and
+ *  `scale`; without its staff when not `staffed` (off shift). */
+function artCanvas(ctx, look, x, z, fill, X, Y, scale, staffed = true) {
   const b = artBox(look, x, z);
   ctx.save();
   ctx.translate(X(b.x), Y(b.top));
   ctx.scale(scale, scale);
   if (b.mirror) { ctx.translate(look.art.w, 0); ctx.scale(-1, 1); }
-  artShapesCanvas(ctx, look.art.shapes, fill);
+  artShapesCanvas(ctx, look.art.shapes, fill, staffed);
   ctx.restore();
 }
 
@@ -386,26 +424,11 @@ function artLineCanvas(ctx, points, strokes, X, Y, scale) {
   ctx.restore();
 }
 
-/** A part: a cardboard box, 0.5 m across and 0.4 m high. Where a model has more
- *  than one part type, a sticker on top in the type's color tells them apart. */
-const ART_BOX = (() => {
-  const R = artRect;
-  return {
-    w: 0.5, d: 0.5, h: 0.4,
-    shapes: [
-      { d: R(0.06, 0.1, 0.5, 0.48, 0.05), fill: "#000000", op: 0.14 },
-      { d: R(0, 0.24, 0.5, 0.26, 0.04), fill: "#A98252" },
-      { d: R(0.22, 0.3, 0.06, 0.2), fill: "#C9AE7E" },
-      { d: R(0, -0.2, 0.5, 0.5, 0.05), fill: "#D2AA73", stroke: "#8E6A3E", sw: 0.03 },
-      { d: R(0.22, -0.185, 0.06, 0.47), fill: "#EFDDB8" },
-    ],
-    sticker: { d: R(0.11, -0.1, 0.28, 0.3, 0.04), fill: "state", stroke: "#FFFFFF", sw: 0.03, sop: 0.8 },
-  };
-})();
-
-/** Draws shapes (as in ART) at the canvas's current transform. */
-function artShapesCanvas(ctx, shapes, fill) {
+/** Draws shapes (as in ART) at the canvas's current transform; staff only if
+ *  `staffed`, shapes for a part type only if `typed`. */
+function artShapesCanvas(ctx, shapes, fill, staffed = true, typed = true) {
   for (const s of shapes) {
+    if ((s.staff && !staffed) || (s.typed && !typed)) continue;
     const p = artPath(s.d);
     if (s.fill) {
       ctx.globalAlpha = s.op ?? 1;
@@ -424,15 +447,17 @@ function artShapesCanvas(ctx, shapes, fill) {
   ctx.globalAlpha = 1;
 }
 
-/** Draws a part standing at (x, z), its bottom `lift` meters above the floor
- *  (on a belt or a machine), with a sticker in `type` color if given. It never
- *  gets smaller than `minPx` across, so parts stay visible zoomed out. */
-function artPartCanvas(ctx, x, z, lift, type, X, Y, scale, minPx = 7) {
-  const k = Math.max(scale, minPx / ART_BOX.w);
+/** Draws a part (`look`, from artFor("entities", ...)) standing at (x, z), its
+ *  bottom `lift` meters above the floor (on a belt or a machine), in the part
+ *  type's color `type` if given. It never gets smaller than `minPx` across, so
+ *  parts stay visible zoomed out. */
+function artPartCanvas(ctx, look, x, z, lift, type, X, Y, scale, minPx = 7) {
+  const art = look.art;
+  const k = Math.max(scale, minPx / art.w);
   ctx.save();
   ctx.translate(X(x), Y(z - lift));
   ctx.scale(k, k);
-  ctx.translate(-ART_BOX.w / 2, -ART_BOX.d / 2);
-  artShapesCanvas(ctx, type ? [...ART_BOX.shapes, ART_BOX.sticker] : ART_BOX.shapes, type);
+  ctx.translate(-art.w / 2, -art.d / 2);
+  artShapesCanvas(ctx, art.shapes, type || art.plain, true, Boolean(type));
   ctx.restore();
 }

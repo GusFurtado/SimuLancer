@@ -126,13 +126,14 @@ function placeQueues(graph, positions, paths) {
   }
 }
 
-/** Positions (x, z in meters), conveyor paths and what objects and vehicles
- *  look like (`drawn` and `fleets`: name -> the layout's `model`), from
- *  layout.json or computed. */
+/** Positions (x, z in meters), conveyor paths and what objects, vehicles and
+ *  part types look like (`drawn`, `fleets`, `types`: name -> the layout's
+ *  `model`), from layout.json or computed. */
 function layoutOf(graph, layout) {
-  const drawn = {}, fleets = {};
+  const drawn = {}, fleets = {}, types = {};
   for (const [name, o] of Object.entries(layout?.objects || {})) if (o.model) drawn[name] = o.model;
   for (const [name, f] of Object.entries(layout?.vehicles || {})) if (f.model) fleets[name] = f.model;
+  for (const [name, t] of Object.entries(layout?.entities || {})) if (t.model) types[name] = t.model;
   if (layout && graph.conveyors.every(c => c.queue || layout.conveyors[c.name]) &&
       [...graph.sources, ...graph.servers, ...graph.sinks].every(n => layout.objects[n])) {
     const positions = {};
@@ -140,9 +141,9 @@ function layoutOf(graph, layout) {
     const paths = {};
     for (const [name, c] of Object.entries(layout.conveyors)) paths[name] = c.path.map(p => [p[0], p[2]]);
     placeQueues(graph, positions, paths);
-    return { positions, paths, drawn, fleets };
+    return { positions, paths, drawn, fleets, types };
   }
-  return { ...autoLayout(graph), drawn, fleets };
+  return { ...autoLayout(graph), drawn, fleets, types };
 }
 
 /** The section ("sources", "servers" or "sinks") an object is in. */
@@ -562,6 +563,7 @@ async function startAnimation(container, run) {
           : null)),
     el("div", { class: "player" }, play, speed, slider, fit));
 
+  const typeLooks = (header.entities || ["part"]).map(t => artFor("entities", layout.types?.[t]));
   // Which way each vehicle faces (true: left), kept while it stands still.
   const facing = new Map();
   const a = { frame: 0, playing: true, speedIndex: SPEEDS.indexOf(60), view: null, last: performance.now() };
@@ -649,6 +651,8 @@ async function startAnimation(container, run) {
     const typeColors = [...Array(TYPE_COLORS).keys()].map(i => cssVar(`--type-${i}`));
     // The sticker that tells part types apart, where there is more than one.
     const typeOf = part => typed ? typeColors[replay.typeOf(part) % TYPE_COLORS] : null;
+    // What a part looks like: its type's look in the layout (a box by default).
+    const partLook = part => typeLooks[replay.typeOf(part)] || typeLooks[0];
 
     // Floor first: queue lanes, transport routes and belts.
     for (const path of Object.values(paths)) {
@@ -669,36 +673,56 @@ async function startAnimation(container, run) {
     // farther ones: objects (with the parts they hold), parts on belts and in
     // queues, vehicles.
     const things = [];
+    const waiting = [];   // [where, how many more] for queues longer than their drawing
+    const part = (x, z, lift, id) => things.push([z, () => artPartCanvas(ctx, partLook(id), x, z, lift, typeOf(id), X, Y, scale)]);
     const looks = Object.fromEntries(Object.keys(layout.positions).map(n => [n, lookOf(graph, layout, n)]));
     for (const name of Object.keys(layout.positions)) {
       const [x, z] = layout.positions[name];
       const f = artFootprint(looks[name], x, z);
+      const server = replay.servers[name];
+      const state = server && replay.state(name);
       things.push([(f.z0 + f.z1) / 2, () => {
-        const server = replay.servers[name];
-        artCanvas(ctx, looks[name], x, z, server ? colors[replay.state(name)] : colors.object, X, Y, scale);
-        // Parts in a server sit on top of it, side by side.
-        if (server) {
-          const held = [...server.busy, ...server.blocked, ...server.waiting];
-          const step = Math.max(0.55, 9 / scale);
-          held.forEach((part, i) => artPartCanvas(ctx, x + (i - (held.length - 1) / 2) * step, z, looks[name].art.h / 2, typeOf(part), X, Y, scale));
-        }
+        artCanvas(ctx, looks[name], x, z, server ? colors[state] : colors.object, X, Y, scale, state !== "off");
       }]);
+      // Parts in a server sit on top of it, side by side; people stand in front.
+      if (server) {
+        const held = [...server.busy, ...server.blocked, ...server.waiting];
+        const step = Math.max(0.6, 9 / scale);
+        held.forEach((id, i) => {
+          const look = partLook(id);
+          const at = x + (i - (held.length - 1) / 2) * Math.max(step, look.art.w + 0.1);
+          if (look.art.stands) part(at, f.z1 + 0.3, 0, id);
+          else things.push([(f.z0 + f.z1) / 2 + 0.01, () => artPartCanvas(ctx, look, at, z, looks[name].art.h / 2, typeOf(id), X, Y, scale)]);
+        });
+      }
     }
-    const part = (x, z, lift, id) => things.push([z, () => artPartCanvas(ctx, x, z, lift, typeOf(id), X, Y, scale)]);
+    // How much room a part takes in a line: its own size, and enough to tell
+    // parts apart zoomed out.
+    const room = id => Math.max(partLook(id).art.w + 0.1, 9 / scale);
     for (const [name, path] of Object.entries(paths)) {
       const items = replay.conveyors[name].belt;
-      // A queue's parts stand one behind the other from its end; those that
-      // don't fit the drawing pile up at its start.
-      const step = Math.max(0.6, 9 / scale);
       // On a transport, parts wait a little way along the route, clear of
       // where the vehicles stop: picked up at its start, delivered at its end.
       const clear = path.transport ? Math.min(1.8, path.drawn / 3) : 0;
+      // A queue's parts stand one behind the other from its end. Those that
+      // don't fit the drawing wait at its start: one is drawn there, with how
+      // many more there are.
+      let back = clear, more = 0;
       replay.belt(name).forEach((meters, i) => {
-        const [x, z] = path.queue ? pointOn(path, Math.max(0, path.drawn - clear - i * step)) : pointOn(path, meters);
-        part(x, z, path.queue ? 0 : BELT_TOP, items[i].part);
+        const id = items[i].part;
+        if (path.queue && path.drawn - back < 0) {
+          if (more++ === 0) part(...pointOn(path, 0), 0, id);
+          return;
+        }
+        const [x, z] = path.queue ? pointOn(path, path.drawn - back) : pointOn(path, meters);
+        back += room(id);
+        part(x, z, path.queue ? 0 : BELT_TOP, id);
       });
-      replay.conveyors[name].pickup.forEach((id, i) => {
-        const [x, z] = pointOn(path, Math.min(path.drawn, clear + i * step));
+      if (more > 1) waiting.push([pointOn(path, 0), more - 1]);
+      let ahead = clear;
+      replay.conveyors[name].pickup.forEach(id => {
+        const [x, z] = pointOn(path, Math.min(path.drawn, ahead));
+        ahead += room(id);
         part(x, z, 0, id);
       });
     }
@@ -727,12 +751,25 @@ async function startAnimation(container, run) {
           if (v.part !== null) {
             const [lx, lz, lh] = look.art.load;
             const dx = lx - look.art.w / 2;
-            artPartCanvas(ctx, x + (left ? -dx : dx), z + lz - look.art.d / 2, lh, typeOf(v.part), X, Y, scale, 5);
+            artPartCanvas(ctx, partLook(v.part), x + (left ? -dx : dx), z + lz - look.art.d / 2, lh, typeOf(v.part), X, Y, scale, 5);
           }
         }]);
       });
     }
     things.sort((m, n) => m[0] - n[0]).forEach(([, draw]) => draw());
+    // How many more wait where a queue is longer than its drawing.
+    ctx.font = "600 11px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    for (const [[x, z], n] of waiting) {
+      const text = `+${n}`;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = colors.surface;
+      const above = Y(z) - Math.max(14, 1.1 * scale);
+      ctx.strokeText(text, X(x), above);
+      ctx.fillStyle = colors["ink-2"];
+      ctx.fillText(text, X(x), above);
+    }
     // Names above the drawings, and how many at once where a server takes more than one.
     ctx.font = "600 12px system-ui, sans-serif";
     ctx.textAlign = "center";

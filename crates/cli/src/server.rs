@@ -542,7 +542,7 @@ fn layout_text(tree: &Value, model_file: &str) -> String {
         map.entry("units").or_insert(json!("m"));
         // Drop empty fields (`"model": null` on objects), and a fleet with
         // nothing to say.
-        for section in ["objects", "conveyors", "vehicles"] {
+        for section in ["objects", "conveyors", "vehicles", "entities"] {
             if let Some(items) = map.get_mut(section).and_then(Value::as_object_mut) {
                 for item in items.values_mut().filter_map(Value::as_object_mut) {
                     item.retain(|_, v| !v.is_null());
@@ -550,12 +550,14 @@ fn layout_text(tree: &Value, model_file: &str) -> String {
                 items.retain(|_, v| v.as_object().is_none_or(|o| !o.is_empty()));
             }
         }
-        if map
-            .get("vehicles")
-            .and_then(Value::as_object)
-            .is_some_and(|v| v.is_empty())
-        {
-            map.remove("vehicles");
+        for section in ["vehicles", "entities"] {
+            if map
+                .get(section)
+                .and_then(Value::as_object)
+                .is_some_and(|v| v.is_empty())
+            {
+                map.remove(section);
+            }
         }
     }
     outliers_sim_model::to_yaml(&tree)
