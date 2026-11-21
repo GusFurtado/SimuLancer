@@ -582,6 +582,17 @@ b.wait("return document.querySelector('[data-connection=teller_line]') !== null"
 units = "return document.querySelector('[data-object=%s]').parentNode.querySelectorAll(':scope > g.art > g.art').length"
 check(b.js(units % "tellers") == 5 and b.js(units % "advisors") == 3, "servers drawn as their units")
 check(b.js("return [...document.querySelectorAll('.diagram svg text')].map(t => t.textContent).filter(t => t.startsWith('tellers'))") == ["tellers"], "no ×N where units are drawn")
+# Tellers and advisors are drawn as clerks where they wait; clicking them opens
+# Resources, where "Not drawn" takes them off (a layout change, undoable).
+crew = "return [...document.querySelectorAll('[data-crew]')].map(g => [g.dataset.crew, g.dataset.model, g.querySelectorAll(':scope > g.art').length])"
+check(b.js(crew) == [["teller", "clerk", 3], ["advisor", "clerk", 2]], f"resources drawn where they wait: {b.js(crew)}")
+b.js("document.querySelector('[data-crew=teller]').dispatchEvent(new MouseEvent('click', {bubbles: true}))")
+b.wait("return document.querySelector('[data-crew-look=teller]') !== null")
+check(b.js("return [...document.querySelector('[data-crew-look=teller]').options].map(o => o.value)") == ["", "worker", "clerk"], "resource looks")
+b.js("const s = document.querySelector('[data-crew-look=teller]'); s.value = ''; s.dispatchEvent(new Event('change'))")
+b.wait("return document.querySelector('[data-crew=teller]') === null && document.getElementById('undo').disabled === false")
+b.js("document.getElementById('undo').click()")
+b.wait("return document.querySelector('[data-crew=teller]') !== null && document.querySelector('[data-crew-look=teller]')?.value === 'clerk'")
 # The bank's model calls what flows "customers".
 define("part-types")
 b.wait("return document.getElementById('part-types') !== null")
