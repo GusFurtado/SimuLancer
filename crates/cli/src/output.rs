@@ -55,11 +55,6 @@ pub fn layout_json(layout: &Layout) -> serde_json::Value {
         "conveyors": conveyors,
         "vehicles": looks(&layout.vehicles),
         "entities": looks(&layout.entities),
-        "resources": layout
-            .resources
-            .iter()
-            .map(|r| (r.name.clone(), json!({ "position": r.position, "model": r.model })))
-            .collect::<serde_json::Map<_, _>>(),
     })
 }
 
@@ -390,30 +385,10 @@ impl<'a, W: Write> EventLog<'a, W> {
                 r#"{{"t":{t},"type":"reached_end","part":{part},"conveyor":"{}"}}"#,
                 s.conveyors[conveyor].name
             ),
-            TraceEvent::StartedProcess { part, server, slot } => writeln!(
+            TraceEvent::StartedProcess { part, server } => writeln!(
                 self.out,
-                r#"{{"t":{t},"type":"started_process","part":{part},"server":"{}","slot":{slot}}}"#,
+                r#"{{"t":{t},"type":"started_process","part":{part},"server":"{}"}}"#,
                 s.servers[server].name
-            ),
-            TraceEvent::ResourceTaken {
-                resource,
-                units,
-                server,
-                part,
-            } => writeln!(
-                self.out,
-                r#"{{"t":{t},"type":"resource_taken","resource":"{}","units":{units},"server":"{}","part":{part}}}"#,
-                s.resources[resource].name, s.servers[server].name
-            ),
-            TraceEvent::ResourceReturned {
-                resource,
-                units,
-                server,
-                part,
-            } => writeln!(
-                self.out,
-                r#"{{"t":{t},"type":"resource_returned","resource":"{}","units":{units},"server":"{}","part":{part}}}"#,
-                s.resources[resource].name, s.servers[server].name
             ),
             TraceEvent::FinishedProcess { part, server } => writeln!(
                 self.out,

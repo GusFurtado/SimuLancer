@@ -68,26 +68,9 @@ pub enum TraceEvent {
         part: PartId,
         conveyor: usize,
     },
-    /// Processing starts in one of the server's slots (0 to capacity - 1).
     StartedProcess {
         part: PartId,
         server: usize,
-        slot: usize,
-    },
-    /// A server took units of a resource it `needs` to process `part` (the
-    /// first part of a batch), and holds them until `ResourceReturned`.
-    ResourceTaken {
-        resource: usize,
-        units: u32,
-        server: usize,
-        part: PartId,
-    },
-    /// The units taken for `part` came back when its processing finished.
-    ResourceReturned {
-        resource: usize,
-        units: u32,
-        server: usize,
-        part: PartId,
     },
     /// Taken off its conveyor into a batch or kit the server is collecting.
     Collected {

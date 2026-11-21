@@ -36,8 +36,6 @@ pub const LOOKS: &[(&str, &[&str])] = &[
     ("box", &["entities"]),
     ("pallet", &["entities"]),
     ("person", &["entities"]),
-    ("worker", &["resources"]),
-    ("clerk", &["resources"]),
 ];
 
 /// Older names for looks, still read.
@@ -86,9 +84,6 @@ pub struct Layout {
     pub vehicles: Vec<DrawnAs>,
     /// Part types the layout says how to draw, in model order.
     pub entities: Vec<DrawnAs>,
-    /// Resources drawn as people walking to the servers that take them, in
-    /// model order: `position` is where their units wait while free.
-    pub resources: Vec<PlacedObject>,
 }
 
 /// How a fleet's vehicles, or a part type's parts, are drawn.
@@ -142,8 +137,6 @@ struct RawLayout {
     vehicles: OrderedMap<RawLook>,
     #[serde(default)]
     entities: OrderedMap<RawLook>,
-    #[serde(default)]
-    resources: OrderedMap<RawObject>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -400,41 +393,6 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
         "a part type",
     );
 
-    // Resources: where each one's units wait while free. Only those listed
-    // are drawn; one the model doesn't have is left out with a warning.
-    let mut resources = Vec::new();
-    for r in &spec.resources {
-        let Some((_, o)) = raw.resources.0.iter().find(|(n, _)| n.value == r.name) else {
-            continue;
-        };
-        if let Some(position) = point(
-            &mut errors,
-            &o.position.value,
-            pos(&o.position.referenced),
-            "`position`",
-        ) {
-            if let Some(look) = &o.model {
-                check_look(&mut warnings, &r.name, "resources", look);
-            }
-            resources.push(PlacedObject {
-                name: r.name.clone(),
-                position,
-                model: o.model.as_ref().map(|m| m.value.clone()),
-            });
-        }
-    }
-    for (name, _) in &raw.resources.0 {
-        if !spec.resources.iter().any(|r| r.name == name.value) {
-            warnings.push(Diagnostic {
-                position: pos(&name.referenced),
-                message: format!(
-                    "`{}` isn't a resource in the model; it's ignored",
-                    name.value
-                ),
-            });
-        }
-    }
-
     if errors.is_empty() {
         Ok((
             Layout {
@@ -442,7 +400,6 @@ pub fn load_layout(source: &str, model: &Model) -> Result<(Layout, Vec<Diagnosti
                 conveyors,
                 vehicles,
                 entities,
-                resources,
             },
             warnings,
         ))
@@ -476,7 +433,6 @@ fn check_look(warnings: &mut Vec<Diagnostic>, name: &str, section: &str, look: &
     let (kind, each) = match section {
         "vehicles" => ("fleet of vehicles", "its vehicles"),
         "entities" => ("part type", "its parts"),
-        "resources" => ("resource", "its units"),
         _ => (&section[..section.len() - 1], "it"),
     };
     warnings.push(Diagnostic {

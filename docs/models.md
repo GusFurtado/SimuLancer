@@ -406,8 +406,6 @@ vehicles:
   forklifts: { model: forklift }
 entities:
   part: { model: box }
-resources:
-  operator: { position: [6, 0, 3], model: worker }
 ```
 
 - `position` is `[x, y, z]` with Y up: the floor is the X-Z plane.
@@ -425,4 +423,3 @@ resources:
 - Every conveyor has a `path`. Queues and transports aren't listed: they're drawn straight between their objects. A path can start and end under an object's drawing (its position is a fine end point): the drawing stops it at the object's edge.
 - `vehicles` (optional) says what each fleet is drawn as: `forklifts: { model: forklift }`. A fleet can be a `forklift` (the default), an `agv`, a `pallet_jack` (walked behind by its operator), a `tugger` (a tow tractor with two carts) or a `truck` (a flatbed). Vehicles stop on the floor in front of an object, drive straight between those stops facing the way they go, and carry their load on the forks, the deck, the first cart or the bed. The Modeling diagram shows each fleet parked where it starts (`home`). A fleet the model doesn't have, or a look that isn't one of these, is a warning.
 - `entities` (optional) says what each part type is drawn as: `customer: { model: person }`. A part type can be a `box` (the default), a `pallet` or a `person`. Where a model has several part types, a box or pallet gets a sticker in the type's color and a person a shirt in it. People wait in front of a server rather than on it. A part type the model doesn't have, or a look that isn't one of these, is a warning.
-- `resources` (optional) draws a resource's units as people: `operator: { position: [6, 0, 3], model: worker }`. `position` is where they wait while free (in rows of up to six), and the look is a `worker` (the default, with a vest and helmet) or a `clerk`. In the animation the nearest free one walks to the server that takes it and stands at the unit working (behind a counter, at a bench, else at the front right corner); when it's free it stays there for two minutes, in case more work comes, then walks back. This is only a picture: in the model, resources don't move and walking takes no time. A server whose `needs` are all drawn this way doesn't draw its own operators. A resource the model doesn't have, or a look that isn't one of these, is a warning. Resources the layout doesn't list aren't drawn.

@@ -1919,15 +1919,6 @@ impl<'a, O: Observer> Sim<'a, O> {
     fn start_batch(&mut self, server: usize, parts: Vec<Part>) {
         for &(r, units) in &self.spec.servers[server].needs {
             self.resources[r].in_use += units;
-            self.observer.record(
-                self.now,
-                TraceEvent::ResourceTaken {
-                    resource: r,
-                    units,
-                    server,
-                    part: parts[0].id,
-                },
-            );
         }
         let s = &mut self.servers[server];
         let entity = parts[0].entity;
@@ -1956,7 +1947,6 @@ impl<'a, O: Observer> Sim<'a, O> {
                 TraceEvent::StartedProcess {
                     part: part.id,
                     server,
-                    slot,
                 },
             );
         }
@@ -2112,15 +2102,6 @@ impl<'a, O: Observer> Sim<'a, O> {
         if holds {
             for &(r, units) in &self.spec.servers[server].needs {
                 self.resources[r].in_use += units;
-                self.observer.record(
-                    self.now,
-                    TraceEvent::ResourceTaken {
-                        resource: r,
-                        units,
-                        server,
-                        part: part.id,
-                    },
-                );
             }
         }
         self.take_carried(server, &mut part);
@@ -2146,7 +2127,6 @@ impl<'a, O: Observer> Sim<'a, O> {
             TraceEvent::StartedProcess {
                 part: part.id,
                 server,
-                slot,
             },
         );
         self.update_failure_clocks(server);
@@ -2177,15 +2157,6 @@ impl<'a, O: Observer> Sim<'a, O> {
         if holds {
             for &(r, units) in &spec.needs {
                 self.resources[r].in_use -= units;
-                self.observer.record(
-                    self.now,
-                    TraceEvent::ResourceReturned {
-                        resource: r,
-                        units,
-                        server,
-                        part: part.id,
-                    },
-                );
             }
         }
         self.observer.record(

@@ -15,7 +15,3 @@ conveyors:
   c_wheels: { path: [[0.7, 0, 3], [10, 0, 3], [10, 0, 0.7]] }      # 9.3 + 2.3
   c_bikes:  { path: [[10.7, 0, 0], [19.3, 0, 0]] }                 # 8.6
   c_ship:   { path: [[20.7, 0, 0], [27.3, 0, 0]] }                 # 6.6
-
-# The fitters wait by the assembly stations and walk to the one with a kit.
-resources:
-  fitter: { position: [16, 0, 3.5], model: worker }

@@ -24,7 +24,3 @@ vehicles:
 
 entities:
   pallet: { model: pallet }
-
-# Pickers wait in front of the pick stations and walk to the one working.
-resources:
-  picker: { position: [40, 0, 5], model: worker }

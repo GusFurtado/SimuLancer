@@ -15,9 +15,3 @@ entities:
   quick:    { model: person }
   priority: { model: person }
   advice:   { model: person }
-
-# Tellers wait in the back office, advisors by the desks; each walks to the
-# counter or desk where a customer is served.
-resources:
-  teller:  { position: [12, 0, -10], model: clerk }
-  advisor: { position: [6, 0, 6.5], model: clerk }

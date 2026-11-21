@@ -122,14 +122,7 @@ fn deterministic_trace_of_first_part() {
                     conveyor: 0
                 }
             ),
-            (
-                2.0,
-                StartedProcess {
-                    part: 0,
-                    server: 0,
-                    slot: 0
-                }
-            ),
+            (2.0, StartedProcess { part: 0, server: 0 }),
             (32.0, FinishedProcess { part: 0, server: 0 }),
             (
                 32.0,
