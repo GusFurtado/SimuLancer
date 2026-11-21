@@ -119,7 +119,7 @@ const ART = (() => {
       ],
     },
     workstation: {
-      label: "Workstation", sections: ["servers"], w: 2.6, d: 1.8, h: 0.9,
+      label: "Workstation", sections: ["servers"], w: 2.6, d: 1.8, h: 0.9, crew: [1.3, 1.62],
       shapes: [
         ...pad(2.6, 1.8),
         { d: R(0.25, 0.0, 2.1, 0.88, 0.04), fill: "#7E8894" },
@@ -133,7 +133,7 @@ const ART = (() => {
       ],
     },
     counter: {
-      label: "Service counter", sections: ["servers"], w: 2.6, d: 1.8, h: 1.0,
+      label: "Service counter", sections: ["servers"], w: 2.6, d: 1.8, h: 1.0, crew: [1.3, 0.55],
       shapes: [
         ...pad(2.6, 1.8),
         ...staff(person(1.3, 0.55, { shirt: "#4B5D73", vest: false, helmet: false })),
@@ -345,11 +345,22 @@ const ART = (() => {
       label: "Person", sections: ["entities"], w: 0.6, d: 0.5, h: 2.2, plain: "#5B7FA6", stands: true,
       shapes: person(0.3, 0.35, { shirt: "state", vest: false, helmet: false }),
     },
+    // Resources' units, walking to the servers that take them. They stand
+    // where a server's look puts its `crew` ([x, depth] in its meters: behind
+    // a counter, at a bench), else at its front right corner.
+    worker: {
+      label: "Worker", sections: ["resources"], w: 0.6, d: 0.5, h: 2.2,
+      shapes: person(0.3, 0.35),
+    },
+    clerk: {
+      label: "Clerk", sections: ["resources"], w: 0.6, d: 0.5, h: 2.2,
+      shapes: person(0.3, 0.35, { shirt: "#4B5D73", vest: false, helmet: false }),
+    },
   };
 })();
 
 /** What an object looks like when its layout doesn't say. */
-const ART_DEFAULT = { sources: "dock", servers: "machine", sinks: "dock", vehicles: "forklift", entities: "box" };
+const ART_DEFAULT = { sources: "dock", servers: "machine", sinks: "dock", vehicles: "forklift", entities: "box", resources: "worker" };
 /** Older names, still read. */
 const ART_ALIASES = { machine_small: "machine" };
 
@@ -410,17 +421,19 @@ function artBox(look, x, z) {
   return { x: left, y: z - az - art.h / 2, w: art.w, h: art.d + art.h / 2, top: z - az, mirror };
 }
 
-/** The look's drawing as an SVG group, `fill` being the state color. */
-function artSvg(look, x, z, fill) {
+/** The look's drawing as an SVG group, `fill` being the state color; without
+ *  its staff when not `staffed`. */
+function artSvg(look, x, z, fill, staffed = true) {
   if (look.units > 1) {
     const g = svg("g", { class: "art", "aria-hidden": "true" });
-    artUnits(look, x, z).reverse().forEach(([ux, uz]) => g.append(artSvg(artUnit(look), ux, uz, fill)));
+    artUnits(look, x, z).reverse().forEach(([ux, uz]) => g.append(artSvg(artUnit(look), ux, uz, fill, staffed)));
     return g;
   }
   const b = artBox(look, x, z);
   const t = `translate(${+b.x.toFixed(3)},${+b.top.toFixed(3)})` + (b.mirror ? ` translate(${look.art.w},0) scale(-1,1)` : "");
   const g = svg("g", { transform: t, class: "art", "aria-hidden": "true" });
   for (const s of look.art.shapes) {
+    if (s.staff && !staffed) continue;
     const attrs = { d: s.d, fill: s.fill === "state" ? fill : (s.fill || "none") };
     if (s.op !== undefined) attrs["fill-opacity"] = s.op;
     if (s.stroke) Object.assign(attrs, { stroke: s.stroke, "stroke-width": s.sw || 0.05 });
@@ -453,6 +466,13 @@ function artCanvas(ctx, look, x, z, fill, X, Y, scale, staffed = true) {
   if (b.mirror) { ctx.translate(look.art.w, 0); ctx.scale(-1, 1); }
   artShapesCanvas(ctx, look.art.shapes, fill, staffed);
   ctx.restore();
+}
+
+/** Where the crew of one unit of a look stands, for a unit at (x, z). */
+function artCrew(look, x, z) {
+  const b = artBox(artUnit(look), x, z);
+  const [cx, cz] = look.art.crew || [look.art.w - 0.35, look.art.d + 0.45];
+  return [b.x + (b.mirror ? look.art.w - cx : cx), b.top + cz];
 }
 
 /** An object's footprint on the floor: { x0, z0, x1, z1 }. */

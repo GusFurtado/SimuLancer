@@ -22,7 +22,9 @@ fn started(spec: &Spec, server: usize) -> Vec<(u64, f64)> {
             TraceEvent::Set { part, value: v, .. } => {
                 value.insert(part, v);
             }
-            TraceEvent::StartedProcess { part, server: s } if s == server => {
+            TraceEvent::StartedProcess {
+                part, server: s, ..
+            } if s == server => {
                 order.push((part, value.get(&part).copied().unwrap_or(0.0)));
             }
             _ => {}

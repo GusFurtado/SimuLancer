@@ -444,6 +444,16 @@ The connections and the parts, in the same oblique style as the objects.
 - **Fleets on the Modeling diagram**: each fleet's vehicles are drawn parked at their `home`, side by side as in the animation (the shared `parkOffset`), up to nine; clicking them opens the Vehicles definition. A fleet without a valid home isn't drawn.
 - **Connection labels on top**: the diagram draws conveyor, queue and transport labels after the objects and vehicles, so a parked fleet doesn't hide its transport's label.
 
+## Resources drawn as people walking (implemented 2026-11-20)
+
+- **Only a picture.** In the engine a resource is a pool of units with no position: taking units costs no time. Making walking take time would be a modeling feature (homes, speeds, distances, servers waiting for the person to arrive) and would change results; the user chose the visual version first.
+- **The event log says who holds what**: `resource_taken` and `resource_returned` (resource, units, server, part; the first part for a batch) where a server takes and gives back what it `needs`, and `started_process` now says the `slot` (0 to capacity - 1) the part works in. Units carried by parts (`takes`) aren't logged here: they travel with the part. Older logs still play.
+- **Exact units on servers**: with `slot` in the log, the animation puts each part on the unit that works it, instead of guessing (the guess stays for older logs).
+- **The layout says which resources are drawn and where they wait**: `resources: { picker: { position: [40, 0, 5], model: worker } }`. Looks: `worker` (vest and helmet, the default) and `clerk`. Resources not listed aren't drawn. The Resources definition has a *Drawn as* field (Not drawn, Worker, Clerk); drawing one puts it behind the first server that needs it, and the diagram shows it there, draggable, as many people as units (up to 24).
+- **Who walks where** is worked out once from the whole log, not frame by frame: the nearest free unit walks (1.4 m/s) to the server's crew spot on the unit working the part; looks can say where their crew stands (`crew` in `art.js`: behind a counter, at a bench), else the front right corner. A freed unit stays put for two minutes in case more work comes, then walks back. So a teller serving one customer after another stays at the counter, and goes back to the office in a lull.
+- **No double staff**: a server whose `needs` are all drawn as people doesn't draw its own operators; the walking people are its crew.
+- **The templates** draw the bank's tellers and advisors as clerks, the warehouse's pickers and the bike plant's fitters as workers.
+
 ## No 3D for now; the Godot viewer is removed (2026-11-19)
 
 3D comes back only once the 2D is good enough to sell. A test of the Godot viewer in the browser worked, but it showed what keeping it costs.
