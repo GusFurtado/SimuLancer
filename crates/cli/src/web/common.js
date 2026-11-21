@@ -139,10 +139,12 @@ function placeQueues(graph, positions, paths) {
  *  part types look like (`drawn`, `fleets`, `types`: name -> the layout's
  *  `model`), from layout.json or computed. */
 function layoutOf(graph, layout) {
-  const drawn = {}, fleets = {}, types = {};
+  const drawn = {}, fleets = {}, types = {}, crews = {};
   for (const [name, o] of Object.entries(layout?.objects || {})) if (o.model) drawn[name] = o.model;
   for (const [name, f] of Object.entries(layout?.vehicles || {})) if (f.model) fleets[name] = f.model;
   for (const [name, t] of Object.entries(layout?.entities || {})) if (t.model) types[name] = t.model;
+  // Resources drawn as people: where their units wait while free, and their look.
+  for (const [name, r] of Object.entries(layout?.resources || {})) crews[name] = { at: [r.position[0], r.position[2]], model: r.model };
   if (layout && graph.conveyors.every(c => c.queue || layout.conveyors[c.name]) &&
       [...graph.sources, ...graph.servers, ...graph.sinks].every(n => layout.objects[n])) {
     const positions = {};
@@ -150,9 +152,9 @@ function layoutOf(graph, layout) {
     const paths = {};
     for (const [name, c] of Object.entries(layout.conveyors)) paths[name] = c.path.map(p => [p[0], p[2]]);
     placeQueues(graph, positions, paths);
-    return { positions, paths, drawn, fleets, types };
+    return { positions, paths, drawn, fleets, types, crews };
   }
-  return { ...autoLayout(graph), drawn, fleets, types };
+  return { ...autoLayout(graph), drawn, fleets, types, crews };
 }
 
 /** The section ("sources", "servers" or "sinks") an object is in. */
@@ -182,6 +184,105 @@ function drawnPath(graph, layout, c, points) {
 function stopAt(graph, layout, name) {
   const [x, z] = layout.positions[name];
   return [x, artFootprint(lookOf(graph, layout, name), x, z).z1 + 0.85];
+}
+
+// --- resources drawn as people ---------------------------------------------------------
+
+const WALK_SPEED = 1.4;   // m/s
+const LINGER = 120;       // s a free unit stays where it worked before going back
+const MAX_CREW = 24;      // units drawn at most
+
+/** Where `n` units of a resource wait while free, around `at`: rows of up to six. */
+function crewSpots(at, n) {
+  const cols = Math.min(6, n);
+  return Array.from({ length: n }, (_, i) => [at[0] + ((i % cols) - (cols - 1) / 2) * 0.7, at[1] + Math.floor(i / cols) * 0.7]);
+}
+
+/** Which unit of a server's drawing works in `slot`. */
+function unitOfSlot(info, units, slot) {
+  const per = Math.max(1, Math.ceil((info?.capacity || 1) / units));
+  return Math.min(units - 1, Math.floor(slot / per));
+}
+
+/** Where each unit of the resources the layout draws goes, from the event
+ *  log's resource_taken and resource_returned. The engine doesn't move
+ *  resources, so this is only a picture: the nearest free unit walks to the
+ *  server's crew spot (on the unit working the part) while the work goes on,
+ *  stays there while free, and goes back to its spot in the layout after
+ *  LINGER without work. Returns { resource: [{ home, legs }] }, legs being
+ *  { t, from, to, dur } in time order. */
+function planWalks(header, events, graph, layout) {
+  const plans = {};
+  for (const r of header.resources || []) {
+    if (!layout.crews?.[r.name]) continue;
+    plans[r.name] = crewSpots(layout.crews[r.name].at, Math.min(r.capacity, MAX_CREW))
+      .map(home => ({ home, legs: [], job: null, idleSince: -Infinity, atHome: true }));
+  }
+  if (!Object.keys(plans).length) return plans;
+  const looks = {};
+  // The part's slot comes with its started_process, just after.
+  const spotFor = (server, part, i) => {
+    let slot = 0;
+    for (let k = i + 1; k < Math.min(events.length, i + 200); k++) {
+      const e = events[k];
+      if (e.type === "started_process" && e.part === part && e.server === server) { slot = e.slot ?? 0; break; }
+    }
+    const look = looks[server] ||= lookOf(graph, layout, server);
+    const [x, z] = layout.positions[server];
+    const units = artUnits(look, x, z);
+    return artCrew(look, ...units[unitOfSlot(header.servers.find(s => s.name === server), units.length, slot)]);
+  };
+  const walk = (u, t, to) => {
+    const from = walkerAt(u, t);
+    u.legs.push({ t, from, to, dur: Math.hypot(to[0] - from[0], to[1] - from[1]) / WALK_SPEED });
+  };
+  const goHome = (u, now) => {
+    if (u.job || u.atHome || u.idleSince + LINGER > now) return;
+    walk(u, u.idleSince + LINGER, u.home);
+    u.atHome = true;
+  };
+  events.forEach((e, i) => {
+    const units = plans[e.resource];
+    if (!units) return;
+    const job = `${e.server}/${e.part}`;
+    if (e.type === "resource_taken") {
+      if (!layout.positions[e.server]) return;
+      const target = spotFor(e.server, e.part, i);
+      units.forEach(u => goHome(u, e.t));
+      for (let k = 0; k < e.units; k++) {
+        const free = units.filter(u => !u.job);
+        if (!free.length) break;
+        const away = u => { const [x, z] = walkerAt(u, e.t); return Math.hypot(x - target[0], z - target[1]); };
+        const u = free.reduce((a, b) => (away(b) < away(a) ? b : a));
+        walk(u, e.t, [target[0] + k * 0.5, target[1]]);
+        Object.assign(u, { job, atHome: false });
+      }
+    } else if (e.type === "resource_returned") {
+      for (const u of units) if (u.job === job) Object.assign(u, { job: null, idleSince: e.t });
+    }
+  });
+  for (const units of Object.values(plans)) units.forEach(u => goHome(u, Infinity));
+  return plans;
+}
+
+/** Where a planned unit is at time `t`. */
+function walkerAt(u, t) {
+  let lo = 0, hi = u.legs.length - 1, k = -1;
+  while (lo <= hi) {
+    const m = (lo + hi) >> 1;
+    if (u.legs[m].t <= t) { k = m; lo = m + 1; } else hi = m - 1;
+  }
+  if (k < 0) return u.home;
+  const l = u.legs[k];
+  const f = l.dur > 0 ? Math.min(1, (t - l.t) / l.dur) : 1;
+  return [l.from[0] + (l.to[0] - l.from[0]) * f, l.from[1] + (l.to[1] - l.from[1]) * f];
+}
+
+/** Where the `i`th of `n` vehicles parks, from where they stop at an object:
+ *  side by side, up to three abreast, more rows in front. [dx, dz] in meters. */
+function parkOffset(look, i, n) {
+  const cols = Math.min(3, n), col = i % cols, row = Math.floor(i / cols);
+  return [(col - (cols - 1) / 2) * (look.art.w + 0.3), row * (look.art.d + 1.2)];
 }
 
 /** A transport's route: straight between where vehicles stop at its objects,
@@ -264,7 +365,7 @@ function autoLayout(graph) {
 /** What a layout covers, with room around it: its objects' drawings (and a
  *  label above each) when `graph` is given, else their positions. */
 function boundsOf(layout, graph) {
-  const points = [...Object.values(layout.positions), ...Object.values(layout.paths).flat()];
+  const points = [...Object.values(layout.positions), ...Object.values(layout.paths).flat(), ...Object.values(layout.crews || {}).flatMap(c => [c.at, [c.at[0], c.at[1] - 1.9]])];
   if (graph) {
     for (const [name, [x, z]] of Object.entries(layout.positions)) {
       const b = artBox(lookOf(graph, layout, name), x, z);
@@ -393,6 +494,7 @@ class Replay {
     for (const s of this.header.servers) this.servers[s.name] = { busy: [], blocked: [], waiting: [], failed: "", off: false };
     this.created = this.lost = this.exited = this.assembled = this.consumed = this.split = 0;
     this.types = new Map();   // part -> index into header.entities, while it's in the system
+    this.slots = new Map();   // part -> the server slot it's processed in, when the log says
     this.time = 0;
     this.cursor = 0;
   }
@@ -448,6 +550,7 @@ class Replay {
         break;
       }
       case "started_process": {
+        if (e.slot !== undefined) this.slots.set(e.part, e.slot);
         const s = this.servers[e.server];
         if (s.waiting.includes(e.part)) s.waiting = s.waiting.filter(p => p !== e.part);
         else this.leave(e.part, e.server, e.t);
@@ -464,6 +567,7 @@ class Replay {
         s.waiting = s.waiting.filter(p => p !== e.part);
         s.blocked = s.blocked.filter(p => p !== e.part);
         this.types.delete(e.part);
+        this.slots.delete(e.part);
         this.consumed++;
         break;
       }
@@ -487,7 +591,7 @@ class Replay {
       case "repaired": this.servers[e.server].failed = ""; break;
       case "shift_ended": this.servers[e.server].off = true; break;
       case "shift_started": this.servers[e.server].off = false; break;
-      case "exited": this.leave(e.part, e.sink, e.t); this.exited++; this.types.delete(e.part); break;
+      case "exited": this.leave(e.part, e.sink, e.t); this.exited++; this.types.delete(e.part); this.slots.delete(e.part); break;
     }
   }
 
@@ -554,6 +658,7 @@ async function startAnimation(container, run) {
     conveyors: header.conveyors.map(c => ({ name: c.name, from: c.from, to: c.to, queue: Boolean(c.queue || c.transport), transport: Boolean(c.transport) })),
   };
   const layout = layoutOf(graph, layoutFile);
+  const walks = planWalks(header, lines, graph, layout);
   const paths = {};
   for (const c of header.conveyors) {
     const points = drawnPath(graph, layout, c, layout.paths[c.name]);
@@ -711,23 +816,31 @@ async function startAnimation(container, run) {
         continue;
       }
       // Each unit has its own parts and state. Off shift or failed is the
-      // whole server's; staff that a resource stands for (`needs`) are there
-      // only while the unit works.
+      // whole server's. Staff that a resource stands for (`needs`) are there
+      // only while the unit works, or not at all where the resource is drawn
+      // as people walking to it.
       const unit = artUnit(looks[name]);
       const units = artUnits(looks[name], x, z);
       const info = header.servers.find(s => s.name === name);
       const working = [...server.busy, ...server.blocked];
-      const kept = (slots.get(name) || []).map(p => working.includes(p) ? p : null);
-      for (const p of working) {
-        if (kept.includes(p)) continue;
-        const free = kept.indexOf(null);
-        if (free >= 0) kept[free] = p; else kept.push(p);
-      }
-      slots.set(name, kept);
-      const perUnit = Math.max(1, Math.ceil(Math.max(kept.length, info?.capacity || 1) / units.length));
       const on = units.map(() => []);
-      kept.forEach((p, i) => p !== null && on[Math.min(units.length - 1, Math.floor(i / perUnit))].push(p));
+      if (working.every(p => replay.slots.has(p))) {
+        // The log says which slot each part is in.
+        for (const p of working) on[unitOfSlot(info, units.length, replay.slots.get(p))].push(p);
+      } else {
+        // Older logs: keep each part on the unit it was first drawn on.
+        const kept = (slots.get(name) || []).map(p => working.includes(p) ? p : null);
+        for (const p of working) {
+          if (kept.includes(p)) continue;
+          const free = kept.indexOf(null);
+          if (free >= 0) kept[free] = p; else kept.push(p);
+        }
+        slots.set(name, kept);
+        const perUnit = Math.max(1, Math.ceil(Math.max(kept.length, info?.capacity || 1) / units.length));
+        kept.forEach((p, i) => p !== null && on[Math.min(units.length - 1, Math.floor(i / perUnit))].push(p));
+      }
       server.waiting.forEach((p, i) => on[i % units.length].push(p));
+      const walked = info?.needs?.length > 0 && info.needs.every(r => walks[r]);
       const whole = replay.state(name);
       units.forEach(([ux, uz], k) => {
         const f = artFootprint(unit, ux, uz);
@@ -735,7 +848,7 @@ async function startAnimation(container, run) {
         const state = whole === "off" || whole === "failed" ? whole
           : held.some(p => server.blocked.includes(p)) ? "blocked"
           : held.some(p => server.busy.includes(p)) ? "busy" : "idle";
-        const staffed = state !== "off" && (!info?.needs?.length || held.length > 0);
+        const staffed = state !== "off" && !walked && (!info?.needs?.length || held.length > 0);
         things.push([(f.z0 + f.z1) / 2, () => artCanvas(ctx, unit, ux, uz, colors[state], X, Y, scale, staffed)]);
         // Parts in a server sit on top of it, side by side; people stand in front.
         const step = Math.max(0.6, 9 / scale);
@@ -777,6 +890,14 @@ async function startAnimation(container, run) {
         part(x, z, 0, id);
       });
     }
+    // Resources drawn as people, where they are.
+    for (const [name, units] of Object.entries(walks)) {
+      const look = artFor("resources", layout.crews[name].model);
+      for (const u of units) {
+        const [wx, wz] = walkerAt(u, replay.time);
+        things.push([wz, () => artCanvas(ctx, look, wx, wz, colors.object, X, Y, scale)]);
+      }
+    }
     // Vehicles drive between where they stop at objects, facing the way they
     // go, with what they carry. Each parks in its own spot beside the others,
     // so those at the same object don't cover each other.
@@ -792,10 +913,10 @@ async function startAnimation(container, run) {
         // Parked side by side, up to three abreast, more rows in front. On a
         // trip it pulls out of its spot onto the route over the first quarter
         // and into its spot at the other end over the last.
-        const cols = Math.min(3, vehicles.length), col = i % cols, row = Math.floor(i / cols);
+        const [px, pz] = parkOffset(look, i, vehicles.length);
         const parked = v.from === v.to || f >= 1 ? 1 : Math.max(0, 1 - 4 * f, 4 * f - 3);
-        const x = a[0] + (b[0] - a[0]) * f + parked * (col - (cols - 1) / 2) * (look.art.w + 0.3);
-        const z = a[1] + (b[1] - a[1]) * f + parked * row * (look.art.d + 1.2);
+        const x = a[0] + (b[0] - a[0]) * f + parked * px;
+        const z = a[1] + (b[1] - a[1]) * f + parked * pz;
         things.push([z, () => {
           const turned = { ...look, mirror: left };
           artCanvas(ctx, turned, x, z, colors.object, X, Y, scale);

@@ -542,7 +542,7 @@ fn layout_text(tree: &Value, model_file: &str) -> String {
         map.entry("units").or_insert(json!("m"));
         // Drop empty fields (`"model": null` on objects), and a fleet with
         // nothing to say.
-        for section in ["objects", "conveyors", "vehicles", "entities"] {
+        for section in ["objects", "conveyors", "vehicles", "entities", "resources"] {
             if let Some(items) = map.get_mut(section).and_then(Value::as_object_mut) {
                 for item in items.values_mut().filter_map(Value::as_object_mut) {
                     item.retain(|_, v| !v.is_null());
@@ -550,7 +550,7 @@ fn layout_text(tree: &Value, model_file: &str) -> String {
                 items.retain(|_, v| v.as_object().is_none_or(|o| !o.is_empty()));
             }
         }
-        for section in ["vehicles", "entities"] {
+        for section in ["vehicles", "entities", "resources"] {
             if map
                 .get(section)
                 .and_then(Value::as_object)

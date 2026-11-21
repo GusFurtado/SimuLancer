@@ -130,3 +130,73 @@ fn units_are_given_back_when_processing_ends_not_when_parts_leave() {
         r.servers[1].busy
     );
 }
+
+/// The event log says which units a server takes for which part and when
+/// they come back, and which slot each part is processed in, so a viewer can
+/// follow the operators: never more units out than there are, every unit
+/// taken comes back for the same part at the same server, and no two parts
+/// share a slot.
+#[test]
+fn the_log_says_who_holds_the_units_and_which_slot_works() {
+    use outliers_sim_engine::{SimTime, TraceEvent};
+    use std::collections::HashMap;
+    let two_slots = SHARED
+        .replace("operator: { capacity: 1 }", "operator: { capacity: 2 }")
+        .replace(r#"interarrival: "20 s""#, r#"interarrival: "10 s""#)
+        .replace(
+            r#"lathe_a: { process_time: "30 s", needs: { operator: 1 } }"#,
+            r#"lathe_a: { capacity: 2, process_time: "30 s", needs: { operator: 1 } }"#,
+        );
+    let spec = spec(&two_slots);
+    let mut log: Vec<(SimTime, TraceEvent)> = Vec::new();
+    simulate(&spec, 1, &mut log);
+    let mut out = 0u32;
+    let mut held: HashMap<u64, (usize, u32)> = HashMap::new();
+    let mut slots: HashMap<(usize, usize), u64> = HashMap::new();
+    let (mut taken, mut started) = (0, 0);
+    for (_, e) in &log {
+        match *e {
+            TraceEvent::ResourceTaken {
+                resource,
+                units,
+                server,
+                part,
+            } => {
+                assert_eq!(resource, 0);
+                out += units;
+                assert!(out <= 2, "{out} operators out of 2");
+                assert!(held.insert(part, (server, units)).is_none());
+                taken += 1;
+            }
+            TraceEvent::ResourceReturned {
+                units,
+                server,
+                part,
+                ..
+            } => {
+                assert_eq!(held.remove(&part), Some((server, units)));
+                out -= units;
+            }
+            TraceEvent::StartedProcess { part, server, slot } => {
+                assert!(slot < spec.servers[server].capacity as usize);
+                assert!(held.contains_key(&part), "a part starts with its operator");
+                if let Some(other) = slots.insert((server, slot), part) {
+                    assert!(
+                        !held.contains_key(&other),
+                        "slot {slot} of server {server} is taken"
+                    );
+                }
+                started += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        taken > 1000 && taken == started,
+        "{taken} taken, {started} started"
+    );
+    assert!(
+        slots.keys().any(|&(s, slot)| s == 0 && slot == 1),
+        "lathe_a uses its second slot"
+    );
+}

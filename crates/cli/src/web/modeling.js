@@ -260,10 +260,16 @@ function layoutTree() {
   const vehicles = {}, entities = {};
   for (const f of Object.keys(tree.vehicles || {})) if (state.layout.fleets?.[f]) vehicles[f] = { model: state.layout.fleets[f] };
   for (const t of typesOf(tree)) if (state.layout.types?.[t]) entities[t] = { model: state.layout.types[t] };
+  const resources = {};
+  for (const name of Object.keys(tree.resources || {})) {
+    const c = state.layout.crews?.[name];
+    if (c) resources[name] = { position: [r(c.at[0]), 0, r(c.at[1])], ...(c.model ? { model: c.model } : {}) };
+  }
   return {
     units: "m", objects, conveyors,
     ...(Object.keys(vehicles).length ? { vehicles } : {}),
     ...(Object.keys(entities).length ? { entities } : {}),
+    ...(Object.keys(resources).length ? { resources } : {}),
   };
 }
 
@@ -871,6 +877,9 @@ function diagram(tree) {
     viewBox: `${b.minX - 2} ${b.minZ - 1} ${b.maxX - b.minX + 4} ${b.maxZ - b.minZ + 2}`,
     role: "img", "aria-label": `Diagram of ${tree.name}`, class: state.connect ? "connecting" : "",
   });
+  // Connection labels go on top of everything, so a parked vehicle or a
+  // nearer object doesn't hide them.
+  const labels = [];
   for (const c of graph.conveyors) {
     const path = drawnPath(graph, layout, c, layout.paths[c.name]);
     // A belt's top is raised; the outline, arrow and click area follow it.
@@ -905,11 +914,36 @@ function diagram(tree) {
     const node = tree[c.section][c.name];
     const text = c.transport ? `${c.name} · ${node.by}, ${node.distance}`
       : c.queue ? `${c.name} · ${node.capacity ?? "∞"}` : c.name;
-    root.append(svg("text", { ...label, "font-size": 0.6 }, text + (changedObj(c.section, c.name) ? " •" : "")));
+    labels.push(svg("text", { ...label, "font-size": 0.6 }, text + (changedObj(c.section, c.name) ? " •" : "")));
   }
   // Objects back to front, so a nearer one's drawing goes over a farther one's.
   const names = [...graph.sources, ...graph.servers, ...graph.sinks].sort((m, n) => layout.positions[m][1] - layout.positions[n][1]);
+  // Each fleet's vehicles parked where they start, as the animation shows them
+  // before their first trip; clicking them opens the Vehicles definition.
+  const parked = [];
+  for (const [fleet, v] of Object.entries(tree.vehicles || {})) {
+    if (!layout.positions[v?.home]) continue;
+    const look = artFor("vehicles", layout.fleets?.[fleet]);
+    const [sx, sz] = stopAt(graph, layout, v.home);
+    const n = Math.min(Math.max(1, Math.floor(Number(v.count)) || 1), 9);
+    const g = svg("g", {
+      class: "vehicles", "data-vehicles": fleet, "data-model": look.kind,
+      onclick: e => {
+        e.stopPropagation();
+        if (drag?.moved || state.connect) return;
+        state.selected = { definition: "vehicles" };
+        renderEditor();
+      },
+    }, svg("title", {}, `${fleet}: ${v.count ?? 1} × ${look.art.label.toLowerCase()}, starting at ${v.home}`));
+    for (let i = n - 1; i >= 0; i--) {
+      const [dx, dz] = parkOffset(look, i, n);
+      g.append(artSvg(look, sx + dx, sz + dz, "var(--object)"));
+    }
+    parked.push([sz, g]);
+  }
+  parked.sort((m, n) => m[0] - n[0]);
   for (const name of names) {
+    while (parked.length && parked[0][0] <= layout.positions[name][1]) root.append(parked.shift()[1]);
     const section = sectionIn(graph, name);
     const [x, z] = layout.positions[name];
     const look = lookOf(graph, layout, name);
@@ -921,7 +955,9 @@ function diagram(tree) {
     // transparent box over it takes the clicks and drags.
     const node = svg("g", { class: ["node", cls, isSelected(section, name) ? "current" : ""].filter(Boolean).join(" ") },
       svg("rect", { x: box.x - 0.25, y: box.y - 0.25, width: box.w + 0.5, height: box.h + 0.5, rx: 0.4, class: "halo", "vector-effect": "non-scaling-stroke" }),
-      artSvg(look, x, z, fill),
+      // Where the resources it needs are drawn as people, they are its crew.
+      artSvg(look, x, z, fill, !(section === "servers" && Object.keys(tree.servers[name]?.needs || {}).length
+        && Object.keys(tree.servers[name].needs).every(r => layout.crews?.[r]))),
       svg("rect", {
         x: box.x, y: box.y, width: box.w, height: box.h, rx: 0.2, fill: "transparent",
         class: "hit object", "data-object": name, "data-model": look.kind, "data-at": `${x},${z}`,
@@ -938,6 +974,31 @@ function diagram(tree) {
     root.append(svg("text", { x: box.x + box.w / 2, y: box.y - 0.35, "text-anchor": "middle", "font-size": 0.7 },
       name + (capacity > 1 && !look.units ? ` ×${capacity}` : "") + (changedObj(section, name) ? " •" : "")));
   }
+  for (const [, g] of parked) root.append(g);
+  // Resources drawn as people, where they wait while free: drag them to move
+  // that spot; clicking them opens the Resources definition.
+  for (const [r, crew] of Object.entries(layout.crews || {})) {
+    if (!tree.resources?.[r]) continue;
+    const look = artFor("resources", crew.model);
+    const n = Math.min(Math.max(1, Math.floor(Number(tree.resources[r].capacity)) || 1), MAX_CREW);
+    const g = svg("g", {
+      class: "crew", "data-crew": r, "data-model": look.kind,
+      onclick: e => {
+        e.stopPropagation();
+        if (drag?.moved || state.connect) return;
+        state.selected = { definition: "resources" };
+        renderEditor();
+      },
+      onpointerdown: e => startDrag(e, root, r, {
+        at: () => state.layout.crews[r].at,
+        move: (x, z) => { state.layout.crews[r].at = [x, z]; state.layoutChanged = true; },
+        select: () => ({ definition: "resources" }),
+      }),
+    }, svg("title", {}, `${r}: ${n} × ${look.art.label.toLowerCase()}, where they wait`));
+    crewSpots(crew.at, n).reverse().forEach(([x, z]) => g.append(artSvg(look, x, z, "var(--object)")));
+    root.append(g, svg("text", { x: crew.at[0], y: crew.at[1] - 1.5, "text-anchor": "middle", "font-size": 0.6 }, r));
+  }
+  root.append(...labels);
   return root;
 }
 
@@ -1052,7 +1113,14 @@ function openConnectMenu(from, to, x, y) {
 }
 
 /** Dragging an object: moves it on a 0.5 m grid; its conveyors follow. */
-function startDrag(e, root, name) {
+/** Drags an object (or, with `how`, something else the diagram places:
+ *  `at()` is where it is, `move(x, z)` moves it, `select()` what to select
+ *  after). */
+function startDrag(e, root, name, how = {
+  at: () => state.layout.positions[name],
+  move: (x, z) => moveObject(name, x, z),
+  select: () => ({ section: sectionOf(currentTree(), name), name }),
+}) {
   if (state.connect || e.button !== 0) return;
   const toModel = ev => {
     const pt = root.createSVGPoint();
@@ -1060,16 +1128,16 @@ function startDrag(e, root, name) {
     return pt.matrixTransform(root.getScreenCTM().inverse());
   };
   const start = toModel(e);
-  const [x0, z0] = state.layout.positions[name];
+  const [x0, z0] = how.at();
   drag = { name, moved: false, before: snapshot(), bounds: boundsOf(state.layout, graphOf(currentTree())) };
   const move = ev => {
     const p = toModel(ev);
     const snap = v => Math.round(v * 2) / 2;
     const [x, z] = [snap(x0 + p.x - start.x), snap(z0 + p.y - start.y)];
-    const [cx, cz] = state.layout.positions[name];
+    const [cx, cz] = how.at();
     if (x === cx && z === cz) return;
     if (!drag.moved) { drag.moved = true; state.batching = true; }
-    moveObject(name, x, z);
+    how.move(x, z);
     const old = document.querySelector(".diagram svg");
     if (old) {
       const fresh = diagram(currentTree());
@@ -1085,7 +1153,7 @@ function startDrag(e, root, name) {
       state.batching = false;
       state.undo.push(drag.before);
       state.redo = [];
-      state.selected = { section: sectionOf(currentTree(), name), name };
+      state.selected = how.select();
       scheduleCheck();
     }
     // Let the click that follows a drag see `moved`, then forget the drag.
@@ -1588,8 +1656,40 @@ function resourcesPanel(tree) {
         el("button", { style: "flex: 0", onclick: () => deleteResource(r), title: `Remove ${r}` }, "Remove")),
       field("Units available", `resources.${r}.capacity`, "int"),
       scheduleField(tree, `resources.${r}.schedule`, "Available"),
-      resourceOrderField(tree, r))),
+      resourceOrderField(tree, r),
+      crewLookField(tree, r))),
     el("button", { id: "add-resource", onclick: () => setChange(`resources.${freeName(tree, "operator")}`, { capacity: 1 }) }, "+ Resource"));
+}
+
+/** Whether a resource's units are drawn as people walking to the servers
+ *  that take them (a layout change). Drawing them puts them by the first
+ *  server that needs them; drag them on the diagram to where they wait. */
+function crewLookField(tree, r) {
+  const crew = state.layout.crews?.[r];
+  const kind = crew ? artFor("resources", crew.model).kind : "";
+  return el("div", { class: "field" },
+    el("label", { for: `f-crew-${r}` }, "Drawn as"),
+    el("select", {
+      id: `f-crew-${r}`, "data-crew-look": r,
+      onchange: e => batch(() => {
+        const crews = (state.layout.crews ||= {});
+        if (!e.target.value) delete crews[r];
+        else crews[r] = { at: crews[r]?.at || crewHome(tree, r), model: e.target.value };
+        state.layoutChanged = true;
+      }),
+    }, el("option", { value: "", selected: crew ? null : true }, "Not drawn"),
+    ...artChoices("resources").map(([k, label]) => el("option", { value: k, selected: k === kind || null }, label))),
+    crew ? el("p", { class: "hint", style: "margin: 4px 0 0" }, "In the animation they walk to the servers that take them; drag them on the diagram to where they wait.") : null);
+}
+
+/** Where a resource's people wait at first: behind the first server that needs it. */
+function crewHome(tree, r) {
+  const graph = graphOf(tree);
+  const server = Object.entries(tree.servers || {}).find(([, s]) => s.needs && r in s.needs)?.[0] || graph.servers[0];
+  const at = state.layout.positions[server];
+  if (!at) return [0, -3];
+  const box = artBox(lookOf(graph, state.layout, server), at[0], at[1]);
+  return [Math.round((box.x + box.w / 2) * 2) / 2, Math.round((box.y - 1.5) * 2) / 2];
 }
 
 /** Resources parts carry that they give back when done at this server. */
@@ -1721,6 +1821,7 @@ function deleteResource(name) {
         setChange(`servers.${server}.gives_back`, rest.length ? rest : null);
       }
     }
+    if (state.layout.crews?.[name]) { delete state.layout.crews[name]; state.layoutChanged = true; }
     setChange(`resources.${name}`, null);
   });
 }
@@ -1743,6 +1844,11 @@ function renameResource(oldName, newName) {
       if (srv.gives_back?.includes(oldName)) setChange(`servers.${server}.gives_back`, srv.gives_back.map(r => r === oldName ? newName : r));
     }
     renameInDraft(`resources.${oldName}`, `resources.${newName}`, oldName, newName);
+    if (state.layout.crews?.[oldName]) {
+      state.layout.crews[newName] = state.layout.crews[oldName];
+      delete state.layout.crews[oldName];
+      state.layoutChanged = true;
+    }
   });
 }
 
