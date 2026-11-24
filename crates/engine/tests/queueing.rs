@@ -799,3 +799,125 @@ experiment:
     // The first machine is never starved: the source keeps it supplied.
     assert!(results.iter().all(|r| r.servers[0].idle < 1e-4));
 }
+
+#[test]
+fn base_stock_with_waiting_orders_behaves_as_erlang_c() {
+    // One-for-one replenishment: the supplier orders a part each time the
+    // stock position (stock + on order) falls below S = 5, with exponential
+    // lead times (mean 3 min). Orders from customers arrive at 1/min and wait
+    // for stock. The position drops when a part is used, so each of the S
+    // units is either on the shelf or being replaced, for an exponential
+    // time: the units are the servers of an M/M/S queue with offered load
+    // a = λL = 3 (Palm). Hence the stock is empty with probability
+    // C = Erlang C(S, a), a parts are on order and S − a on the shelf.
+    //
+    // The picking station takes a part as soon as its kit needs one, so with
+    // no order waiting it already holds the part for the next order (and the
+    // stock position has reordered it). An order then waits only when another
+    // is already waiting: the orders waiting are the M/M/S queue minus one,
+    // C r² / (1 − r) on average with r = a/S, and by Little's law an order
+    // waits that over λ.
+    let (s, a) = (5_u32, 3.0_f64);
+    let c = erlang_c(s, a);
+    let r = a / f64::from(s);
+    let wait = c * r * r / (1.0 - r) * 60.0;
+    let yaml = format!(
+        r#"
+format: simulancer/0.1
+name: base-stock
+entities:
+  part: {{}}
+  order: {{}}
+  shipped: {{}}
+sources:
+  supplier: {{ creates: part, restocks: stock, reorder_point: {}, order: 1, lead_time: "exponential(3 min)" }}
+  customers: {{ creates: order, interarrival: "exponential(1 min)" }}
+servers:
+  pick: {{ assembles: {{ order: 1, part: 1 }}, makes: shipped, keeps_clock_of: order, process_time: "0 s", input: {{ rule: first_come }} }}
+queues:
+  stock: {{ from: supplier, to: pick, starts_with: {s} }}
+  backlog: {{ from: customers, to: pick }}
+  out: {{ from: pick, to: done }}
+sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261124
+"#,
+        s - 1
+    );
+    let results = replications(&spec(&yaml));
+    check(&results, "base stock: out of stock", c, 0.02, |r| {
+        r.conveyors[0].empty
+    });
+    check(
+        &results,
+        "base stock: order wait (s)",
+        wait,
+        0.03,
+        time_in_system,
+    );
+    check(&results, "base stock: parts on order", a, 0.01, |r| {
+        r.sources[0].on_order
+    });
+    check(
+        &results,
+        "base stock: parts on the shelf",
+        f64::from(s) - a,
+        0.01,
+        |r| r.conveyors[0].mean_parts,
+    );
+}
+
+#[test]
+fn arrivals_in_groups_wait_as_the_batch_formula_says() {
+    // M^X/M/1 with groups of k = 4 arriving at 1 per 5 min and service
+    // exponential with mean 1 min: ρ = 0.8. A group waits like an M/G/1
+    // customer whose service is Erlang-k (Pollaczek-Khinchine):
+    // λ k(k+1) / (2μ²(1 − ρ)); a part then waits for the (k − 1)/2 ahead of
+    // it in its group on average, then its own service. That gives
+    // W = (k + 1) / (2μ(1 − ρ)) = 12.5 min, i.e. L = ρ(k + 1) / (2(1 − ρ)) = 10.
+    let (k, lambda, mu) = (4.0_f64, 1.0 / 300.0, 1.0 / 60.0);
+    let rho = lambda * k / mu;
+    let exact = (k + 1.0) / (2.0 * mu * (1.0 - rho));
+    let yaml = format!(
+        r#"
+format: simulancer/0.1
+name: groups
+entities:
+  part: {{}}
+sources:
+  arrivals: {{ creates: part, interarrival: "exponential(5 min)", group: 4 }}
+servers:
+  server: {{ process_time: "exponential(1 min)" }}
+queues:
+  line: {{ from: arrivals, to: server }}
+  out: {{ from: server, to: done }}
+sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261124
+"#
+    );
+    let results = replications(&spec(&yaml));
+    assert!((exact - 750.0).abs() < 1e-9);
+    check(
+        &results,
+        "M^X/M/1 time in system (s)",
+        exact,
+        0.03,
+        time_in_system,
+    );
+    check(
+        &results,
+        "M^X/M/1 parts waiting",
+        lambda * k * (exact - 1.0 / mu),
+        0.03,
+        |r| r.conveyors[0].mean_parts,
+    );
+}
