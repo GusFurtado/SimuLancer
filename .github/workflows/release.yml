@@ -1,7 +1,7 @@
 # Publishes a release when a version tag is pushed (git tag v0.1.0 && git push --tags):
 # - a static Linux binary (x86_64, musl) in a .tar.gz with examples, docs and
 #   deploy files, plus its SHA-256;
-# - a Docker image at ghcr.io/<owner>/outliers-sim:<tag> and :latest.
+# - a Docker image at ghcr.io/<owner>/simulancer:<tag> and :latest.
 name: Release
 
 on:
@@ -21,19 +21,19 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
       - run: sudo apt-get install -y musl-tools
-      - run: cargo build --release --locked --target x86_64-unknown-linux-musl -p outliers-sim
+      - run: cargo build --release --locked --target x86_64-unknown-linux-musl -p simulancer
       - name: Package
         run: |
-          name="outliers-sim-${GITHUB_REF_NAME}-x86_64-linux"
+          name="simulancer-${GITHUB_REF_NAME}-x86_64-linux"
           mkdir "$name"
-          cp target/x86_64-unknown-linux-musl/release/outliers-sim README.md LICENSE-MIT LICENSE-APACHE "$name/"
+          cp target/x86_64-unknown-linux-musl/release/simulancer README.md LICENSE-MIT LICENSE-APACHE "$name/"
           cp -r examples docs deploy "$name/"
           tar czf "$name.tar.gz" "$name"
           sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" outliers-sim-*.tar.gz* --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" simulancer-*.tar.gz* --title "$GITHUB_REF_NAME" --generate-notes
 
   image:
     runs-on: ubuntu-latest

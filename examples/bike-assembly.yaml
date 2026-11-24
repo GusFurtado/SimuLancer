@@ -8,7 +8,7 @@
 #                      ├──> assembly ──c_bikes──> oven ──c_ship──> shipping
 #   wheels ──c_wheels──┘   (kits; fitters)       (batches)
 
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: bike-assembly
 description: Frames and wheels assembled into bikes by fitters on two shifts, then cured in a batch oven.
 

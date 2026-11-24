@@ -1,4 +1,4 @@
-//! `outliers-sim serve`: the web application and its HTTP API.
+//! `simulancer serve`: the web application and its HTTP API.
 //!
 //! Three audiences, three interfaces over the same API:
 //! - engineers build and version models (`/modeling`),
@@ -24,9 +24,9 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use clap::Args;
-use outliers_sim_model::{Diagnostic, Layout, Model, ScenarioError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use simulancer_model::{Diagnostic, Layout, Model, ScenarioError};
 use tower_http::compression::CompressionLayer;
 
 use crate::compare::compare_pair;
@@ -88,7 +88,7 @@ fn remove_old_runs(runs: &std::path::Path) -> Result<(), String> {
 
 pub fn serve(args: &ServeArgs) -> Result<(), String> {
     projects::git(std::path::Path::new("."), &["--version"])
-        .map_err(|e| format!("outliers-sim serve needs git to version projects: {e}"))?;
+        .map_err(|e| format!("simulancer serve needs git to version projects: {e}"))?;
     let projects_dir = args.data.join("projects");
     let runs_dir = args.data.join("runs");
     // A new data folder starts empty: projects start from templates or blank.
@@ -488,7 +488,7 @@ fn load_with(
     };
     let model_file = project.model.clone();
     let (model, text) = if changes.is_empty() {
-        match outliers_sim_model::load_str(&base) {
+        match simulancer_model::load_str(&base) {
             Ok(model) => (model, base),
             Err(e) => {
                 return Err(LoadProblem::Invalid(
@@ -510,7 +510,7 @@ fn load_with(
     };
     let layout = match layout_source {
         Ok(None) => None,
-        Ok(Some(source)) => match outliers_sim_model::load_layout(&source, &model) {
+        Ok(Some(source)) => match simulancer_model::load_layout(&source, &model) {
             Ok((layout, _warnings)) => Some(layout),
             Err(e) => {
                 let file = project.layout_file();
@@ -560,7 +560,7 @@ fn layout_text(tree: &Value, model_file: &str) -> String {
             }
         }
     }
-    outliers_sim_model::to_yaml(&tree)
+    simulancer_model::to_yaml(&tree)
 }
 
 /// Applies changes (dotted path -> value) to a model's source. Errors name
@@ -582,13 +582,13 @@ fn apply_changes(
         )));
     }
     // The model keeps its own name: a scenario named after it.
-    let name = outliers_sim_model::to_tree(base)
+    let name = simulancer_model::to_tree(base)
         .ok()
         .and_then(|t| t.get("name").and_then(Value::as_str).map(String::from))
         .unwrap_or_else(|| "model".into());
     let mut text = format!(
         "format: {}\nname: {}\nbase: {}\nchanges:\n",
-        outliers_sim_model::SCENARIO_FORMAT,
+        simulancer_model::SCENARIO_FORMAT,
         json!(name),
         json!(model_file)
     );
@@ -617,12 +617,11 @@ fn apply_changes(
             })
             .collect()
     };
-    let scenario =
-        outliers_sim_model::parse_scenario(&text).map_err(|e| located(e.diagnostics()))?;
-    match outliers_sim_model::load_scenario(&scenario, base) {
+    let scenario = simulancer_model::parse_scenario(&text).map_err(|e| located(e.diagnostics()))?;
+    match simulancer_model::load_scenario(&scenario, base) {
         Ok(model) => {
             let merged =
-                outliers_sim_model::merge(&scenario, base).map_err(|e| located(e.diagnostics()))?;
+                simulancer_model::merge(&scenario, base).map_err(|e| located(e.diagnostics()))?;
             Ok((model, merged.text))
         }
         Err(ScenarioError::Scenario(e)) => Err(located(e.diagnostics())),
@@ -649,7 +648,7 @@ fn exposed(
 /// What a project file exposes for a model's source, the problems with it,
 /// and the measures the model reports (none if the model has errors).
 fn read_exposed(project: &ProjectFile, source: &str) -> (Exposed, Vec<String>, Vec<Measure>) {
-    let model = outliers_sim_model::load_str(source).ok();
+    let model = simulancer_model::load_str(source).ok();
     let measures = model
         .as_ref()
         .map(|m| measures::collect(&m.spec, &m.outputs, &[]));
@@ -954,7 +953,7 @@ async fn get_project(
         "version": resolved.clone().unwrap_or_else(|| "working".into()),
         "model_file": project.model,
         "source": source,
-        "tree": outliers_sim_model::to_tree(&source).unwrap_or(Value::Null),
+        "tree": simulancer_model::to_tree(&source).unwrap_or(Value::Null),
         "versions": state.projects.versions(&id).unwrap_or_default(),
     });
     if resolved.is_none() {
@@ -1792,7 +1791,7 @@ mod tests {
     /// A server over a fresh data folder with a project from each template.
     fn app(name: &str) -> (Router, PathBuf) {
         let root =
-            std::env::temp_dir().join(format!("outliers-sim-serve-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("simulancer-serve-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("projects")).unwrap();
         let projects = Projects::new(root.join("projects"));
@@ -1941,7 +1940,7 @@ mod tests {
             project["tree"]["sources"]["arrivals"]["output"]["rule"],
             "shortest_queue"
         );
-        assert_eq!(project["layout"]["format"], "outliers-sim-layout/0.1");
+        assert_eq!(project["layout"]["format"], "simulancer-layout/0.1");
         assert_eq!(project["history"].as_array().unwrap().len(), 1);
 
         // A bad change is reported against its path; nothing is saved.

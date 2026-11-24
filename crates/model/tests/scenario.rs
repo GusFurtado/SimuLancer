@@ -1,4 +1,4 @@
-use outliers_sim_model::{
+use simulancer_model::{
     LoadError, Model, ScenarioError, is_scenario, load_scenario, load_str, parse_scenario,
 };
 
@@ -6,7 +6,7 @@ const TWO_CELLS: &str = include_str!("../../../examples/two-cells.yaml");
 const CONVEYOR_LINE: &str = include_str!("../../../examples/conveyor-line.yaml");
 
 fn scenario(name: &str, base: &str, changes: &str) -> String {
-    format!("format: outliers-sim-scenario/0.1\nname: {name}\nbase: {base}\nchanges:\n{changes}")
+    format!("format: simulancer-scenario/0.1\nname: {name}\nbase: {base}\nchanges:\n{changes}")
 }
 
 fn load(scenario_source: &str, base_source: &str) -> Result<Model, ScenarioError> {
@@ -149,7 +149,7 @@ fn scenario_files_are_recognized() {
     let s = scenario("x", "two-cells.yaml", "  experiment.replications: 2\n");
     assert!(is_scenario(&s));
     assert!(!is_scenario(TWO_CELLS));
-    let wrong = s.replace("outliers-sim-scenario/0.1", "outliers-sim-scenario/9");
+    let wrong = s.replace("simulancer-scenario/0.1", "simulancer-scenario/9");
     assert!(parse_scenario(&wrong).is_err());
 }
 
@@ -157,18 +157,14 @@ fn scenario_files_are_recognized() {
 fn writing_a_model_back_as_yaml_keeps_it_identical() {
     // Every example: parse to a tree, write it out, load both, compare.
     for (name, source) in [("conveyor-line", CONVEYOR_LINE), ("two-cells", TWO_CELLS)] {
-        let tree = outliers_sim_model::to_tree(source).unwrap();
-        let written = outliers_sim_model::to_yaml(&tree);
+        let tree = simulancer_model::to_tree(source).unwrap();
+        let written = simulancer_model::to_yaml(&tree);
         let original = load_str(source).unwrap();
         let reloaded =
             load_str(&written).unwrap_or_else(|e| panic!("{name}: {}", e.render(name, &written)));
         assert_eq!(reloaded.spec, original.spec, "{name}");
         assert_eq!(reloaded.name, original.name);
-        assert_eq!(
-            outliers_sim_model::to_tree(&written).unwrap(),
-            tree,
-            "{name}"
-        );
+        assert_eq!(simulancer_model::to_tree(&written).unwrap(), tree, "{name}");
     }
 }
 

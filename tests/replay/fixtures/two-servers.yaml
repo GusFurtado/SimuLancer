@@ -1,6 +1,6 @@
 # The slow server backs everything up: conveyors fill and stay accumulated,
 # the fast server is blocked. No layout file: objects are placed automatically.
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: two-servers
 entities:
   part: {}

@@ -1,9 +1,9 @@
 //! Attributes: values parts carry, set by sources and servers with formulas.
 
-use outliers_sim_engine::{NoTrace, SimTime, Spec, TraceEvent, simulate};
+use simulancer_engine::{NoTrace, SimTime, Spec, TraceEvent, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -34,7 +34,7 @@ fn sets(spec: &Spec) -> Vec<(f64, u64, String, f64)> {
 /// Orders get a due date and a size at arrival; two inspections each count
 /// a pass in `checks`.
 const ORDERS: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: orders
 entities:
   order: {}
@@ -113,7 +113,7 @@ fn split_and_assembled_parts_keep_attributes() {
     // pack keeps the cup's attributes (the cup keeps the clock).
     let s = spec(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: inherit
 entities:
   tray: {}
@@ -172,7 +172,7 @@ fn routes_by_condition_send_parts_by_their_attributes() {
     // a part's third inspection scraps it. So 1/4 of parts are scrapped.
     let s = spec(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: rework
 entities:
   part: {}

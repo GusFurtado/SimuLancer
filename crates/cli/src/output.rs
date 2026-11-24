@@ -5,12 +5,12 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 
-use outliers_sim_engine::spec::{Node, ServerKind, Spec, WhenBlocked};
-use outliers_sim_engine::stats::Summary;
-use outliers_sim_engine::{Observer, SimTime, TraceEvent};
-use outliers_sim_model::{DrawnAs, Layout, Model};
 use serde::Serialize;
 use serde_json::json;
+use simulancer_engine::spec::{Node, ServerKind, Spec, WhenBlocked};
+use simulancer_engine::stats::Summary;
+use simulancer_engine::{Observer, SimTime, TraceEvent};
+use simulancer_model::{DrawnAs, Layout, Model};
 
 use crate::compare::Comparison;
 use crate::measures::Measure;
@@ -49,7 +49,7 @@ pub fn layout_json(layout: &Layout) -> serde_json::Value {
             .collect()
     };
     json!({
-        "format": "outliers-sim-layout/0.1",
+        "format": "simulancer-layout/0.1",
         "units": "m",
         "objects": objects,
         "conveyors": conveyors,
@@ -124,7 +124,7 @@ pub fn write_report(
     let json = data.to_string().replace("</", "<\\/");
     fs::write(
         path,
-        REPORT_TEMPLATE.replacen("__OUTLIERS_SIM_DATA__", &json, 1),
+        REPORT_TEMPLATE.replacen("__SIMULANCER_DATA__", &json, 1),
     )
 }
 
@@ -165,7 +165,7 @@ pub fn write_summary(
 ) -> io::Result<()> {
     let e = &spec.experiment;
     let file = SummaryFile {
-        format: "outliers-sim-summary/0.1",
+        format: "simulancer-summary/0.1",
         model: model_name,
         seed: e.seed,
         replications: e.replications,
@@ -205,7 +205,7 @@ pub fn write_comparison(
     let stats =
         |s: &Summary| json!({ "n": s.n, "mean": s.mean, "half_width": s.half_width, "sd": s.sd });
     let data = json!({
-        "format": "outliers-sim-comparison/0.1",
+        "format": "simulancer-comparison/0.1",
         "base": base_name,
         "scenario": scenario_name,
         "seed": e.seed,
@@ -273,7 +273,7 @@ impl<'a, W: Write> EventLog<'a, W> {
         };
         let e = &spec.experiment;
         let header = json!({
-            "format": "outliers-sim-events/0.1",
+            "format": "simulancer-events/0.1",
             "model": model_name,
             "replication": replication,
             "seed": e.seed,

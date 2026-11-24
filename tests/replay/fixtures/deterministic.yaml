@@ -1,6 +1,6 @@
 # A part every 60 s, 30 s of processing, 2 s on each conveyor: every
 # position and state at every moment is known exactly.
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: deterministic
 entities:
   part: {}

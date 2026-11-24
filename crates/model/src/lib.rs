@@ -13,9 +13,9 @@ mod scenario;
 mod units;
 mod yaml_out;
 
-use outliers_sim_engine::Spec;
 use serde::de::DeserializeOwned;
 use serde_saphyr::{MessageFormatter, UserMessageFormatter};
+use simulancer_engine::Spec;
 
 pub use diagnostic::{Diagnostic, LoadError, Position};
 pub use layout::{DrawnAs, LOOKS, Layout, PlacedConveyor, PlacedObject, load_layout};
@@ -27,7 +27,7 @@ pub use scenario::{
 pub use yaml_out::to_yaml;
 
 /// The `format:` value this version reads.
-pub const FORMAT: &str = "outliers-sim/0.1";
+pub const FORMAT: &str = "simulancer/0.1";
 
 /// A loaded and validated model.
 #[derive(Debug, Clone)]

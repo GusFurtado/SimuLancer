@@ -1,8 +1,8 @@
-# The project file of the bike-assembly example, as `outliers-sim serve`
+# The project file of the bike-assembly example, as `simulancer serve`
 # creates it: which file is the model, and what the Simulation page lets people
 # change and read.
 
-format: outliers-sim-project/0.1
+format: simulancer-project/0.1
 name: Bike assembly
 description: Frames and wheels assembled into bikes by fitters on two shifts, then cured in a batch oven.
 model: model.yaml

@@ -1,9 +1,9 @@
 //! Resources parts carry from one server to another: CONWIP cards, pallets.
 
-use outliers_sim_engine::{NoTrace, SimTime, Spec, TraceEvent, simulate};
+use simulancer_engine::{NoTrace, SimTime, Spec, TraceEvent, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -23,7 +23,7 @@ fn line(cards: &str) -> String {
     };
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: conwip
 entities:
   part: {{}}
@@ -73,10 +73,10 @@ fn cards_cap_the_parts_in_the_line() {
     // Against the same line without cards (push): as much shipped, with
     // much less waiting inside the line (it waits in the backlog instead).
     let push = simulate(&spec(&line("")), 1, &mut NoTrace);
-    let in_line = |r: &outliers_sim_engine::ReplicationResult| {
+    let in_line = |r: &simulancer_engine::ReplicationResult| {
         r.conveyors[1].mean_parts + r.conveyors[2].mean_parts
     };
-    let shipped = |r: &outliers_sim_engine::ReplicationResult| r.sinks[0].exited as f64;
+    let shipped = |r: &simulancer_engine::ReplicationResult| r.sinks[0].exited as f64;
     assert!(
         in_line(&r) < 0.7 * in_line(&push),
         "in line: conwip {} vs push {}",

@@ -133,11 +133,11 @@ Use these to evaluate any tool, open-source or commercial:
 9. Can I write automated tests for model logic?
 10. Is the tool helping me do correct analysis, or just a convincing demo?
 
-## 16. How outliers-sim answers these issues
+## 16. How SimuLancer answers these issues
 
 Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-11-19.
 
-| Issue | What outliers-sim does about it | Status |
+| Issue | What SimuLancer does about it | Status |
 |---|---|---|
 | **1. Cost and licensing** | | |
 | High prices, subscriptions | Open source (MIT/Apache-2.0). No license fees, ever. | done |

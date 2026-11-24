@@ -1,18 +1,18 @@
 [package]
-name = "outliers-sim"
-description = "Command-line interface for outliers-sim: validate and run discrete event simulation models."
+name = "simulancer"
+description = "Command-line interface for simulancer: validate and run discrete event simulation models."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "outliers-sim"
+name = "simulancer"
 path = "src/main.rs"
 
 [dependencies]
-outliers-sim-engine.workspace = true
-outliers-sim-model.workspace = true
+simulancer-engine.workspace = true
+simulancer-model.workspace = true
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.151", features = ["preserve_order"] }

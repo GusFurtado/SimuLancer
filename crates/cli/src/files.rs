@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use outliers_sim_model::{Layout, LoadError, Model, ScenarioError};
+use simulancer_model::{Layout, LoadError, Model, ScenarioError};
 
 /// Why a file couldn't be loaded.
 #[derive(Debug)]
@@ -69,17 +69,17 @@ pub fn read(path: &Path) -> Result<String, LoadFailure> {
 /// Loads a model or a scenario file.
 pub fn load_model(path: &Path) -> Result<Model, LoadFailure> {
     let source = read(path)?;
-    if !outliers_sim_model::is_scenario(&source) {
-        return outliers_sim_model::load_str(&source)
+    if !simulancer_model::is_scenario(&source) {
+        return simulancer_model::load_str(&source)
             .map_err(|error| invalid(path.to_path_buf(), source, error, None));
     }
-    let scenario = match outliers_sim_model::parse_scenario(&source) {
+    let scenario = match simulancer_model::parse_scenario(&source) {
         Ok(s) => s,
         Err(error) => return Err(invalid(path.to_path_buf(), source, error, None)),
     };
     let base_path = scenario_base(path, &scenario.base.value);
     let base_source = read(&base_path)?;
-    match outliers_sim_model::load_scenario(&scenario, &base_source) {
+    match simulancer_model::load_scenario(&scenario, &base_source) {
         Ok(model) => Ok(model),
         Err(ScenarioError::Scenario(error)) => {
             Err(invalid(path.to_path_buf(), source, error, None))
@@ -102,8 +102,8 @@ pub fn scenario_base(scenario_path: &Path, base: &str) -> PathBuf {
 pub fn layout_owner(path: &Path) -> PathBuf {
     fs::read_to_string(path)
         .ok()
-        .filter(|source| outliers_sim_model::is_scenario(source))
-        .and_then(|source| outliers_sim_model::parse_scenario(&source).ok())
+        .filter(|source| simulancer_model::is_scenario(source))
+        .and_then(|source| simulancer_model::parse_scenario(&source).ok())
         .map_or_else(
             || path.to_path_buf(),
             |s| scenario_base(path, &s.base.value),
@@ -136,7 +136,7 @@ pub fn load_layout(
         return Ok(None);
     };
     let source = read(&path)?;
-    match outliers_sim_model::load_layout(&source, model) {
+    match simulancer_model::load_layout(&source, model) {
         Ok((layout, warnings)) => Ok(Some(LoadedLayout {
             layout,
             warnings: warnings

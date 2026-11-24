@@ -1,10 +1,10 @@
 //! Stock kept by restocking sources (`restocks`) and queues that start
 //! with stock (`starts_with`).
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, Spec, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, Spec, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -14,7 +14,7 @@ fn spec(yaml: &str) -> Spec {
 fn model(restock: &str, starts_with: u32, extra: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: stock
 entities:
   part: {{}}
@@ -148,7 +148,7 @@ fn deliveries_wait_for_the_shift() {
 
 #[test]
 fn restock_errors() {
-    let errors = |yaml: &str| match outliers_sim_model::load_str(yaml) {
+    let errors = |yaml: &str| match simulancer_model::load_str(yaml) {
         Ok(_) => panic!("expected an error"),
         Err(e) => e
             .diagnostics()

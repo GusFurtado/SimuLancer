@@ -1,14 +1,14 @@
-use outliers_sim_engine::SimTime;
-use outliers_sim_engine::spec::{
+use simulancer_engine::SimTime;
+use simulancer_engine::spec::{
     Arrivals, Distribution, FailureClock, Node, OnFailure, PerType, WhenBlocked,
 };
-use outliers_sim_model::{LoadError, load_str};
+use simulancer_model::{LoadError, load_str};
 
 const CONVEYOR_LINE: &str = include_str!("../../../examples/conveyor-line.yaml");
 
 /// Smallest valid model: source -> server -> sink.
 const MINIMAL: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: minimal
 entities:
   part: {}
@@ -142,7 +142,7 @@ fn plain_number_without_default_unit() {
 
 #[test]
 fn unsupported_format() {
-    let source = replace(MINIMAL, "outliers-sim/0.1", "outliers-sim/9.9");
+    let source = replace(MINIMAL, "simulancer/0.1", "simulancer/9.9");
     assert_one_error(&source, "format:", "unsupported format");
 }
 
@@ -280,7 +280,7 @@ const TWO_CELLS: &str = include_str!("../../../examples/two-cells.yaml");
 
 #[test]
 fn routing_and_merging_example_loads() {
-    use outliers_sim_engine::spec::{InputRule, Routing};
+    use simulancer_engine::spec::{InputRule, Routing};
     let model = load_str(TWO_CELLS).unwrap();
     let spec = &model.spec;
     let names = |list: &[usize]| -> Vec<&str> {
@@ -424,7 +424,7 @@ fn parts_must_be_able_to_reach_a_sink() {
 }
 
 const TYPED: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: typed
 entities:
   frame: {}
@@ -585,7 +585,7 @@ fn schedule_problems_are_reported() {
 #[test]
 fn assembly_and_batch_problems_are_reported() {
     const KITS: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: kits
 entities: { frame: {}, wheel: {}, bike: {} }
 sources:
@@ -957,7 +957,7 @@ fn conditional_routes_load_and_check_their_conditions() {
     let model = load_str(&with_routes(ok)).unwrap();
     assert!(matches!(
         &model.spec.servers[0].routing,
-        outliers_sim_engine::spec::Routing::ByCondition(r) if r.len() == 2 && r[1].0.is_none()
+        simulancer_engine::spec::Routing::ByCondition(r) if r.len() == 2 && r[1].0.is_none()
     ));
     let cases = [
         (

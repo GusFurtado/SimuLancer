@@ -7,7 +7,7 @@
 #                                     8%   v  │  └─> scrap (failed again after rework)
 #                                         rework (one technician)
 
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: assembly-line
 description: Washing machines (two models) assembled on six stations over two shifts, with a final test, rework and scrap.
 

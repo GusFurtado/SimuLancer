@@ -1,6 +1,6 @@
 //! The tables printed by `run` and `compare`.
 
-use outliers_sim_engine::stats::Summary;
+use simulancer_engine::stats::Summary;
 
 use crate::compare::{Comparison, Verdict};
 use crate::measures::{Measure, Unit};

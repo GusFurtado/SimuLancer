@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn add_update_remove() {
         let root =
-            std::env::temp_dir().join(format!("outliers-sim-scenarios-{}", std::process::id()));
+            std::env::temp_dir().join(format!("simulancer-scenarios-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let store = Scenarios::new(root.clone());
         assert!(store.list("p").unwrap().is_empty());

@@ -6,7 +6,7 @@
 //! difference is then measured per replication (paired), which removes most of
 //! the run-to-run noise from the comparison.
 
-use outliers_sim_engine::stats::{Summary, t_quantile};
+use simulancer_engine::stats::{Summary, t_quantile};
 
 use crate::measures::Measure;
 use crate::output::CONFIDENCE;

@@ -1,10 +1,10 @@
-//! End-to-end tests of `outliers-sim compare`.
+//! End-to-end tests of `simulancer compare`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const BIN: &str = env!("CARGO_BIN_EXE_outliers-sim");
+const BIN: &str = env!("CARGO_BIN_EXE_simulancer");
 
 fn example(name: &str) -> String {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -16,10 +16,8 @@ fn example(name: &str) -> String {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "outliers-sim-compare-{}-{name}",
-        std::process::id()
-    ));
+    let dir =
+        std::env::temp_dir().join(format!("simulancer-compare-{}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir

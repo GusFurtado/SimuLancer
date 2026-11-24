@@ -1,9 +1,9 @@
 //! Part types: mixes at sources, process times per type, routing by type.
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, Spec, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, Spec, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -16,7 +16,7 @@ fn run(spec: &Spec) -> ReplicationResult {
 /// Frames and wheels from one source; the mill takes 10 s for a frame and
 /// 30 s for a wheel; after it, each type has its own exit.
 const MIX: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: mix
 entities:
   frame: {}

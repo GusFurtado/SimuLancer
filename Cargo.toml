@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/GusFurtado/outliers-sim"
+repository = "https://github.com/GusFurtado/simulancer"
 
 # Release builds are what ship: no debug symbols, cross-crate optimization.
 [profile.release]
@@ -15,9 +15,9 @@ lto = "thin"
 
 # The engine's statistical tests simulate millions of parts; optimize it even
 # in debug builds so `cargo test` stays fast.
-[profile.dev.package.outliers-sim-engine]
+[profile.dev.package.simulancer-engine]
 opt-level = 3
 
 [workspace.dependencies]
-outliers-sim-engine = { path = "crates/engine" }
-outliers-sim-model = { path = "crates/model" }
+simulancer-engine = { path = "crates/engine" }
+simulancer-model = { path = "crates/model" }

@@ -14,7 +14,7 @@
 # `parts` names what flows through the model, so pages and reports say
 # "customers".
 
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: bank-branch
 description: Customers take a ticket and wait in line for a teller or an account advisor; when the line at the kiosk is full, newcomers leave.
 

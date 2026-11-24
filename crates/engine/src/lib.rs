@@ -2,7 +2,7 @@
 //!
 //! The engine works in standard units only: time is [`SimTime`] (integer
 //! microseconds) and length is meters. Model files, units and output formats
-//! are handled outside this crate (see `outliers-sim-model`).
+//! are handled outside this crate (see `simulancer-model`).
 
 mod events;
 mod experiment;

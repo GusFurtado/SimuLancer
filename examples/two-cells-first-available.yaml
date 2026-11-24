@@ -1,6 +1,6 @@
 # two-cells.yaml with `first_available` instead of `shortest_queue` at the source.
-# Compare with: outliers-sim compare examples/two-cells.yaml examples/two-cells-first-available.yaml
-format: outliers-sim-scenario/0.1
+# Compare with: simulancer compare examples/two-cells.yaml examples/two-cells-first-available.yaml
+format: simulancer-scenario/0.1
 name: two-cells-first-available
 description: two-cells with `first_available` routing at the source instead of `shortest_queue`.
 base: two-cells.yaml

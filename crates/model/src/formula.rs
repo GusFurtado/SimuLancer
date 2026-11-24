@@ -7,7 +7,7 @@
 //! be added to a plain number. Plain numbers are always plain numbers here;
 //! the model's default units don't apply.
 
-use outliers_sim_engine::spec::{BinaryOp, Expr};
+use simulancer_engine::spec::{BinaryOp, Expr};
 
 use crate::expr::{is_distribution, parse_number_distribution, parse_time_distribution};
 use crate::units::{DefaultUnits, Dimension, parse_quantity};
@@ -33,7 +33,7 @@ impl Kind {
 
 /// The names a formula can use.
 pub struct Names<'a> {
-    /// Attributes, in [`outliers_sim_engine::Spec`] order, with their kind.
+    /// Attributes, in [`simulancer_engine::Spec`] order, with their kind.
     pub attributes: &'a [(&'a str, Kind)],
     /// Part types, for `type == <name>`.
     pub entities: &'a [&'a str],
@@ -442,7 +442,7 @@ impl Parser<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use outliers_sim_engine::spec::Distribution;
+    use simulancer_engine::spec::Distribution;
 
     const ATTRIBUTES: &[(&str, Kind)] = &[("due", Kind::Time), ("rework", Kind::Number)];
     const NAMES: Names = Names {

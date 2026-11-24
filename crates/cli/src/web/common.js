@@ -1,5 +1,5 @@
 "use strict";
-// Shared by the outliers-sim pages (/, /modeling, /simulation). Uses only the public
+// Shared by the SimuLancer pages (/, /modeling, /simulation). Uses only the public
 // HTTP API (docs/api.md).
 
 const API = "api/v1";
@@ -408,7 +408,7 @@ function icon(page) {
 /** Shows the project's name in the top bar and the tab title. */
 function showProjectName(name, page) {
   document.getElementById("project-name").textContent = name;
-  document.title = `${name} · ${page} · outliers-sim`;
+  document.title = `${name} · ${page} · SimuLancer`;
 }
 
 /** Fills `main` with a note that the project can't be opened, and a way back. */

@@ -1,11 +1,11 @@
 //! Routing (several outgoing conveyors) and merging (several incoming).
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, SimTime, Spec, TraceEvent, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, SimTime, Spec, TraceEvent, simulate};
 
 const TWO_CELLS: &str = include_str!("../../../examples/two-cells.yaml");
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -31,7 +31,7 @@ const C: &str = r#"length: "2 m", speed: "1 m/s", spacing: "0.5 m""#;
 fn split(output: &str, interarrival: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: split
 entities: {{ part: {{}} }}
 sources:
@@ -74,7 +74,7 @@ fn round_robin_split_alternates_exactly() {
 fn split_to_servers(output: &str, a_process: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: split-servers
 entities: {{ part: {{}} }}
 sources:
@@ -132,7 +132,7 @@ fn shortest_queue_balances_by_parts_on_the_conveyor() {
 fn merge(input: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: merge
 entities: {{ part: {{}} }}
 sources:

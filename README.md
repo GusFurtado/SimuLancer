@@ -1,4 +1,4 @@
-# outliers-sim
+# SimuLancer
 
 Open-source discrete event simulation. Models are plain YAML files: you can diff them, review them, test them and run them headless.
 
@@ -7,15 +7,15 @@ Open-source discrete event simulation. Models are plain YAML files: you can diff
 ## Usage
 
 ```sh
-outliers-sim validate examples/conveyor-line.yaml   # check a model, show what was understood
-outliers-sim run examples/conveyor-line.yaml        # run the experiment
-outliers-sim compare examples/conveyor-line.yaml examples/conveyor-line-longer-c2.yaml
+simulancer validate examples/conveyor-line.yaml   # check a model, show what was understood
+simulancer run examples/conveyor-line.yaml        # run the experiment
+simulancer compare examples/conveyor-line.yaml examples/conveyor-line-longer-c2.yaml
 ```
 
 A scenario doesn't need to copy the whole model. A scenario file lists only what changes:
 
 ```yaml
-format: outliers-sim-scenario/0.1
+format: simulancer-scenario/0.1
 name: two-cells-first-available
 base: two-cells.yaml
 changes:
@@ -31,12 +31,12 @@ Scenario files work anywhere a model does (`validate`, `run`, `compare`). Errors
 - `report.html`: a self-contained report with charts that works offline.
 - `summary.json`: every measure with its confidence interval.
 - `replications.csv`: raw values per replication.
-- `events.jsonl`: an event log, if the model asks for one. See `outliers-sim run --help` for options.
+- `events.jsonl`: an event log, if the model asks for one. See `simulancer run --help` for options.
 
 ## Server and HTTP API
 
 ```sh
-outliers-sim serve --data ./data --port 8080
+simulancer serve --data ./data --port 8080
 ```
 
 Then open `http://localhost:8080` and pick a project (or create one). Each project opens two ways:
@@ -53,10 +53,10 @@ Runs execute on the server, one at a time on all cores.
 One static Linux binary (about 6 MB, plus git on the system) or a 41 MB Docker image:
 
 ```sh
-docker run -d -p 127.0.0.1:8080:8080 -v outliers-sim-data:/data ghcr.io/gusfurtado/outliers-sim:latest
+docker run -d -p 127.0.0.1:8080:8080 -v simulancer-data:/data ghcr.io/gusfurtado/simulancer:latest
 ```
 
-`docs/deploy.md` covers the systemd service (`deploy/outliers-sim.service`), HTTPS and logins through your reverse proxy (`deploy/nginx.conf`), sizing, backups and upgrades. Tagging a version (`git tag v0.1.0 && git push --tags`) publishes the binary and the image.
+`docs/deploy.md` covers the systemd service (`deploy/simulancer.service`), HTTPS and logins through your reverse proxy (`deploy/nginx.conf`), sizing, backups and upgrades. Tagging a version (`git tag v0.1.0 && git push --tags`) publishes the binary and the image.
 
 ## Routing and merging
 
@@ -78,7 +78,7 @@ servers:
 |---|---|
 | `crates/engine` | Simulation core. Standard units only (time in integer µs, length in m), no I/O. |
 | `crates/model` | Loads and validates YAML model files and converts units for the engine. |
-| `crates/cli` | The `outliers-sim` command (`validate`, `run`, `compare`, `serve`); the web pages are in `src/web/`, compiled into the binary. |
+| `crates/cli` | The `simulancer` command (`validate`, `run`, `compare`, `serve`); the web pages are in `src/web/`, compiled into the binary. |
 | `examples/` | Example models, which are also the templates new projects start from: an assembly line, a bank branch, a warehouse, and smaller ones. `templates.yaml` tags them for the template search, `projects/*.yaml` are their project files (decisions and results), `projects/*.md` their documentation, `*.layout.yaml` their drawings, and `blank.yaml` is what a blank project starts as. |
 | `tests/` | Browser tests: `replay/` checks the animation's replay against the engine, `ui/` drives the web pages. |
 | `docs/`, `deploy/` | The model format, the HTTP API and how to deploy, with a systemd unit and an nginx example. |
