@@ -2,7 +2,7 @@
 
 SimuLancer is one program. `simulancer serve` runs the web pages (`/` lists the projects; each opens on `/modeling` to edit its model or `/simulation` to compare scenarios) and their HTTP API, and runs simulations on the same machine. Users only need a browser.
 
-- **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results, which can be deleted from the Modeling page and are removed when the server restarts). A new data folder starts with no projects; people start them blank or from the built-in templates.
+- **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results, kept across restarts until they're deleted from the Modeling page). A new data folder starts with no projects; people start them blank or from the built-in templates.
 - **The only runtime dependency is git**, used to version projects. The Linux binary itself is statically linked. The Docker image includes git.
 
 ## Option 1: binary + systemd
@@ -60,7 +60,7 @@ For scale: 30 replications of the examples take about 0.2 s on 12 cores.
 ## Operating it
 
 - **Backups:** back up the `projects` folder; it's the only thing people create. Each project is a git repository, so its whole history comes along, and `git clone` works for copies. Run folders can be regenerated, since the same model and seed give identical results.
-- **Cleanup:** delete old folders in the runs folder whenever you like. The list of runs in the web interface is kept in memory and starts empty after a restart; result folders stay on disk until you remove them.
+- **Cleanup:** runs are kept until someone deletes them from the Modeling page; most of their size is the event log behind the animation. Deleting a run's folder by hand while the server is stopped works too: it's gone from the list on the next start.
 - **Upgrading:** replace the binary (or pull the new image) and restart. Projects, models and scenarios carry a `format:` version, and the server says clearly if a file needs updating.
 - **Logs:** the server logs to stdout/stderr, so `journalctl -u simulancer` or `docker logs simulancer`.
 

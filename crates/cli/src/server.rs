@@ -8,11 +8,13 @@
 //! The web pages use only the public API. Simulations run on the server, one
 //! run at a time on all cores; later runs wait in a queue. Projects are git
 //! repositories in `<data>/projects`; managers' scenarios are in
-//! `<data>/scenarios`; each run's results go to `<data>/runs/<id>`.
+//! `<data>/scenarios`; each run's results go to `<data>/runs/<id>`, with a
+//! `run.json` that brings the run back after a restart, and each comparison to
+//! `<data>/runs/comparisons/<id>.json`.
 
 use std::fs;
 use std::net::{IpAddr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
@@ -58,32 +60,146 @@ pub struct ServeArgs {
     threads: Option<usize>,
 }
 
-/// The run list lives in memory, so results left by an earlier server can't be
-/// reached any more: remove them. Only folders named like run ids are touched.
-fn remove_old_runs(runs: &std::path::Path) -> Result<(), String> {
-    let entries = fs::read_dir(runs).map_err(|e| format!("can't read {}: {e}", runs.display()))?;
+/// A run's folder name: `<seconds>-<n>`. Returns `n`.
+fn run_number(name: &str) -> Option<u64> {
+    let (a, b) = name.split_once('-')?;
+    (!a.is_empty() && a.chars().all(|c| c.is_ascii_digit()))
+        .then(|| b.parse().ok())
+        .flatten()
+}
+
+/// The finished runs and the comparisons an earlier start left in `runs`, and
+/// the next free id number. A run folder without a readable `run.json` (it was
+/// queued or running when the server stopped) is removed; anything not named
+/// like a run is left alone.
+fn restore(runs: &Path, projects: &Projects) -> (Vec<Job>, Vec<ComparisonJob>, u64) {
+    let mut jobs = Vec::new();
     let mut removed = 0;
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let is_run = name
-            .to_str()
-            .and_then(|n| n.split_once('-'))
-            .is_some_and(|(a, b)| {
-                !a.is_empty()
-                    && !b.is_empty()
-                    && (a.chars().chain(b.chars())).all(|c| c.is_ascii_digit())
-            });
-        if is_run && entry.path().is_dir() {
-            fs::remove_dir_all(entry.path())
-                .map_err(|e| format!("can't remove {}: {e}", entry.path().display()))?;
-            removed += 1;
+    let mut next = 1;
+    for entry in fs::read_dir(runs).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let Some(n) = entry.file_name().to_str().and_then(run_number) else {
+            continue;
+        };
+        if !path.is_dir() {
+            continue;
+        }
+        match read_run(&path) {
+            Some(job) => {
+                next = next.max(n + 1);
+                jobs.push((job.queued_at, n, job));
+            }
+            None => {
+                if fs::remove_dir_all(&path).is_ok() {
+                    removed += 1;
+                }
+            }
         }
     }
     if removed > 0 {
         let runs = if removed == 1 { "run" } else { "runs" };
-        println!("removed the results of {removed} {runs} from an earlier start");
+        println!("removed {removed} unfinished {runs} from an earlier start");
     }
-    Ok(())
+    jobs.sort_by_key(|(at, n, _)| (*at, *n));
+    let jobs: Vec<Job> = jobs.into_iter().map(|(_, _, job)| job).collect();
+
+    let mut comparisons = Vec::new();
+    for entry in fs::read_dir(runs.join(COMPARISONS_DIR))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let Some(stored) = fs::read_to_string(entry.path())
+            .ok()
+            .and_then(|text| serde_json::from_str::<StoredComparison>(&text).ok())
+        else {
+            continue;
+        };
+        let Some(n) = stored
+            .id
+            .strip_prefix('c')
+            .and_then(|n| n.parse::<u64>().ok())
+        else {
+            continue;
+        };
+        // What the version exposes is read again; a deleted project's comparisons stay out.
+        let Ok((exposed, _)) = exposed_in(projects, &stored.project, Some(&stored.version)) else {
+            continue;
+        };
+        next = next.max(n + 1);
+        comparisons.push((
+            n,
+            ComparisonJob {
+                id: stored.id,
+                project: stored.project,
+                version: stored.version,
+                exposed,
+                items: stored.items,
+            },
+        ));
+    }
+    comparisons.sort_by_key(|(n, _)| *n);
+    let comparisons = comparisons.into_iter().map(|(_, c)| c).collect();
+    (jobs, comparisons, next)
+}
+
+/// A finished run as its `run.json`, model and results describe it.
+fn read_run(dir: &Path) -> Option<Job> {
+    let stored: StoredRun =
+        serde_json::from_str(&fs::read_to_string(dir.join(RUN_RECORD)).ok()?).ok()?;
+    let model_text = fs::read_to_string(dir.join("model.yaml")).ok()?;
+    let model = simulancer_model::load_str(&model_text).ok()?;
+    let (measures, done) = match stored.status {
+        Status::Done => (
+            Some(Arc::new(read_measures(
+                &model,
+                &dir.join("replications.csv"),
+            )?)),
+            stored.total,
+        ),
+        Status::Failed => (None, 0),
+        Status::Queued | Status::Running => return None,
+    };
+    Some(Job {
+        id: stored.id,
+        label: stored.label,
+        project: stored.project,
+        version: stored.version,
+        model,
+        layout: None,
+        model_text,
+        replications: stored.replications,
+        total: stored.total,
+        progress: Arc::new(AtomicU32::new(done)),
+        status: stored.status,
+        error: stored.error,
+        files: stored.files,
+        queued_at: stored.queued_at,
+        measures,
+    })
+}
+
+/// A run's measures, one value per replication, from its `replications.csv`
+/// (values there are written exactly, so comparisons come out the same).
+fn read_measures(model: &Model, csv: &Path) -> Option<Vec<Measure>> {
+    let mut measures = measures::collect(&model.spec, &model.outputs, &[]);
+    let text = fs::read_to_string(csv).ok()?;
+    for line in text.lines().skip(1) {
+        let [replication, object_type, object, name, _, value] =
+            <[&str; 6]>::try_from(line.split(',').collect::<Vec<_>>()).ok()?;
+        let measure = measures
+            .iter_mut()
+            .find(|m| m.object_type == object_type && m.object == object && m.name == name)?;
+        if replication.parse::<usize>().ok()? != measure.values.len() + 1 {
+            return None;
+        }
+        measure.values.push(if value.is_empty() {
+            f64::NAN
+        } else {
+            value.parse().ok()?
+        });
+    }
+    Some(measures)
 }
 
 pub fn serve(args: &ServeArgs) -> Result<(), String> {
@@ -95,7 +211,6 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
     for dir in [&projects_dir, &runs_dir] {
         fs::create_dir_all(dir).map_err(|e| format!("can't create {}: {e}", dir.display()))?;
     }
-    remove_old_runs(&runs_dir)?;
     let projects = Projects::new(projects_dir);
     let scenarios = Scenarios::new(args.data.join("scenarios"));
     let state = AppState::start(projects, scenarios, runs_dir, thread_count(args.threads));
@@ -277,7 +392,7 @@ pub struct AppState {
     next_id: AtomicU64,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Status {
     Queued,
@@ -309,7 +424,43 @@ struct Job {
     measures: Option<Arc<Vec<Measure>>>,
 }
 
+/// A finished run's file that brings it back after a restart.
+const RUN_RECORD: &str = "run.json";
+/// Where comparisons are kept, inside the runs folder.
+const COMPARISONS_DIR: &str = "comparisons";
+
+/// What `run.json` keeps of a run; the model and the measures are read back
+/// from `model.yaml` and `replications.csv` next to it.
+#[derive(Serialize, Deserialize)]
+struct StoredRun {
+    id: String,
+    label: String,
+    project: String,
+    version: String,
+    replications: Option<u32>,
+    total: u32,
+    status: Status,
+    error: Option<String>,
+    files: Vec<String>,
+    queued_at: u64,
+}
+
 impl Job {
+    fn stored(&self) -> StoredRun {
+        StoredRun {
+            id: self.id.clone(),
+            label: self.label.clone(),
+            project: self.project.clone(),
+            version: self.version.clone(),
+            replications: self.replications,
+            total: self.total,
+            status: self.status,
+            error: self.error.clone(),
+            files: self.files.clone(),
+            queued_at: self.queued_at,
+        }
+    }
+
     fn to_json(&self) -> Value {
         json!({
             "id": self.id,
@@ -334,15 +485,16 @@ impl AppState {
         threads: usize,
     ) -> Arc<AppState> {
         let (queue, jobs_ready) = mpsc::channel::<String>();
+        let (jobs, comparisons, next_id) = restore(&runs, &projects);
         let state = Arc::new(AppState {
             projects,
             scenarios,
             runs,
             threads,
-            jobs: Mutex::new(Vec::new()),
-            comparisons: Mutex::new(Vec::new()),
+            jobs: Mutex::new(jobs),
+            comparisons: Mutex::new(comparisons),
             queue,
-            next_id: AtomicU64::new(1),
+            next_id: AtomicU64::new(next_id),
         });
         let worker = Arc::clone(&state);
         thread::spawn(move || {
@@ -389,6 +541,11 @@ impl AppState {
                 .map_err(|e| format!("can't write model.yaml: {e}"))?;
             Ok(outcome)
         });
+        if result.is_err() {
+            // A failed run keeps its model too, so it can be listed after a restart.
+            let _ = fs::create_dir_all(&out_dir)
+                .and_then(|()| fs::write(out_dir.join("model.yaml"), &job.model_text));
+        }
         self.update(id, |j| match result {
             Ok(outcome) => {
                 j.status = Status::Done;
@@ -407,6 +564,19 @@ impl AppState {
                 j.error = Some(error);
             }
         });
+        let record = self
+            .jobs
+            .lock()
+            .expect("jobs lock")
+            .iter()
+            .find(|j| j.id == id)
+            .map(Job::stored);
+        if let Some(record) = record {
+            let text = serde_json::to_string_pretty(&record).expect("a run record is plain data");
+            if let Err(e) = fs::write(out_dir.join(RUN_RECORD), text) {
+                eprintln!("run {id} won't be kept after a restart: can't write {RUN_RECORD}: {e}");
+            }
+        }
     }
 }
 
@@ -652,8 +822,16 @@ fn exposed(
     id: &str,
     version: Option<&str>,
 ) -> Result<(Exposed, Vec<String>), String> {
-    let project = state.projects.project_file(id, version)?;
-    let source = state.projects.read(id, version, &project.model)?;
+    exposed_in(&state.projects, id, version)
+}
+
+fn exposed_in(
+    projects: &Projects,
+    id: &str,
+    version: Option<&str>,
+) -> Result<(Exposed, Vec<String>), String> {
+    let project = projects.project_file(id, version)?;
+    let source = projects.read(id, version, &project.model)?;
     let (exposed, problems, _) = read_exposed(&project, &source);
     Ok((exposed, problems))
 }
@@ -1523,7 +1701,16 @@ struct ComparisonJob {
     items: Vec<Item>,
 }
 
-#[derive(Clone)]
+/// What a comparison's file keeps; what the version exposes is read again.
+#[derive(Serialize, Deserialize)]
+struct StoredComparison {
+    id: String,
+    project: String,
+    version: String,
+    items: Vec<Item>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
 struct Item {
     name: String,
     /// The saved scenario's id, if it is one.
@@ -1760,6 +1947,24 @@ async fn start_comparison(
         exposed: exposed_found.unwrap_or_default(),
         items,
     };
+    let stored = StoredComparison {
+        id: comparison.id.clone(),
+        project: comparison.project.clone(),
+        version: comparison.version.clone(),
+        items: comparison.items.clone(),
+    };
+    let dir = state.runs.join(COMPARISONS_DIR);
+    if let Err(e) = fs::create_dir_all(&dir).and_then(|()| {
+        fs::write(
+            dir.join(format!("{}.json", stored.id)),
+            serde_json::to_string_pretty(&stored).expect("a comparison is plain data"),
+        )
+    }) {
+        eprintln!(
+            "comparison {} won't be kept after a restart: {e}",
+            stored.id
+        );
+    }
     let body = comparison.to_json(&state.jobs.lock().expect("jobs lock"));
     state
         .comparisons
@@ -1811,13 +2016,18 @@ mod tests {
         for t in projects::TEMPLATES {
             projects::create_from_template(&projects, t.id, t.id, None).unwrap();
         }
+        (reopen(&root), root)
+    }
+
+    /// A server started again over an existing data folder.
+    fn reopen(root: &std::path::Path) -> Router {
         let state = AppState::start(
-            projects,
+            Projects::new(root.join("projects")),
             Scenarios::new(root.join("scenarios")),
             root.join("runs"),
             2,
         );
-        (router(state), root)
+        router(state)
     }
 
     async fn call(
@@ -2023,7 +2233,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deletes_finished_runs_and_old_results() {
+    async fn deletes_finished_runs_and_unfinished_ones_on_start() {
         let (app, root) = app("delete-runs");
         let body = json!({ "project": "two-cells", "replications": 2 });
         let (_, run) = call(&app, "POST", "/api/v1/runs", Some(body)).await;
@@ -2043,14 +2253,66 @@ mod tests {
         let (status, _) = call(&app, "DELETE", &format!("/api/v1/runs/{id}"), None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
 
-        // Results of an earlier start are removed; anything else is left alone.
+        // A run that never finished (no run.json) is removed on the next start;
+        // anything not named like a run is left alone.
         let runs = root.join("runs");
         fs::create_dir_all(runs.join("1791642661-3")).unwrap();
         fs::create_dir_all(runs.join("notes")).unwrap();
         fs::write(runs.join("2-2"), "a file").unwrap();
-        remove_old_runs(&runs).unwrap();
+        let app = reopen(&root);
         assert!(!runs.join("1791642661-3").exists());
         assert!(runs.join("notes").exists() && runs.join("2-2").exists());
+        let (_, list) = call(&app, "GET", "/api/v1/runs", None).await;
+        assert_eq!(list["runs"], json!([]));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Finished runs and comparisons come back after a restart, identical, and
+    /// new ids don't collide with them.
+    #[tokio::test]
+    async fn runs_and_comparisons_survive_a_restart() {
+        let (app, root) = app("restart");
+        let request = json!({
+            "project": "two-cells",
+            "scenarios": [{ "name": "Two inspectors", "decisions": { "inspectors": 2 } }],
+            "replications": 3,
+        });
+        let (status, started) =
+            call(&app, "POST", "/api/v1/comparisons", Some(request.clone())).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{started}");
+        let id = started["id"].as_str().unwrap().to_string();
+        for run in [&started["current"]["run"], &started["scenarios"][0]["run"]] {
+            wait_for(&app, run.as_str().unwrap()).await;
+        }
+        let (_, comparison) = call(&app, "GET", &format!("/api/v1/comparisons/{id}"), None).await;
+        assert_eq!(comparison["status"], "done", "{comparison}");
+        let (_, runs) = call(&app, "GET", "/api/v1/runs", None).await;
+        assert_eq!(runs["runs"].as_array().unwrap().len(), 2);
+
+        let app = reopen(&root);
+        let (_, after) = call(&app, "GET", "/api/v1/runs", None).await;
+        assert_eq!(after, runs);
+        let (_, again) = call(&app, "GET", &format!("/api/v1/comparisons/{id}"), None).await;
+        assert_eq!(again, comparison);
+        let (_, list) = call(&app, "GET", "/api/v1/comparisons", None).await;
+        assert_eq!(list["comparisons"][0]["id"], json!(id));
+        let first = &after["runs"][1];
+        let (status, _) = call(
+            &app,
+            "GET",
+            &format!(
+                "/api/v1/runs/{}/files/report.html",
+                first["id"].as_str().unwrap()
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+
+        // The same comparison reuses the kept runs; a new one gets a new id.
+        let (_, reused) = call(&app, "POST", "/api/v1/comparisons", Some(request)).await;
+        assert_ne!(reused["id"], json!(id));
+        assert_eq!(reused["current"]["run"], started["current"]["run"]);
         fs::remove_dir_all(root).unwrap();
     }
 
