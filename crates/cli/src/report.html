@@ -499,6 +499,111 @@ function variation(container) {
   addEventListener("resize", draw);
 }
 
+function warmupCheck(container) {
+  const w = data.warmup_check;
+  if (!w || !w.mean.length) return;
+  const end = data.warmup + data.run_length;
+  const shifts = w.cut_by === "week";
+  let verdict;
+  if (w.settles === false) {
+    verdict = "The parts in the system don't settle within the run: it may be too short, or the system keeps filling up (something works above its capacity). The results describe the time simulated, not a steady state.";
+  } else if (w.suggested === null) {
+    verdict = `With shifts the count follows the week, so the start-up is judged in whole weeks, and that needs at least four; this run has ${Math.floor(w.mean.length / 7)}.`;
+  } else if (w.suggested > data.warmup) {
+    verdict = `The warm-up (${duration(data.warmup)}) may be too short: the parts in the system settle after about ${duration(w.suggested)}. ` +
+      "Statistics then include part of the start-up, when the system is emptier than usual.";
+  } else if (w.suggested === 0) {
+    verdict = data.warmup > 0
+      ? `The warm-up (${duration(data.warmup)}) is enough: the parts in the system start close to their usual level.`
+      : "No warm-up is needed: the parts in the system start close to their usual level.";
+  } else {
+    verdict = `The warm-up (${duration(data.warmup)}) covers the start-up: the parts in the system settle after about ${duration(w.suggested)}.`;
+  }
+  const body = el("div", { class: "card" });
+  container.append(el("section", {},
+    el("h2", {}, "Warm-up check"),
+    el("p", {}, verdict),
+    el("p", { class: "note" },
+      "Parts in the system over the whole run, averaged across replications (thin line) and smoothed with a moving average (thick line): Welch's method. " +
+      "Where the line levels off, the start-up from an empty system is over. The MSER rule picks that point. " +
+      (shifts ? "With shifts the line follows the week: it's drawn per day, smoothed over a week, and the cut is in whole weeks." : "")),
+    body));
+
+  const unit = end >= 172800 ? 86400 : 3600, unitName = unit === 86400 ? "d" : "h";
+  const draw = () => {
+    body.replaceChildren();
+    const width = body.clientWidth - 40, height = 250;
+    // Labels for the warm-up and the cut go in the band above the plot.
+    const left = 44, right = 12, top = 44, bottom = 30;
+    const hi = Math.max(...w.mean, ...w.smoothed.filter(v => v !== null), 0);
+    const yt = ticks(0, hi || 1, 4);
+    const ymax = yt[yt.length - 1];
+    const x = s => left + (s / end) * (width - left - right);
+    const y = v => top + (1 - v / ymax) * (height - top - bottom);
+    const mid = i => Math.min((i + 0.5) * w.bin, end);
+    const chart = svg("svg", { height, viewBox: `0 0 ${width} ${height}`, role: "img",
+      "aria-label": `Parts in the system over time. ${verdict}` });
+    // The model's warm-up, shaded.
+    if (data.warmup > 0) {
+      chart.append(svg("rect", { x: x(0), y: top, width: x(data.warmup) - x(0), height: height - top - bottom, fill: "var(--grid)", "fill-opacity": 0.6 }));
+      const label = svg("text", { x: x(0), y: top - 24, fill: "var(--ink-2)" });
+      label.textContent = `warm-up ${duration(data.warmup)}`;
+      chart.append(label);
+    }
+    for (const v of yt) {
+      chart.append(svg("line", { x1: left, x2: width - right, y1: y(v), y2: y(v), stroke: "var(--grid)", "stroke-width": 1 }));
+      const label = svg("text", { x: left - 6, y: y(v) + 4, "text-anchor": "end" });
+      label.textContent = +v.toPrecision(6);
+      chart.append(label);
+    }
+    for (const s of ticks(0, end / unit, 6).map(v => v * unit).filter(s => s <= end + 1)) {
+      const label = svg("text", { x: x(s), y: height - 10, "text-anchor": "middle" });
+      label.textContent = `${+(s / unit).toPrecision(6)} ${unitName}`;
+      chart.append(label);
+    }
+    chart.append(svg("line", { x1: left, x2: width - right, y1: y(0), y2: y(0), stroke: "var(--axis)", "stroke-width": 1 }));
+    const path = vs => vs.map((v, i) => v === null ? "" : `${i && vs[i - 1] !== null ? "L" : "M"}${x(mid(i)).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    chart.append(svg("path", { d: path(w.mean), fill: "none", stroke: "var(--muted)", "stroke-width": 1, "stroke-linejoin": "round" }));
+    chart.append(svg("path", { d: path(w.smoothed), fill: "none", stroke: "var(--accent)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    if (w.suggested && w.settles !== false) {
+      const sx = x(w.suggested);
+      chart.append(svg("line", { x1: sx, x2: sx, y1: top - 6, y2: height - bottom, stroke: "var(--ink-2)", "stroke-width": 1.5, "stroke-dasharray": "4 3" }));
+      const label = svg("text", { x: sx, y: top - 10, fill: "var(--ink-2)", "text-anchor": sx > width * 0.75 ? "end" : "start" });
+      label.textContent = `settles ≈ ${duration(w.suggested)}`;
+      chart.append(label);
+    }
+    // Crosshair and tooltip over the whole plot.
+    const cross = svg("line", { y1: top, y2: height - bottom, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+    const dot = svg("circle", { r: 4, fill: "var(--accent)", stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" });
+    const hit = svg("rect", { x: left, y: top, width: width - left - right, height: height - top - bottom, fill: "transparent" });
+    chart.append(cross, dot, hit);
+    const at = e => {
+      const r = chart.getBoundingClientRect();
+      const px = (e.clientX - r.left) * (width / r.width);
+      const s = Math.min(Math.max(0, (px - left) / (width - left - right) * end), end);
+      return Math.min(w.mean.length - 1, Math.floor(s / w.bin));
+    };
+    hit.addEventListener("pointermove", e => {
+      const i = at(e), cx = x(mid(i));
+      cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("visibility", "visible");
+      const s = w.smoothed[i];
+      dot.setAttribute("cx", cx); dot.setAttribute("cy", y(s ?? w.mean[i]));
+      dot.setAttribute("visibility", s === null ? "hidden" : "visible");
+      showTooltip(e, [
+        ...(s === null ? [] : [[`${s.toFixed(1)} parts`, "smoothed", cssVar("--accent")]]),
+        [`${w.mean[i].toFixed(1)} parts`, "average", cssVar("--muted")],
+        [`${duration(i * w.bin)} to ${duration(Math.min((i + 1) * w.bin, end))}`],
+      ]);
+    });
+    hit.addEventListener("pointerleave", () => {
+      cross.setAttribute("visibility", "hidden"); dot.setAttribute("visibility", "hidden"); hideTooltip();
+    });
+    body.append(chart);
+  };
+  draw();
+  addEventListener("resize", draw);
+}
+
 function fullTable(container) {
   const tbody = el("tbody");
   let group = null;
@@ -535,6 +640,7 @@ serverStates(app);
 queues(app);
 conveyors(app);
 variation(app);
+warmupCheck(app);
 fullTable(app);
 footer();
 </script>

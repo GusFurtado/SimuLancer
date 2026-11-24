@@ -22,7 +22,7 @@ simulancer serve --data ./data --host 0.0.0.0       # other machines (put it beh
 - **Changes** map dotted paths in the model to new values (`null` removes an entry, e.g. `"conveyors.c3": null`), e.g. `{"servers.mill_b.capacity": 2, "sources.arrivals.output": {"rule": "round_robin"}}`. List items by index: `servers.mill_b.failures.0.downtime`. Paths address the `tree` that `GET /projects/{id}` returns.
 - **Decisions and results** are what the Simulation page lets people change and read, set in `project.yaml` (below). A **scenario** picks a value for some decisions; it's stored with the published version it was made on, outside the project's git history.
 - **Comparisons** run the current setup and some scenarios with the same random numbers and describe each result's change in plain language.
-- **Runs** are queued and executed one at a time, each using all CPU cores (or `--threads`). Each run's results, including the exact model text that ran, go to `<data>/runs/<id>/`. The list of runs lives in memory, so a restarted server starts with none and removes the result folders of earlier runs.
+- **Runs** are queued and executed one at a time, each using all CPU cores (or `--threads`). Each run's results, including the exact model text that ran, go to `<data>/runs/<id>/`. Finished runs and comparisons are kept there (`run.json` next to each run's results, comparisons in `<data>/runs/comparisons/`), so a restarted server lists them as before. Runs that were queued or running when it stopped are dropped, and their folders removed.
 
 ## Decisions and results in `project.yaml`
 
@@ -311,7 +311,7 @@ Removes a finished run and its result folder: `204`. A queued or running run giv
 | `name` | Contents |
 |---|---|
 | `report.html` | The self-contained report. |
-| `summary.json` | Every measure with mean, 95% CI, sd, min, max, in standard units. |
+| `summary.json` | Every measure with mean, 95% CI, sd, min, max, in standard units; `warmup_check`: parts in the system per time bin (mean across replications and smoothed), and the warm-up the MSER rule suggests (`suggested`, seconds; `settles`). |
 | `replications.csv` | One row per replication × measure. |
 | `events.jsonl` | Event log of replication 1, if the model asks for one (`outputs.event_log: jsonl`). |
 | `layout.json` | The layout, if the model has one. |

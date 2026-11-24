@@ -14,6 +14,7 @@ use simulancer_model::{DrawnAs, Layout, Model};
 
 use crate::compare::Comparison;
 use crate::measures::Measure;
+use crate::warmup::WarmupCheck;
 
 pub const CONFIDENCE: f64 = 0.95;
 
@@ -70,6 +71,7 @@ pub fn write_report(
     model: &Model,
     spec: &Spec,
     measures: &[(Measure, Summary)],
+    warmup: Option<&WarmupCheck>,
 ) -> io::Result<()> {
     let node = |n: Node| match n {
         Node::Source(i) => &spec.sources[i].name,
@@ -87,6 +89,7 @@ pub fn write_report(
         "warmup": e.warmup.as_secs_f64(),
         "run_length": e.run_length.as_secs_f64(),
         "confidence": CONFIDENCE,
+        "warmup_check": warmup,
         "sources": spec.sources.iter().map(|s| json!({
             "name": s.name,
             "when_blocked": match s.when_blocked {
@@ -140,6 +143,9 @@ struct SummaryFile<'a> {
     run_length: f64,
     confidence: f64,
     measures: Vec<MeasureSummary<'a>>,
+    /// Parts in the system over time (Welch's plot) and MSER's cut.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warmup_check: Option<&'a WarmupCheck>,
 }
 
 #[derive(Serialize)]
@@ -162,9 +168,11 @@ pub fn write_summary(
     model_name: &str,
     spec: &Spec,
     measures: &[(Measure, Summary)],
+    warmup: Option<&WarmupCheck>,
 ) -> io::Result<()> {
     let e = &spec.experiment;
     let file = SummaryFile {
+        warmup_check: warmup,
         format: "simulancer-summary/0.1",
         model: model_name,
         seed: e.seed,

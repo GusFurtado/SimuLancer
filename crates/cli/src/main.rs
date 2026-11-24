@@ -10,6 +10,7 @@ mod report;
 mod runner;
 mod scenarios;
 mod server;
+mod warmup;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -263,6 +264,20 @@ fn run(args: &RunArgs) -> Result<(), String> {
         if outcome.threads == 1 { "" } else { "s" },
     );
     print!("{}", report::table(&outcome.measures));
+    if let Some(w) = &outcome.warmup {
+        let warmup = e.warmup.as_secs_f64();
+        match (w.settles, w.suggested) {
+            (Some(false), _) => println!(
+                "\nwarning: the parts in the system don't settle within the run: it may be too short, or the system keeps filling up (see the report's warm-up check)"
+            ),
+            (Some(true), Some(suggested)) if suggested > warmup => println!(
+                "\nwarning: the warm-up ({}) may be too short: the parts in the system settle after about {} (see the report's warm-up check)",
+                duration(warmup),
+                duration(suggested),
+            ),
+            _ => {}
+        }
+    }
     if n < 2 {
         println!("\nwarning: confidence intervals need at least 2 replications");
     }

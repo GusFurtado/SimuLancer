@@ -31,7 +31,7 @@ Scenario files work anywhere a model does (`validate`, `run`, `compare`). Errors
 `run` runs the replications in parallel and prints every measure as mean ± 95% confidence interval. It writes these files to `results/<model name>/`:
 
 - `report.html`: a self-contained report with charts that works offline.
-- `summary.json`: every measure with its confidence interval.
+- `summary.json`: every measure with its confidence interval, and the warm-up check (parts in the system over time).
 - `replications.csv`: raw values per replication.
 - `events.jsonl`: an event log, if the model asks for one. See `simulancer run --help` for options.
 

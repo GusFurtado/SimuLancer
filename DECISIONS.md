@@ -252,7 +252,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   - **Endpoints:** list, read, check and save models/scenarios; queue, poll and fetch runs.
   - **Models:** `GET /models/{file}` returns the model as a tree with a scenario's changes applied. Change paths address that tree, which is what forms read and write. Base models are never overwritten through the API; only scenarios are saved.
   - **Validation errors** name the change path at fault (`"change": "conveyors.c_a.speed"`), so the UI can mark the field.
-  - **Runs** go through the same `runner` module as `simulancer run`, so results are identical. A single worker thread runs one job at a time on all cores; others wait as `queued`. Progress counts finished replications. Unsaved scenarios are stored with their results as `scenario.yaml`. The run list is in memory; result folders are removed on the next start (see Deleting runs).
+  - **Runs** go through the same `runner` module as `simulancer run`, so results are identical. A single worker thread runs one job at a time on all cores; others wait as `queued`. Progress counts finished replications. Unsaved scenarios are stored with their results as `scenario.yaml`. Finished runs are kept across restarts (see Runs and comparisons survive restarts).
   - **Security:** listens on `127.0.0.1` unless `--host` says otherwise. Model names are plain file names (no paths), and run files come from a fixed list, so requests can't reach outside the two folders. Responses are gzip-compressed; the event log goes from 7.3 MB to 0.8 MB.
   - **Dependencies added:** `axum`, `tokio`, `tower-http` (gzip). 109 crates in the CLI's build tree, still one static binary.
   - **Tested** through the router (6 tests: listing, detail, check, save/refuse, runs of files and unsaved scenarios, path traversal) and by hand with `curl` and the Python sweep example in `docs/api.md` against the real server.
@@ -522,8 +522,8 @@ Sources and sinks were the same grey circle, and the selection outline was the a
 Run results piled up without limit: on the LAN server, 19 runs took 140 MB, 98.5% of it the event logs behind the animations. Since the run list lives in memory, results of runs from before a restart couldn't even be reached.
 
 - **A trash icon on each finished run** in *Recent runs* deletes it, after a confirmation, with its folder. A queued or running run can't be deleted (`409`). If the deleted run is open, its results close. A comparison that used it reports "the run is gone". That's acceptable: a run can be made again from the model and its seed.
-- **The server removes earlier results on start.** They can't be listed after a restart, so keeping them only uses disk. Only folders named like run ids (`<seconds>-<n>`) are removed; anything else in `runs/` is left alone.
-- **Not done (kept lean):** keeping runs across restarts, which would need each run's details saved next to its results, and automatic limits ("keep the last N").
+- **The server removed earlier results on start,** since they couldn't be listed after a restart. Replaced on 2026-11-24: runs are now kept across restarts (see Runs and comparisons survive restarts).
+- **Not done (kept lean):** automatic limits ("keep the last N").
 
 ## Side panels on the Modeling page (implemented 2026-10-22)
 
@@ -803,3 +803,28 @@ Also fixed while drawing them: conveyor labels go on the longest segment, beside
 - **Icon:** the Dragoon (crimson palette: `#C62828` background, `#F5D98B` moon, `#8B1F1F` highlight, `#1A1126` shadow), cropped from the set and masked to its rounded square: `favicon-32.png` (also served at `/favicon.ico`) and `icon-180.png` (touch icon and the project list's heading), compiled into the binary like the pages; `docs/simulancer.png` for the README.
 - **Brand color, kept to a few places:** a `--brand` token (`#C62828`) colors "Lancer" in the wordmark and a thin line along the top of the Modeling and Simulation bars. Controls stay blue and the state colors are unchanged, since red already means errors and orange a blocked server. Theme settings are planned; `--brand` is the token they would change.
 - **Wordmark:** "SimuLancer" in Montserrat Bold (with the font's kerning), outlined to SVG so the pages load no font: "Simu" in the text color, "Lancer" in the brand color.
+
+## Runs and comparisons survive restarts (2026-11-24)
+
+The run list lived in memory, so every restart (an upgrade, a reboot) lost every result and the Simulation page's last comparison. With the server running for real on the LAN, that was the first thing to fix.
+
+- **Each finished run writes `run.json`** next to its results: id, label, project, version, replications, status, error, files and when it was queued. A failed run keeps its `model.yaml` too, so it can be listed again.
+- **On start, the server reads them back.** The model comes from `model.yaml` (the exact text that ran, so an identical request still reuses the run) and the per-replication measures from `replications.csv`, whose values are written exactly, so a comparison reads the same after a restart. No second copy of the results is stored.
+- **Comparisons are kept as `runs/comparisons/<id>.json`:** the project, version, and each item's name, scenario, decisions and run. What the version exposes is read again from the project; a comparison of a deleted project is left out.
+- **Unfinished runs are dropped:** a run folder without a readable `run.json` (queued or running when the server stopped) is removed on start, as all of them were before. Anything not named like a run is left alone.
+- **Ids continue** after the highest kept run or comparison, so new ones never collide with old ones.
+- **Not done (kept lean):** automatic limits ("keep the last N"); runs are deleted by hand from the Modeling page. Re-queuing runs that were interrupted by a stop.
+
+## Warm-up check (2026-11-24)
+
+The warm-up was explicit and applied, but nothing helped choose it. Every run now checks it.
+
+- **Response: parts in the system,** counted from the trace (created, stocked, split and assembled in; exited, lost, gave up and consumed out) by an observer, so the engine didn't change. Time-averaged over equal bins covering warm-up plus run length; every replication, the logged one through an observer that feeds both. The cost is within measurement noise (200 replications of three templates on one thread).
+- **Welch's method for the plot:** the mean across replications per bin, smoothed with a centered moving average (shorter at the start, none for the last bins), as in Law's textbook.
+- **MSER for the suggestion** (White, 1997): the cut that minimizes the spread of what's left over its length, searched up to half the series. A cut at half means the count is still changing: the run is too short or the system never settles (it keeps filling up). At least three points are kept after the cut; on a short series the rule otherwise favors a two-point tail by chance.
+- **Without shifts:** 120 bins, moving average over 11.
+- **With shifts the count follows the week,** so a fixed bin and MSER on it would cut at a phase of the cycle (the bank came out "settles after 17 h"). Bins are days, the moving average spans a week (full windows only), and MSER cuts weekly means, in whole weeks. Fewer than four full weeks: the plot only, no verdict.
+- **Where it shows:** a "Warm-up check" section in the report (the plot, the model's warm-up shaded, the suggested cut, and one sentence), `warmup_check` in `summary.json`, and a warning from `run` when the warm-up may be too short or the count never settles.
+- **On the templates:** conveyor-line (8 h warm-up) settles after about 11 h, and its longer-conveyor scenario after about 17 h; the others are covered. The templates were left as they are.
+- **Not done:** checking the run length, and a choice of response (only parts in the system for now).
+
