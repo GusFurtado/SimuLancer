@@ -678,3 +678,124 @@ experiment:
         r.conveyors[0].mean_parts
     });
 }
+
+/// Stationary distribution of a continuous-time Markov chain from its rates
+/// (`rates[i][j]`, i ≠ j), by Gaussian elimination on πQ = 0 with Σπ = 1.
+fn stationary(rates: &[Vec<f64>]) -> Vec<f64> {
+    let n = rates.len();
+    // Rows of the system Qᵀ π = 0, the last one replaced by Σπ = 1.
+    let mut a: Vec<Vec<f64>> = (0..n)
+        .map(|j| {
+            (0..n)
+                .map(|i| {
+                    if i == j {
+                        -rates[i].iter().sum::<f64>()
+                    } else {
+                        rates[i][j]
+                    }
+                })
+                .chain([0.0])
+                .collect()
+        })
+        .collect();
+    a[n - 1] = vec![1.0; n + 1];
+    for col in 0..n {
+        let pivot = (col..n)
+            .max_by(|&x, &y| a[x][col].abs().total_cmp(&a[y][col].abs()))
+            .unwrap();
+        a.swap(col, pivot);
+        let pivot_row = a[col].clone();
+        for (row, values) in a.iter_mut().enumerate() {
+            if row != col {
+                let f = values[col] / pivot_row[col];
+                for (v, p) in values.iter_mut().zip(&pivot_row).skip(col) {
+                    *v -= f * p;
+                }
+            }
+        }
+    }
+    (0..n).map(|i| a[i][n] / a[i][i]).collect()
+}
+
+#[test]
+fn two_machine_line_with_a_finite_buffer_blocks_as_the_markov_chain_says() {
+    // The textbook two-machine line (Buzacott & Shanthikumar): the
+    // first machine never runs out of work, the second never runs out of
+    // room, and between them a buffer holds B parts. A part finished on the
+    // first machine while the buffer is full stays on it (blocking after
+    // service). Exponential times, μ1 = 1/min, μ2 = 1/1.1 min, B = 2.
+    //
+    // State: k = parts in the buffer plus the one on the second machine
+    // (0..=B+1) with the first machine working, or "blocked" (k = B+1 and a
+    // finished part waiting on the first machine).
+    let (mu1, mu2, b) = (1.0_f64, 1.0 / 1.1, 2_usize);
+    let blocked = b + 2;
+    let mut rates = vec![vec![0.0; b + 3]; b + 3];
+    for k in 0..=b + 1 {
+        if k <= b {
+            rates[k][k + 1] = mu1;
+        } else {
+            rates[k][blocked] = mu1;
+        }
+        if k >= 1 {
+            rates[k][k - 1] = mu2;
+        }
+    }
+    // The second machine finishes; the blocked part moves into the buffer.
+    rates[blocked][b + 1] = mu2;
+    let p = stationary(&rates);
+    // The chain is a birth–death one (blocked is level B+2), so p_i ∝ ρ^i with
+    // ρ = μ1/μ2: a check on the solver.
+    let rho = mu1 / mu2;
+    let p0 = (1.0 - rho) / (1.0 - rho.powi(b as i32 + 3));
+    assert!((p[0] - p0).abs() < 1e-12 && (p[blocked] - p0 * rho.powi(b as i32 + 2)).abs() < 1e-12);
+    let second_busy = 1.0 - p[0];
+    let per_hour = mu2 * second_busy * 60.0;
+    let in_buffer: f64 =
+        (1..=b + 1).map(|k| p[k] * (k - 1) as f64).sum::<f64>() + p[blocked] * b as f64;
+
+    // A source with a short queue in front keeps the first machine supplied.
+    let yaml = format!(
+        r#"
+format: simulancer/0.1
+name: two-machine-line
+entities:
+  part: {{}}
+sources:
+  arrivals: {{ creates: part, interarrival: "1 ms", when_blocked: wait }}
+servers:
+  first: {{ process_time: "exponential(1 min)" }}
+  second: {{ process_time: "exponential(1.1 min)" }}
+queues:
+  feed: {{ from: arrivals, to: first, capacity: 3 }}
+  buffer: {{ from: first, to: second, capacity: {b} }}
+  out: {{ from: second, to: done }}
+sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261124
+"#
+    );
+    let results = replications(&spec(&yaml));
+    check(
+        &results,
+        "two-machine line throughput (/h)",
+        per_hour,
+        0.01,
+        |r| r.sinks[0].exited as f64 / (r.measured / 3600.0),
+    );
+    check(&results, "first machine blocked", p[blocked], 0.02, |r| {
+        r.servers[0].blocked
+    });
+    check(&results, "second machine starved", p[0], 0.02, |r| {
+        r.servers[1].idle
+    });
+    check(&results, "parts in the buffer", in_buffer, 0.01, |r| {
+        r.conveyors[1].mean_parts
+    });
+    // The first machine is never starved: the source keeps it supplied.
+    assert!(results.iter().all(|r| r.servers[0].idle < 1e-4));
+}
