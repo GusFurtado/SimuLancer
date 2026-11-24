@@ -18,12 +18,12 @@ use std::thread;
 use std::time::Instant;
 
 use clap::{Args, Parser, Subcommand};
-use outliers_sim_engine::spec::{
+use simulancer_engine::spec::{
     Arrivals, BinaryOp, Changeover, Count, Distribution, Expr, InputRule, Node, OrderQuantity,
     PerType, QueueOrder, Routing, ServerKind, Spec,
 };
-use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
-use outliers_sim_model::Model;
+use simulancer_engine::{NoTrace, parallel_replications, simulate};
+use simulancer_model::Model;
 
 /// Open-source discrete event simulation. Models are YAML files.
 #[derive(Parser)]
@@ -160,7 +160,7 @@ fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
     }
     let e = &base_spec.experiment;
     if *e != scenario_spec.experiment {
-        let describe = |x: &outliers_sim_engine::spec::Experiment| {
+        let describe = |x: &simulancer_engine::spec::Experiment| {
             format!(
                 "seed {}, {} replications, warm-up {}, run length {}",
                 x.seed,

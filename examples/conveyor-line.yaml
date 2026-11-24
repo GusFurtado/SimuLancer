@@ -6,7 +6,7 @@
 # and each server's effective capacity, after failures, is only slightly above that.
 # Small disturbances spread through the whole line.
 
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: conveyor-line
 description: Two-server serial line with accumulating conveyors and random failures.
 

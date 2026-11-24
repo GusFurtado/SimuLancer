@@ -3,14 +3,14 @@
 
 use std::collections::HashMap;
 
-use outliers_sim_engine::SimTime;
-use outliers_sim_engine::spec::{
+use serde_saphyr::Spanned;
+use simulancer_engine::SimTime;
+use simulancer_engine::spec::{
     Arrivals, Attribute, Changeover, ConnectionKind, Conveyor, Count, Distribution, Experiment,
     Expr, Failure, FailureClock, Fleet, InputRule, MAX_ATTRIBUTES, MAX_CARRIED, Node, OnFailure,
     OrderQuantity, PacedLine, PerType, QueueOrder, Resource, Restock, Routing, Schedule, Server,
     ServerKind, Sink, Source, Spec, WhenBlocked,
 };
-use serde_saphyr::Spanned;
 
 use crate::ThroughputPer;
 use crate::diagnostic::{Diagnostic, Position};

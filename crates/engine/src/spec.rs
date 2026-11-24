@@ -1,6 +1,6 @@
 //! The validated model the engine runs, in standard units.
 //!
-//! Built by `outliers-sim-model` from a YAML file. Objects refer to each other
+//! Built by `simulancer-model` from a YAML file. Objects refer to each other
 //! by index, in file order, so the same file always produces the same `Spec`.
 //! All durations are seconds and all lengths are meters.
 

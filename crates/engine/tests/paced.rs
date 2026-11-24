@@ -1,9 +1,9 @@
 //! Paced (indexing) lines: stations move their parts on together.
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, Spec, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, Spec, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -17,7 +17,7 @@ fn run(yaml: &str) -> ReplicationResult {
 fn model(lines: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: paced
 entities:
   part: {{}}
@@ -82,7 +82,7 @@ fn a_slow_station_stops_the_line() {
 
 #[test]
 fn line_errors() {
-    let errors = |yaml: &str| match outliers_sim_model::load_str(yaml) {
+    let errors = |yaml: &str| match simulancer_model::load_str(yaml) {
         Ok(_) => panic!("expected an error"),
         Err(e) => e
             .diagnostics()

@@ -1,9 +1,9 @@
 //! Arrival rates that change with the time of day (`arrivals_per_hour`).
 
-use outliers_sim_engine::{Observer, SimTime, Spec, TraceEvent, simulate};
+use simulancer_engine::{Observer, SimTime, Spec, TraceEvent, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -13,7 +13,7 @@ fn spec(yaml: &str) -> Spec {
 fn model(arrivals: &str, schedule: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: profile
 entities:
   part: {{}}
@@ -108,7 +108,7 @@ fn a_profile_combines_with_a_schedule() {
 
 #[test]
 fn profile_errors() {
-    let errors = |arrivals: &str| match outliers_sim_model::load_str(&model(arrivals, "")) {
+    let errors = |arrivals: &str| match simulancer_model::load_str(&model(arrivals, "")) {
         Ok(_) => panic!("{arrivals}: expected an error"),
         Err(e) => e
             .diagnostics()

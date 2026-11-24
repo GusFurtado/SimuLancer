@@ -1,4 +1,4 @@
-/* Shared styles for the outliers-sim pages. Light and dark tokens match the report. */
+/* Shared styles for the SimuLancer pages. Light and dark tokens match the report. */
   :root {
     color-scheme: light;
     --page: #f9f9f7;
@@ -9,6 +9,7 @@
     --grid: #e1e0d9;
     --axis: #c3c2b7;
     --ring: rgba(11, 11, 11, 0.10);
+    --brand: #c62828;
     --accent: #2a78d6;
     --accent-ink: #ffffff;
     --accent-wash: rgba(42, 120, 214, 0.10);
@@ -34,7 +35,7 @@
       color-scheme: dark;
       --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
       --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10);
-      --accent: #3987e5; --accent-ink: #0b0b0b; --accent-wash: rgba(57, 135, 229, 0.16);
+      --brand: #c62828; --accent: #3987e5; --accent-ink: #0b0b0b; --accent-wash: rgba(57, 135, 229, 0.16);
       --danger: #e66767; --danger-wash: rgba(230, 103, 103, 0.12); --changed: #c98500;
       --good: #3dbb84; --good-wash: rgba(61, 187, 132, 0.14);
       --busy: #3987e5; --blocked: #d95926; --failed: #199e70; --idle: #4a4a46; --off: #6b6a66;
@@ -46,7 +47,7 @@
     color-scheme: dark;
     --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
     --grid: #2c2c2a; --axis: #383835; --ring: rgba(255, 255, 255, 0.10);
-    --accent: #3987e5; --accent-ink: #0b0b0b; --accent-wash: rgba(57, 135, 229, 0.16);
+    --brand: #c62828; --accent: #3987e5; --accent-ink: #0b0b0b; --accent-wash: rgba(57, 135, 229, 0.16);
     --danger: #e66767; --danger-wash: rgba(230, 103, 103, 0.12); --changed: #c98500;
     --good: #3dbb84; --good-wash: rgba(61, 187, 132, 0.14);
     --busy: #3987e5; --blocked: #d95926; --failed: #199e70; --idle: #4a4a46; --off: #6b6a66;
@@ -78,7 +79,7 @@
   input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   .shell { display: flex; flex-direction: column; height: 100%; }
-  .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; background: var(--surface); box-shadow: 0 1px 0 var(--ring); position: relative; z-index: 1; }
+  .topbar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px; background: var(--surface); box-shadow: inset 0 3px 0 var(--brand), 0 1px 0 var(--ring); position: relative; z-index: 1; }
   .topbar .back { display: inline-flex; align-items: center; margin-left: -6px; padding: 6px 12px 6px 6px; border-radius: 8px; color: var(--ink-2); text-decoration: none; font-size: 13px; }
   .topbar .back:hover { background: var(--accent-wash); color: var(--ink); }
   .topbar .back svg.icon { margin-right: 4px; vertical-align: 0; }
@@ -213,8 +214,10 @@
   /* Landing page (the project list) and shared bits for /modeling and /simulation. */
   .doors { max-width: 980px; margin: 8vh auto 40px; padding: 0 16px; }
   .doors h1 { font-size: 28px; margin: 0 0 6px; }
-  .doors h1.brand { margin-bottom: 10px; line-height: 0; }
+  .doors h1.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; line-height: 0; }
+  .brand img { width: 44px; height: 44px; }
   .brand svg { height: 30px; width: auto; fill: currentColor; }
+  .brand svg .lancer { fill: var(--brand); }
   .doors > p { color: var(--ink-2); margin: 0 0 28px; }
   .door-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
   a.door { display: block; text-decoration: none; color: inherit; background: var(--surface); border-radius: 14px; box-shadow: 0 0 0 1px var(--ring); padding: 22px; }

@@ -133,7 +133,7 @@
 <body>
 <main id="app"></main>
 <div class="tooltip" id="tooltip" role="status" aria-live="polite"></div>
-<script type="application/json" id="data">__OUTLIERS_SIM_DATA__</script>
+<script type="application/json" id="data">__SIMULANCER_DATA__</script>
 <script>
 "use strict";
 const data = JSON.parse(document.getElementById("data").textContent);
@@ -260,7 +260,7 @@ function header() {
     ...(e.description ? [el("p", { class: "lede" }, e.description)] : []),
     el("p", { class: "meta" },
       `${reps} × ${duration(e.run_length)} measured after ${duration(e.warmup)} warm-up · ` +
-      `seed ${e.seed} · ${Math.round(e.confidence * 100)}% confidence intervals · outliers-sim ${e.version}`),
+      `seed ${e.seed} · ${Math.round(e.confidence * 100)}% confidence intervals · SimuLancer ${e.version}`),
   );
 }
 

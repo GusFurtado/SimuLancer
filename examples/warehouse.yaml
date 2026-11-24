@@ -14,7 +14,7 @@
 # themselves; trucks restock the racks. Forklifts carry the pallets from
 # the dock to the racks, 60 m, one at a time (═>), and drive back empty.
 
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: warehouse
 description: Trucks of pallets put away by forklifts, broken into cartons on the pick shelves; orders picked, packed and dispatched.
 

@@ -150,7 +150,7 @@ pub fn describe(spec: &ResultSpec, c: &Comparison) -> Value {
         sentence += &format!(" · {judgment}");
     }
 
-    let stats = |s: &outliers_sim_engine::stats::Summary| json!({ "mean": finite(s.mean), "half_width": finite(s.half_width) });
+    let stats = |s: &simulancer_engine::stats::Summary| json!({ "mean": finite(s.mean), "half_width": finite(s.half_width) });
     json!({
         "label": spec.label,
         "object": spec.object,

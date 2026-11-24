@@ -1,7 +1,7 @@
 //! Scenario files: a base model plus a list of changes.
 //!
 //! ```yaml
-//! format: outliers-sim-scenario/0.1
+//! format: simulancer-scenario/0.1
 //! name: two-cells-first-available
 //! base: two-cells.yaml
 //! changes:
@@ -23,7 +23,7 @@ use crate::raw::OrderedMap;
 use crate::{Model, load_str, parse_yaml};
 
 /// The `format:` value of scenario files.
-pub const SCENARIO_FORMAT: &str = "outliers-sim-scenario/0.1";
+pub const SCENARIO_FORMAT: &str = "simulancer-scenario/0.1";
 
 /// A parsed scenario file, before it's applied to its base.
 #[derive(Debug, Deserialize)]
@@ -63,7 +63,7 @@ pub fn is_scenario(source: &str) -> bool {
     serde_saphyr::from_str::<Peek>(source)
         .ok()
         .and_then(|p| p.format)
-        .is_some_and(|f| f.starts_with("outliers-sim-scenario/"))
+        .is_some_and(|f| f.starts_with("simulancer-scenario/"))
 }
 
 pub fn parse_scenario(source: &str) -> Result<Scenario, LoadError> {

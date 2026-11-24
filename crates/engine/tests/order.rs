@@ -1,10 +1,10 @@
 //! Which part goes next: queue order, input rules by attribute, and
 //! priorities for resources.
 
-use outliers_sim_engine::{NoTrace, SimTime, Spec, TraceEvent, simulate};
+use simulancer_engine::{NoTrace, SimTime, Spec, TraceEvent, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -38,7 +38,7 @@ fn started(spec: &Spec, server: usize) -> Vec<(u64, f64)> {
 fn burst(order: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: burst
 entities:
   part: {{}}
@@ -98,7 +98,7 @@ fn servers_take_the_lowest_or_highest_waiting_part() {
         let rule = format!("{{ rule: {rule_name}, by: size }}");
         format!(
             r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: lines
 entities:
   part: {{}}
@@ -143,7 +143,7 @@ fn resources_serve_their_order_first() {
     let yaml = |order: &str| {
         format!(
             r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: operator
 entities:
   part: {{}}

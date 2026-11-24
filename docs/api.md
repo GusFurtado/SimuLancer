@@ -1,10 +1,10 @@
 # HTTP API (v1)
 
-`outliers-sim serve` exposes this API. The web pages use nothing else: the Modeling page (`/modeling`), the Simulation page (`/simulation`), and anything you write yourself, are all clients of this API.
+`simulancer serve` exposes this API. The web pages use nothing else: the Modeling page (`/modeling`), the Simulation page (`/simulation`), and anything you write yourself, are all clients of this API.
 
 ```sh
-outliers-sim serve --data ./data --port 8080          # this machine only
-outliers-sim serve --data ./data --host 0.0.0.0       # other machines (put it behind your proxy)
+simulancer serve --data ./data --port 8080          # this machine only
+simulancer serve --data ./data --host 0.0.0.0       # other machines (put it behind your proxy)
 ```
 
 - All bodies are JSON. Responses are gzip-compressed when the client accepts it.
@@ -27,7 +27,7 @@ outliers-sim serve --data ./data --host 0.0.0.0       # other machines (put it b
 ## Decisions and results in `project.yaml`
 
 ```yaml
-format: outliers-sim-project/0.1
+format: simulancer-project/0.1
 name: Two cells
 model: model.yaml
 decisions:

@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use outliers_sim_engine::spec::Spec;
-use outliers_sim_engine::stats::Summary;
-use outliers_sim_engine::{NoTrace, parallel_replications, simulate};
-use outliers_sim_model::{EventLog, Layout, Model};
+use simulancer_engine::spec::Spec;
+use simulancer_engine::stats::Summary;
+use simulancer_engine::{NoTrace, parallel_replications, simulate};
+use simulancer_model::{EventLog, Layout, Model};
 
 use crate::measures::{self, Measure};
 use crate::output;

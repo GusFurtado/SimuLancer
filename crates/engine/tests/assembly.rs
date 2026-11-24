@@ -1,9 +1,9 @@
 //! Assembly (kits of components make a new part) and batches.
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, Spec, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, Spec, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -26,7 +26,7 @@ fn assert_conserved(r: &ReplicationResult) {
 
 /// A frame a minute, a wheel every 30 s; a bike is a frame and two wheels.
 const BIKES: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: bikes
 entities: { frame: {}, wheel: {}, bike: {} }
 sources:
@@ -95,7 +95,7 @@ fn an_assembly_can_keep_the_clock_of_one_component() {
     let t = by_wheel.sinks[0].time_in_system.mean();
     assert!((t - 62.0).abs() < 1e-6, "{t}");
 
-    let errors = |yaml: &str| match outliers_sim_model::load_str(yaml) {
+    let errors = |yaml: &str| match simulancer_model::load_str(yaml) {
         Ok(_) => panic!("expected an error"),
         Err(e) => e
             .diagnostics()
@@ -126,7 +126,7 @@ fn the_scarcest_component_sets_the_pace() {
 
 /// A part a minute into an oven that bakes 10 at a time for 5 minutes.
 const OVEN: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: oven
 entities: { part: {} }
 resources:

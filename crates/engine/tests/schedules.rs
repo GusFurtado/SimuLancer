@@ -1,11 +1,11 @@
 //! Schedules: weekly working times for sources, servers and resources.
 //! Time 0 is Monday 00:00.
 
-use outliers_sim_engine::spec::Schedule;
-use outliers_sim_engine::{NoTrace, ReplicationResult, SimTime, Spec, simulate};
+use simulancer_engine::spec::Schedule;
+use simulancer_engine::{NoTrace, ReplicationResult, SimTime, Spec, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -52,7 +52,7 @@ fn weekly_periods_and_changes() {
 
 /// A part every 10 min into a 5 min machine that drains to a sink.
 const LINE: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: line
 entities: { part: {} }
 schedules: {}
@@ -189,8 +189,8 @@ fn resources_off_shift_hand_out_nothing() {
 
 #[test]
 fn on_time_counts_working_time_in_any_window() {
-    use outliers_sim_engine::SimTime;
-    use outliers_sim_engine::spec::Schedule;
+    use simulancer_engine::SimTime;
+    use simulancer_engine::spec::Schedule;
     let h = |hours: i64| SimTime::from_micros(hours * 3600 * 1_000_000);
     // Weekdays 06:00-14:00: 8 h a day, 40 h a week.
     let s = Schedule {

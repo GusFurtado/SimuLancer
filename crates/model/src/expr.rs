@@ -4,7 +4,7 @@
 //! Arguments are positional or named (`mean: 10 min`). Most are times with
 //! units; shape parameters are plain numbers.
 
-use outliers_sim_engine::spec::Distribution;
+use simulancer_engine::spec::Distribution;
 
 use crate::units::{DefaultUnits, Dimension, parse_quantity};
 

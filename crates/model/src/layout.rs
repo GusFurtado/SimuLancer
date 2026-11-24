@@ -11,7 +11,7 @@ use crate::diagnostic::{Diagnostic, LoadError, Position};
 use crate::raw::OrderedMap;
 use crate::units::{DefaultUnits, Dimension, parse_quantity};
 use crate::{Model, parse_yaml};
-use outliers_sim_engine::spec::Node;
+use simulancer_engine::spec::Node;
 
 /// What a source, server, sink, fleet of vehicles or part type can be drawn
 /// as (`model:` in a layout), and which kinds of thing can use it. The web pages draw them

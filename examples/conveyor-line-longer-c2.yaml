@@ -1,6 +1,6 @@
 # conveyor-line.yaml with conveyor c2 twice as long: room for 32 parts instead of 16.
-# Compare with: outliers-sim compare examples/conveyor-line.yaml examples/conveyor-line-longer-c2.yaml
-format: outliers-sim-scenario/0.1
+# Compare with: simulancer compare examples/conveyor-line.yaml examples/conveyor-line-longer-c2.yaml
+format: simulancer-scenario/0.1
 name: conveyor-line-longer-c2
 description: The conveyor-line example with c2 twice as long (room for 32 parts instead of 16).
 base: conveyor-line.yaml

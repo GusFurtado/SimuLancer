@@ -1,9 +1,9 @@
 //! Closing the doors but serving who's inside: `finish_work` on a schedule.
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, Spec, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, Spec, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -18,7 +18,7 @@ fn run(yaml: &str) -> ReplicationResult {
 fn bank(finish_work: bool, needs: &str) -> String {
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: closing
 entities:
   customer: {{}}

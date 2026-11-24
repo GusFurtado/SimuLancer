@@ -1,4 +1,4 @@
-use outliers_sim_model::{LOOKS, Model, load_layout, load_str};
+use simulancer_model::{LOOKS, Model, load_layout, load_str};
 
 const MODEL: &str = include_str!("../../../examples/conveyor-line.yaml");
 const LAYOUT: &str = include_str!("../../../examples/conveyor-line.layout.yaml");

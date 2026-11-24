@@ -147,7 +147,7 @@ mod tests {
     #[test]
     fn readable_output() {
         let tree = json!({
-            "format": "outliers-sim/0.1",
+            "format": "simulancer/0.1",
             "entities": { "part": {} },
             "servers": {
                 "mill": {
@@ -165,7 +165,7 @@ mod tests {
         let text = to_yaml(&tree);
         assert_eq!(
             text,
-            r#"format: outliers-sim/0.1
+            r#"format: simulancer/0.1
 entities:
   part: {}
 servers:

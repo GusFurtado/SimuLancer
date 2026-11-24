@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Browser test of the web pages: starts `outliers-sim serve` on a fresh data
+# Browser test of the web pages: starts `simulancer serve` on a fresh data
 # folder (which starts with no projects) and a headless Firefox, then drives
 # an engineer's and a manager's session
 # (tests/ui/test_ui.py), after checking the animation's replay against the
@@ -26,7 +26,7 @@ trap cleanup EXIT
 
 cargo build -q --release --manifest-path "$ROOT/Cargo.toml"
 mkdir -p "$WORK/profile"
-"$ROOT/target/release/outliers-sim" serve --data "$WORK/data" --port "$PORT" >"$WORK/server.log" 2>&1 &
+"$ROOT/target/release/simulancer" serve --data "$WORK/data" --port "$PORT" >"$WORK/server.log" 2>&1 &
 SERVER=$!
 echo "user_pref(\"marionette.port\", $MARIONETTE);" >"$WORK/profile/user.js"
 firefox --headless --marionette --no-remote --profile "$WORK/profile" >"$WORK/firefox.log" 2>&1 &
@@ -43,7 +43,7 @@ if [ -z "$ready" ]; then
 fi
 # The web animation's replay against the engine, on logs the current CLI writes.
 for model in deterministic two-servers routing kits; do
-  "$ROOT/target/release/outliers-sim" run "$ROOT/tests/replay/fixtures/$model.yaml" --output-dir "$WORK/replay/$model" >/dev/null
+  "$ROOT/target/release/simulancer" run "$ROOT/tests/replay/fixtures/$model.yaml" --output-dir "$WORK/replay/$model" >/dev/null
 done
 python3 "$ROOT/tests/replay/test_replay.py" "http://127.0.0.1:$PORT/" "$MARIONETTE" "$WORK/replay"
 python3 "$ROOT/tests/ui/test_ui.py" "http://127.0.0.1:$PORT/" "$MARIONETTE" "$SHOTS"

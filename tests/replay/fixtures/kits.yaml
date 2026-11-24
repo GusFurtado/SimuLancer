@@ -1,6 +1,6 @@
 # Assembly, a batch oven, a shared operator and a shift: every kind of
 # event the replay has to follow.
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: kits
 entities: { frame: {}, wheel: {}, bike: {} }
 resources:

@@ -1,8 +1,8 @@
 //! The measures a run reports, one value per replication, in standard units.
 
-use outliers_sim_engine::ReplicationResult;
-use outliers_sim_engine::spec::{Arrivals, Spec, WhenBlocked};
-use outliers_sim_model::{Outputs, SummaryItem, ThroughputPer};
+use simulancer_engine::ReplicationResult;
+use simulancer_engine::spec::{Arrivals, Spec, WhenBlocked};
+use simulancer_model::{Outputs, SummaryItem, ThroughputPer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {

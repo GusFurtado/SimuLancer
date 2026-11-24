@@ -7,7 +7,7 @@
 //! to be precise enough (relative standard error below a bound) for that to
 //! mean something. Seeds are fixed, so results don't change between runs.
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, Spec, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, Spec, simulate};
 
 const REPLICATIONS: u32 = 20;
 
@@ -26,7 +26,7 @@ fn single_queue(interarrival: &str, server: &str, extra_conveyor_in: Option<&str
     };
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: queue
 entities:
   part: {{}}
@@ -52,7 +52,7 @@ experiment:
 const TRANSIT: f64 = 0.002;
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -321,7 +321,7 @@ fn tandem_mm1_queues() {
     let lambda = 1.0 / 60.0;
     let yaml = format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: tandem
 entities:
   part: {{}}
@@ -400,7 +400,7 @@ fn poisson_split_into_two_mm1_queues() {
     // λ₂ = 0.6/min (mean service 1.2 min, ρ = 0.72). W = 1 / (μ − λ).
     let yaml = format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: split
 entities: {{ part: {{}} }}
 sources:
@@ -453,7 +453,7 @@ fn mm1_with_bernoulli_feedback() {
     // Little's law T = 1 / ((1 − p)(μ − λ/(1 − p))) = 3 min.
     let yaml = format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: feedback
 entities: {{ part: {{}} }}
 sources:
@@ -509,7 +509,7 @@ fn queue_line(
     let capacity = capacity.map_or(String::new(), |c| format!(", capacity: {c}"));
     format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: queues
 entities:
   part: {{}}
@@ -596,7 +596,7 @@ fn mm1_with_two_priority_classes_waits_as_cobham_says() {
     // urgent 0.8 / 0.6 = 1.333 min, normal 0.8 / (0.6 × 0.2) = 6.667 min.
     let yaml = format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: priorities
 entities:
   urgent: {{}}
@@ -649,7 +649,7 @@ fn mm1_with_impatient_customers_gives_up_as_erlang_a_says() {
     let gave_up = waiting * theta / lambda;
     let yaml = format!(
         r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: impatient
 entities:
   customer: {{}}

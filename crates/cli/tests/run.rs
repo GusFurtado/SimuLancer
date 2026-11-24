@@ -1,10 +1,10 @@
-//! End-to-end tests of the `outliers-sim` binary.
+//! End-to-end tests of the `simulancer` binary.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const BIN: &str = env!("CARGO_BIN_EXE_outliers-sim");
+const BIN: &str = env!("CARGO_BIN_EXE_simulancer");
 
 /// The SVG namespace is the only URL the report may contain.
 const SVG_NS: &str = "http://www.w3.org/2000/svg";
@@ -15,7 +15,7 @@ fn example() -> PathBuf {
 
 /// A fresh, empty directory for one test's output.
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("outliers-sim-test-{}-{name}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("simulancer-test-{}-{name}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -25,7 +25,7 @@ fn run(args: &[&str]) -> Output {
     let output = Command::new(BIN).args(args).output().unwrap();
     assert!(
         output.status.success(),
-        "outliers-sim {args:?} failed:\n{}",
+        "simulancer {args:?} failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
     output
@@ -48,7 +48,7 @@ fn run_writes_results_and_event_log() {
 
     let summary: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(dir.join("summary.json")).unwrap()).unwrap();
-    assert_eq!(summary["format"], "outliers-sim-summary/0.1");
+    assert_eq!(summary["format"], "simulancer-summary/0.1");
     assert_eq!(summary["replications"], 4);
     let busy = summary["measures"]
         .as_array()
@@ -77,7 +77,7 @@ fn run_writes_results_and_event_log() {
         embedded["measures"][0]["values"].as_array().unwrap().len(),
         4
     );
-    assert!(!report.contains("__OUTLIERS_SIM_DATA__"));
+    assert!(!report.contains("__SIMULANCER_DATA__"));
     assert!(
         !report.replace(SVG_NS, "").contains("http"),
         "report must not load anything"
@@ -86,7 +86,7 @@ fn run_writes_results_and_event_log() {
     let events = fs::read_to_string(dir.join("events.jsonl")).unwrap();
     let mut lines = events.lines();
     let header: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
-    assert_eq!(header["format"], "outliers-sim-events/0.1");
+    assert_eq!(header["format"], "simulancer-events/0.1");
     assert_eq!(header["replication"], 1);
     assert_eq!(header["conveyors"][0]["capacity"], 24);
     let first: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();

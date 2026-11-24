@@ -1,6 +1,6 @@
 # two-cells.yaml with `round_robin` instead of `shortest_queue` at the source.
-# Compare with: outliers-sim compare examples/two-cells.yaml examples/two-cells-round-robin.yaml
-format: outliers-sim-scenario/0.1
+# Compare with: simulancer compare examples/two-cells.yaml examples/two-cells-round-robin.yaml
+format: simulancer-scenario/0.1
 name: two-cells-round-robin
 description: two-cells with `round_robin` routing at the source instead of `shortest_queue`.
 base: two-cells.yaml

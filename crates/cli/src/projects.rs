@@ -24,7 +24,7 @@ use std::process::Command;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-pub const PROJECT_FORMAT: &str = "outliers-sim-project/0.1";
+pub const PROJECT_FORMAT: &str = "simulancer-project/0.1";
 pub const PROJECT_FILE: &str = "project.yaml";
 pub const DOCUMENTATION_FILE: &str = "README.md";
 
@@ -49,7 +49,7 @@ impl ProjectFile {
     /// As `project.yaml` text.
     pub fn to_text(&self) -> String {
         let tree = serde_json::to_value(self).expect("a project file is plain data");
-        outliers_sim_model::to_yaml(&tree)
+        simulancer_model::to_yaml(&tree)
     }
 
     pub fn layout_file(&self) -> String {
@@ -455,9 +455,9 @@ pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
         .arg(dir)
         .args([
             "-c",
-            "user.name=outliers-sim",
+            "user.name=simulancer",
             "-c",
-            "user.email=outliers-sim@localhost",
+            "user.email=simulancer@localhost",
             "-c",
             "commit.gpgsign=false",
             "-c",
@@ -612,10 +612,8 @@ mod tests {
     use super::*;
 
     fn temp(name: &str) -> Projects {
-        let root = std::env::temp_dir().join(format!(
-            "outliers-sim-projects-{}-{name}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("simulancer-projects-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         Projects::new(root)

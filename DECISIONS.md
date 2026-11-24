@@ -1,6 +1,4 @@
-# outliers-sim: Decisions
-
-Working name. Separate from the `outliers` workspace.
+# SimuLancer: Decisions
 
 ## Decided (2026-10-09)
 
@@ -116,7 +114,7 @@ Working name. Separate from the `outliers` workspace.
 
 - **Pass rule:** 20 replications × 1000 h after a 50 h warm-up. The exact value must be within 4 standard errors of the estimate, and the relative standard error must be ≤ 2% (≤ 1% for utilization), so a pass actually means something. Seeds are fixed, so tests never flake.
 - **Bias check:** with the default seed, all estimates were slightly low (between −0.4 and −1.7 SE). They share the arrival stream through common random numbers, so they move together. Seeds 7, 12345 and 99 flip the signs (seed 12345 is mostly positive), so there's no sign of bias.
-- The engine is built with `opt-level = 3` even in debug builds (`[profile.dev.package.outliers-sim-engine]`), so the whole test suite runs in about 5 s.
+- The engine is built with `opt-level = 3` even in debug builds (`[profile.dev.package.simulancer-engine]`), so the whole test suite runs in about 5 s.
 
 ## `run` and result files (implemented 2026-10-09)
 
@@ -126,7 +124,7 @@ Working name. Separate from the `outliers` workspace.
   - `summary.json`: one entry per measure with n, mean, half-width, sd, min and max, in standard units with an explicit `unit` field (`s`, `fraction`, `parts`, `parts/h`, `count`).
   - `replications.csv`: long format, one row per replication × measure. Raw values for spreadsheets, pandas or R.
   - `events.jsonl`: only when the model sets `outputs.event_log: jsonl`, and for one replication (`--log-replication`, default 1). The whole run is included, warm-up too.
-- **Event log format, decided: JSON Lines** (`outliers-sim-events/0.1`). The first line is a header with the model structure the viewer needs (conveyor ends, length, speed, spacing and capacity; server capacity and failure names). Then one event per line, with `t` in seconds written exactly to the µs, and objects referred to by name. Size: about 6 MB / 88k lines for 128 h of the conveyor line. Parquet can come later if size becomes a problem.
+- **Event log format, decided: JSON Lines** (`simulancer-events/0.1`). The first line is a header with the model structure the viewer needs (conveyor ends, length, speed, spacing and capacity; server capacity and failure names). Then one event per line, with `t` in seconds written exactly to the µs, and objects referred to by name. Size: about 6 MB / 88k lines for 128 h of the conveyor line. Parquet can come later if size becomes a problem.
 - Display units are chosen per measure by the table (fractions → %, durations → s/min/h by magnitude). Files always use standard units.
 
 ## HTML report (implemented 2026-10-09)
@@ -163,7 +161,7 @@ Working name. Separate from the `outliers` workspace.
   A deliberately broken accumulation rule makes the replay test fail. The rendered look can't be checked here: there's no display on the server.
 
 - **Demo:** `viewer/demo/` holds replication 1 of the conveyor-line example (`events.jsonl.gz`, about 650 KB, plus `layout.json`). The viewer opens it when started without arguments, e.g. from the Android Godot Editor, where the Rust CLI can't run. `make_demo.sh` regenerates it byte for byte (`gzip -n`), and `run_all.sh` fails if the committed demo doesn't match the current CLI. The viewer reads `.jsonl.gz` as well as `.jsonl`.
-- **Repository:** `GusFurtado/outliers-sim` on GitHub, private for now (2026-10-09), so the tablet can pull the viewer. It's meant to go public later.
+- **Repository:** `GusFurtado/simulancer` on GitHub, private for now (2026-10-09), so the tablet can pull the viewer. It's meant to go public later.
 
 ## Routing and merging (implemented 2026-10-09)
 
@@ -203,7 +201,7 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
 
 ## Scenario comparison (implemented 2026-10-09)
 
-- `outliers-sim compare base.yaml scenario.yaml` runs both models with the same seed and replication numbers. Random streams come from (seed, replication, object name), so wherever the two models share names they see the same arrivals, process times and failures (common random numbers).
+- `simulancer compare base.yaml scenario.yaml` runs both models with the same seed and replication numbers. Random streams come from (seed, replication, object name), so wherever the two models share names they see the same arrivals, process times and failures (common random numbers).
 - **Paired differences:** for each measure in both models (matched by object type, object and measure name), the difference is computed per replication (scenario − base). The report shows its mean, a 95% t confidence interval and a verdict: *higher* or *lower* when the CI excludes zero, otherwise *no clear difference*; *identical* when every pair is equal.
 - **Precision of pairing:** `comparison.json` also stores the Welch CI an unpaired comparison would have had. The CLI prints the median gain; for the c2 buffer example, pairing makes the CIs 5.6× narrower. A model compared with itself gives exactly zero differences (tested).
 - **Experiment settings must match:** seed, replications, warm-up and run length, or the comparison is refused with a message showing both. `--replications` overrides both.
@@ -223,7 +221,7 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
 A scenario is a base model plus a list of changes, instead of a full copy:
 
 ```yaml
-format: outliers-sim-scenario/0.1
+format: simulancer-scenario/0.1
 name: two-cells-first-available
 base: two-cells.yaml            # relative to the scenario file
 changes:
@@ -242,7 +240,7 @@ changes:
 
 The target deployment: IT hosts the simulator on a server, and users open it in a browser to configure scenarios, press play, and get a report and animation.
 
-- **One binary:** `outliers-sim serve --models <dir> --port <n>`. It serves the web UI and runs simulations on the server, natively, on all cores. Why the server and not WebAssembly in the browser: full performance, models and scenarios shared by the team, and thin clients (tablets work).
+- **One binary:** `simulancer serve --models <dir> --port <n>`. It serves the web UI and runs simulations on the server, natively, on all cores. Why the server and not WebAssembly in the browser: full performance, models and scenarios shared by the team, and thin clients (tablets work).
 - **No build step:** the web UI is plain HTML/JS compiled into the binary, like `report.html`. No npm, no CDN, works on intranets without internet.
 - **HTTP library: `axum`/`tokio`.** It's build-time weight only; the shipped binary is still a single static file with no runtime dependencies.
 - **Job queue:** concurrent runs wait their turn instead of fighting over cores; progress is streamed to the browser.
@@ -254,7 +252,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   - **Endpoints:** list, read, check and save models/scenarios; queue, poll and fetch runs.
   - **Models:** `GET /models/{file}` returns the model as a tree with a scenario's changes applied. Change paths address that tree, which is what forms read and write. Base models are never overwritten through the API; only scenarios are saved.
   - **Validation errors** name the change path at fault (`"change": "conveyors.c_a.speed"`), so the UI can mark the field.
-  - **Runs** go through the same `runner` module as `outliers-sim run`, so results are identical. A single worker thread runs one job at a time on all cores; others wait as `queued`. Progress counts finished replications. Unsaved scenarios are stored with their results as `scenario.yaml`. The run list is in memory; result folders are removed on the next start (see Deleting runs).
+  - **Runs** go through the same `runner` module as `simulancer run`, so results are identical. A single worker thread runs one job at a time on all cores; others wait as `queued`. Progress counts finished replications. Unsaved scenarios are stored with their results as `scenario.yaml`. The run list is in memory; result folders are removed on the next start (see Deleting runs).
   - **Security:** listens on `127.0.0.1` unless `--host` says otherwise. Model names are plain file names (no paths), and run files come from a fixed list, so requests can't reach outside the two folders. Responses are gzip-compressed; the event log goes from 7.3 MB to 0.8 MB.
   - **Dependencies added:** `axum`, `tokio`, `tower-http` (gzip). 109 crates in the CLI's build tree, still one static binary.
   - **Tested** through the router (6 tests: listing, detail, check, save/refuse, runs of files and unsaved scenarios, path traversal) and by hand with `curl` and the Python sweep example in `docs/api.md` against the real server.
@@ -286,10 +284,10 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.
 - **Docker image:** about 8 MB. The binary is built on Alpine (musl, static), and the final image is `scratch` with only the binary and `/data/{models,runs}` (examples preloaded), running as uid 65532. Tested here: health, model list, a run through the API, results kept in the volume, and `docker stop` in 0.25 s (clean shutdown on SIGTERM). A CI job builds the image and checks the container answers and runs.
 - **The server handles SIGTERM** (systemd, Docker) as well as Ctrl+C, and has `GET /api/v1/health` for monitoring.
-- **`deploy/outliers-sim.service`:** a dedicated system user, `StateDirectory`, listening on localhost, systemd sandboxing. `systemd-analyze verify` passes; not installed for real here (that needs root).
+- **`deploy/simulancer.service`:** a dedicated system user, `StateDirectory`, listening on localhost, systemd sandboxing. `systemd-analyze verify` passes; not installed for real here (that needs root).
 - **`deploy/nginx.conf`:** HTTPS plus basic auth in front, and a sub-path variant (the UI uses relative URLs). `nginx -t` passes.
 - **`docs/deploy.md`:** install (binary + systemd, or Docker), security, sizing, backups, cleanup, upgrades, logs.
-- **Release workflow** (`.github/workflows/release.yml`): on a `v*` tag, it builds the static binary archive and creates a GitHub release, and pushes the image to `ghcr.io/<owner>/outliers-sim`. Not run yet; it runs only when a version is tagged. Its packaging step was reproduced locally.
+- **Release workflow** (`.github/workflows/release.yml`): on a `v*` tag, it builds the static binary archive and creates a GitHub release, and pushes the image to `ghcr.io/<owner>/simulancer`. Not run yet; it runs only when a version is tagged. Its packaging step was reproduced locally.
 - **Performance fix found while packaging:** the first static build was **24× slower** than the glibc one, because musl's allocator struggles with the engine's per-event temporary allocations (conveyor position lists, routing helper lists). Those are now allocation-free: lazy position iterators, in-place updates, index loops. Static is now within about 35% of glibc (0.19 s vs 0.14 s for 120 replications of the conveyor line), and the glibc build itself got about 25% faster. Results are **byte-identical** before and after (summary, per-replication data and full event logs of every example compared).
 
 ## Three audiences, three interfaces (decided and started 2026-10-09)
@@ -305,9 +303,9 @@ Decisions so far:
 - **No access control for now:** just separate pages (`/` lists the projects, `/modeling` and `/simulation` open one). Roles come later, likely through the reverse proxy.
 - **Git stays local:** one repository per project, no remote.
 - **No review step:** the engineer publishes when they want; in practice they model alone.
-- **Projects** (`<data>/projects/<id>/`): `project.yaml` (format `outliers-sim-project/0.1`, name, description, `model:` file), the model and its `*.layout.yaml`. Git is run as a command with a fixed identity and no user config (hooks, signing). The engineer never sees it.
+- **Projects** (`<data>/projects/<id>/`): `project.yaml` (format `simulancer-project/0.1`, name, description, `model:` file), the model and its `*.layout.yaml`. Git is run as a command with a fixed identity and no user config (hooks, signing). The engineer never sees it.
 - **Engineer flow:** edits are pending changes in the browser, checked as they type, exactly like scenario changes. **Save version** applies them, rewrites the model file and commits with the engineer's message. **Publish** tags the last saved version `vN`. A published version's description defaults to that commit's message, so managers see what changed instead of "Version 2". Publishing needs a valid model and refuses an already-published or dirty working copy.
-- **Saving rewrites the model file in standard formatting** (`outliers_sim_model::to_yaml`: block-style maps and lists of maps, flow lists of plain values, quotes only when needed). Comments in hand-written files are lost on the first save from the builder. A test checks the writer round-trips every example to the identical model. Keeping formatting would need a YAML writer that edits in place; not worth it yet.
+- **Saving rewrites the model file in standard formatting** (`simulancer_model::to_yaml`: block-style maps and lists of maps, flow lists of plain values, quotes only when needed). Comments in hand-written files are lost on the first save from the builder. A test checks the writer round-trips every example to the identical model. Keeping formatting would need a YAML writer that edits in place; not worth it yet.
 - **Managers only see published versions,** read straight from git at their tag (`git show vN:file`). Later saves never change what they're looking at.
 - **Runs** take a project, a version (absent for the working copy, `latest`, `vN`) and optional changes. Each run keeps the exact model text it ran (`model.yaml`), so results stay traceable even for unsaved edits.
 - **The API changed shape** (projects instead of a flat models folder); `docs/api.md` is rewritten. `serve --data <dir>` replaces `--models`/`--runs`. An empty data folder gets the example projects, saved and published as v1.
@@ -322,7 +320,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **`/modeling` and `/simulation` show one project.** A top bar has the way back to the projects, the project's name, and a switch between editing and running the same project. The Modeling page's recent runs are this project's only. Without `?project=` the pages go back to `/`; an unknown or unpublished project gets a sentence and a link back instead of an empty page.
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
-- **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, outliers-sim.
+- **The project list is headed by the app's icon and name** (see "Name and look" below). The name is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
 ## Templates for the modeling features (2026-10-24)
@@ -797,3 +795,11 @@ Also fixed while drawing them: conveyor labels go on the longest segment, beside
 
 - Should idle be split into "starved" (nothing upstream) and "idle" (e.g. off shift), once shifts exist?
 - Manufacturing v1 scope: which constructs (sources, queues, resources, routing, breakdowns/shifts, batching, conveyors)?
+
+## Name and look: SimuLancer (2026-11-24)
+
+- **SimuLancer** (simula + lancer). Lancer is the base class of the Dragoon, whose icon from the shared RPG-class set is the app's icon.
+- **Names:** the crates (`simulancer`, `simulancer-engine`, `simulancer-model`), the binary, the Docker image, the systemd unit and user, `/var/lib/simulancer`, and the format ids (`simulancer/0.1`, `simulancer-project/0.1`, `simulancer-scenario/0.1`, `simulancer-layout/0.1`, `simulancer-events/0.1`, `simulancer-summary/0.1`, `simulancer-comparison/0.1`).
+- **Icon:** the Dragoon (crimson palette: `#C62828` background, `#F5D98B` moon, `#8B1F1F` highlight, `#1A1126` shadow), cropped from the set and masked to its rounded square: `favicon-32.png` (also served at `/favicon.ico`) and `icon-180.png` (touch icon and the project list's heading), compiled into the binary like the pages; `docs/simulancer.png` for the README.
+- **Brand color, kept to a few places:** a `--brand` token (`#C62828`) colors "Lancer" in the wordmark and a thin line along the top of the Modeling and Simulation bars. Controls stay blue and the state colors are unchanged, since red already means errors and orange a blocked server. Theme settings are planned; `--brand` is the token they would change.
+- **Wordmark:** "SimuLancer" in Montserrat Bold (with the font's kerning), outlined to SVG so the pages load no font: "Simu" in the text color, "Lancer" in the brand color.

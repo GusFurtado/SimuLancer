@@ -1,6 +1,6 @@
 # A blank project starts as this simple line: parts arrive, one machine works
 # on them, and they leave. Build on it on the Modeling page.
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: new-line
 
 entities:

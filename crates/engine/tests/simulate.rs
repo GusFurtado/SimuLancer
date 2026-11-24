@@ -1,14 +1,14 @@
 //! Engine behavior on small models with known answers. Models are written
 //! in YAML (through the model crate) because that's how people write them.
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, SimTime, Spec, TraceEvent, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, SimTime, Spec, TraceEvent, simulate};
 
 const CONVEYOR_LINE: &str = include_str!("../../../examples/conveyor-line.yaml");
 
 /// Deterministic line: a part every 60 s, 30 s of processing, 2 s on each
 /// conveyor. Every number is exact, so results can be checked exactly.
 const DETERMINISTIC: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: deterministic
 entities:
   part: {}
@@ -28,7 +28,7 @@ experiment:
 "#;
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -212,7 +212,7 @@ fn drop_loses_parts_instead_of_waiting() {
 }
 
 const TWO_SERVERS: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: two-servers
 entities:
   part: {}

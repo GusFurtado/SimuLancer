@@ -11,7 +11,7 @@
 # - mill_a always takes rework before new parts;
 # - inspect sends 10% of parts back to mill_a.
 
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: two-cells
 description: Two parallel cells, one inspection station, 10% rework back to cell A.
 

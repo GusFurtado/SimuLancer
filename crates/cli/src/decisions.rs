@@ -26,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::measures::{Measure, Unit};
-use outliers_sim_model::Words;
+use simulancer_model::Words;
 
 /// Model sections decisions can't touch: comparisons pair replications by
 /// their random numbers, which needs the same experiment in every scenario.
@@ -157,7 +157,7 @@ pub fn read(
 ) -> (Exposed, Vec<String>) {
     let mut problems = Vec::new();
     let mut exposed = Exposed::default();
-    let tree = target.and_then(|t| outliers_sim_model::to_tree(t.source).ok());
+    let tree = target.and_then(|t| simulancer_model::to_tree(t.source).ok());
 
     for (id, raw) in decisions {
         match read_decision(id, raw, tree.as_ref(), target) {
@@ -643,7 +643,7 @@ mod tests {
     }
 
     fn yaml(text: &str) -> Value {
-        outliers_sim_model::to_tree(text).unwrap()
+        simulancer_model::to_tree(text).unwrap()
     }
 
     fn read_with(text: &str, fails: &[&str]) -> (Exposed, Vec<String>) {

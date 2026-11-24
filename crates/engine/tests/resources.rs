@@ -1,9 +1,9 @@
 //! Shared resources: servers hold units while processing.
 
-use outliers_sim_engine::{NoTrace, ReplicationResult, Spec, simulate};
+use simulancer_engine::{NoTrace, ReplicationResult, Spec, simulate};
 
 fn spec(yaml: &str) -> Spec {
-    match outliers_sim_model::load_str(yaml) {
+    match simulancer_model::load_str(yaml) {
         Ok(model) => model.spec,
         Err(err) => panic!("{}", err.render("test.yaml", yaml)),
     }
@@ -16,7 +16,7 @@ fn run(spec: &Spec) -> ReplicationResult {
 /// Two lathes fed in turn, a part every 20 s, 30 s each: without help, both
 /// keep up (each gets a part every 40 s). Both need the one operator.
 const SHARED: &str = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: shared
 entities: { part: {} }
 resources:
@@ -70,7 +70,7 @@ fn one_operator_limits_two_machines() {
 fn an_operator_limits_a_multi_slot_server_like_one_slot() {
     // M/M/1 in disguise: three slots, but one operator. Utilization λ/μ = 0.6.
     let yaml = r#"
-format: outliers-sim/0.1
+format: simulancer/0.1
 name: mm1
 entities: { part: {} }
 resources:
@@ -138,7 +138,7 @@ fn units_are_given_back_when_processing_ends_not_when_parts_leave() {
 /// share a slot.
 #[test]
 fn the_log_says_who_holds_the_units_and_which_slot_works() {
-    use outliers_sim_engine::{SimTime, TraceEvent};
+    use simulancer_engine::{SimTime, TraceEvent};
     use std::collections::HashMap;
     let two_slots = SHARED
         .replace("operator: { capacity: 1 }", "operator: { capacity: 2 }")

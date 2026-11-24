@@ -1,0 +1,42 @@
+# SimuLancer: Decisions
+#
+#   sudo useradd --system --home /var/lib/simulancer --shell /usr/sbin/nologin simulancer
+#   sudo cp simulancer /usr/local/bin/
+#   sudo cp simulancer.service /etc/systemd/system/
+#   sudo systemctl enable --now simulancer
+#
+# Needs git (projects are git repositories): sudo apt install git
+# Projects live in /var/lib/simulancer/projects (the first start creates
+# the example projects), results in /var/lib/simulancer/runs. The server listens on 127.0.0.1 only: put your
+# reverse proxy (HTTPS, logins) in front of it (deploy/nginx.conf).
+
+[Unit]
+Description=SimuLancer simulation server
+Documentation=https://github.com/GusFurtado/simulancer/blob/main/docs/deploy.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=simulancer
+Group=simulancer
+# Creates /var/lib/simulancer, owned by the user above.
+StateDirectory=simulancer
+Environment=HOME=/var/lib/simulancer
+ExecStart=/usr/local/bin/simulancer serve --data /var/lib/simulancer --host 127.0.0.1 --port 8080
+Restart=on-failure
+
+# Sandboxing: the server only needs its state folder and the network.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+
+[Install]
+WantedBy=multi-user.target

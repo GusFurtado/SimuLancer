@@ -550,41 +550,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
-name = "outliers-sim"
-version = "0.1.0"
-dependencies = [
- "axum",
- "clap",
- "http-body-util",
- "outliers-sim-engine",
- "outliers-sim-model",
- "pulldown-cmark",
- "serde",
- "serde-saphyr",
- "serde_json",
- "tokio",
- "tower",
- "tower-http",
-]
-
-[[package]]
-name = "outliers-sim-engine"
-version = "0.1.0"
-dependencies = [
- "outliers-sim-model",
-]
-
-[[package]]
-name = "outliers-sim-model"
-version = "0.1.0"
-dependencies = [
- "outliers-sim-engine",
- "serde",
- "serde-saphyr",
- "serde_json",
-]
-
-[[package]]
 name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -755,6 +720,41 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+[[package]]
+name = "simulancer"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "clap",
+ "http-body-util",
+ "pulldown-cmark",
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "simulancer-engine",
+ "simulancer-model",
+ "tokio",
+ "tower",
+ "tower-http",
+]
+
+[[package]]
+name = "simulancer-engine"
+version = "0.1.0"
+dependencies = [
+ "simulancer-model",
+]
+
+[[package]]
+name = "simulancer-model"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde-saphyr",
+ "serde_json",
+ "simulancer-engine",
+]
 
 [[package]]
 name = "slab"
