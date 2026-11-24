@@ -311,7 +311,7 @@ Removes a finished run and its result folder: `204`. A queued or running run giv
 | `name` | Contents |
 |---|---|
 | `report.html` | The self-contained report. |
-| `summary.json` | Every measure with mean, 95% CI, sd, min, max, in standard units. |
+| `summary.json` | Every measure with mean, 95% CI, sd, min, max, in standard units; `warmup_check`: parts in the system per time bin (mean across replications and smoothed), and the warm-up the MSER rule suggests (`suggested`, seconds; `settles`). |
 | `replications.csv` | One row per replication × measure. |
 | `events.jsonl` | Event log of replication 1, if the model asks for one (`outputs.event_log: jsonl`). |
 | `layout.json` | The layout, if the model has one. |

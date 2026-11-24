@@ -814,3 +814,17 @@ The run list lived in memory, so every restart (an upgrade, a reboot) lost every
 - **Unfinished runs are dropped:** a run folder without a readable `run.json` (queued or running when the server stopped) is removed on start, as all of them were before. Anything not named like a run is left alone.
 - **Ids continue** after the highest kept run or comparison, so new ones never collide with old ones.
 - **Not done (kept lean):** automatic limits ("keep the last N"); runs are deleted by hand from the Modeling page. Re-queuing runs that were interrupted by a stop.
+
+## Warm-up check (2026-11-24)
+
+The warm-up was explicit and applied, but nothing helped choose it. Every run now checks it.
+
+- **Response: parts in the system,** counted from the trace (created, stocked, split and assembled in; exited, lost, gave up and consumed out) by an observer, so the engine didn't change. Time-averaged over equal bins covering warm-up plus run length; every replication, the logged one through an observer that feeds both. The cost is within measurement noise (200 replications of three templates on one thread).
+- **Welch's method for the plot:** the mean across replications per bin, smoothed with a centered moving average (shorter at the start, none for the last bins), as in Law's textbook.
+- **MSER for the suggestion** (White, 1997): the cut that minimizes the spread of what's left over its length, searched up to half the series. A cut at half means the count is still changing: the run is too short or the system never settles (it keeps filling up). At least three points are kept after the cut; on a short series the rule otherwise favors a two-point tail by chance.
+- **Without shifts:** 120 bins, moving average over 11.
+- **With shifts the count follows the week,** so a fixed bin and MSER on it would cut at a phase of the cycle (the bank came out "settles after 17 h"). Bins are days, the moving average spans a week (full windows only), and MSER cuts weekly means, in whole weeks. Fewer than four full weeks: the plot only, no verdict.
+- **Where it shows:** a "Warm-up check" section in the report (the plot, the model's warm-up shaded, the suggested cut, and one sentence), `warmup_check` in `summary.json`, and a warning from `run` when the warm-up may be too short or the count never settles.
+- **On the templates:** conveyor-line (8 h warm-up) settles after about 11 h, and its longer-conveyor scenario after about 17 h; the others are covered. The templates were left as they are.
+- **Not done:** checking the run length, and a choice of response (only parts in the system for now).
+

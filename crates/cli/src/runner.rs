@@ -9,11 +9,12 @@ use std::time::{Duration, Instant};
 
 use simulancer_engine::spec::Spec;
 use simulancer_engine::stats::Summary;
-use simulancer_engine::{NoTrace, parallel_replications, simulate};
+use simulancer_engine::{parallel_replications, simulate};
 use simulancer_model::{EventLog, Layout, Model};
 
 use crate::measures::{self, Measure};
 use crate::output;
+use crate::warmup::{self, Both, PartsInSystem, WarmupCheck};
 
 pub struct RunOptions<'a> {
     pub replications: Option<u32>,
@@ -27,6 +28,8 @@ pub struct RunOptions<'a> {
 pub struct RunOutcome {
     pub spec: Spec,
     pub measures: Vec<(Measure, Summary)>,
+    /// Parts in the system over time and where MSER would cut, to check the warm-up.
+    pub warmup: Option<WarmupCheck>,
     pub elapsed: Duration,
     pub threads: usize,
     /// Files written, in the order they were written.
@@ -56,23 +59,26 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
 
     let started = Instant::now();
     let results = parallel_replications(replications, options.threads, |r| {
+        let mut parts = PartsInSystem::new(&spec);
         let result = if log_events && r == options.log_replication {
             let file = File::create(&events_path)?;
             let mut log = output::EventLog::new(BufWriter::new(file), &model.name, &spec, r)?;
-            let result = simulate(&spec, r, &mut log);
+            let result = simulate(&spec, r, &mut Both(&mut log, &mut parts));
             log.finish()?;
             result
         } else {
-            simulate(&spec, r, &mut NoTrace)
+            simulate(&spec, r, &mut parts)
         };
         if let Some(progress) = options.progress {
             progress.fetch_add(1, Ordering::Relaxed);
         }
-        Ok(result)
+        Ok((result, parts.finish()))
     })
     .into_iter()
     .collect::<std::io::Result<Vec<_>>>()
     .map_err(|e| format!("can't write {}: {e}", events_path.display()))?;
+    let (results, series): (Vec<_>, Vec<_>) = results.into_iter().unzip();
+    let warmup = warmup::check(&spec, &series);
     let elapsed = started.elapsed();
 
     let measures: Vec<_> = measures::collect(&spec, &model.outputs, &results)
@@ -90,10 +96,10 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
     };
     let mut files = vec![
         write("report.html", &|p| {
-            output::write_report(p, model, &spec, &measures)
+            output::write_report(p, model, &spec, &measures, warmup.as_ref())
         })?,
         write("summary.json", &|p| {
-            output::write_summary(p, &model.name, &spec, &measures)
+            output::write_summary(p, &model.name, &spec, &measures, warmup.as_ref())
         })?,
         write("replications.csv", &|p| {
             output::write_replications_csv(p, &measures)
@@ -109,6 +115,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
         threads: options.threads.min(replications as usize),
         spec,
         measures,
+        warmup,
         elapsed,
         files,
         logged_replication: log_events.then_some(options.log_replication),

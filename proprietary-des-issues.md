@@ -135,7 +135,7 @@ Use these to evaluate any tool, open-source or commercial:
 
 ## 16. How SimuLancer answers these issues
 
-Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-11-19.
+Kept up to date with every change. **Status:** *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). Last updated 2026-11-24.
 
 | Issue | What SimuLancer does about it | Status |
 |---|---|---|
@@ -182,7 +182,7 @@ Kept up to date with every change. **Status:** *done* (built and tested), *parti
 | Disconnected from modern data tools | CSV/JSON open in pandas or R directly. No Parquet or Python package yet. | partial |
 | **7. Statistics and methodology** | | |
 | The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. | done |
-| Warm-up and run length are guessed | The warm-up is explicit and applied automatically, but nothing yet helps choose it. | partial |
+| Warm-up and run length are guessed | Every report has a warm-up check: parts in the system over the whole run, averaged across replications and smoothed (Welch's method), with the warm-up the MSER rule suggests and a sentence saying whether the model's warm-up covers the start-up; `run` warns when it may be too short or the system never settles. With shifts it works in whole weeks. Run length isn't checked yet. | done |
 | Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
 | Comparing scenarios is unsound (implied by the above) | Paired comparison with common random numbers: an interval on the difference and a verdict. The Simulation page gives the same statistics in plain language: "Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better". | done |
 | Optimization is a black box | No optimizer yet; parameter sweeps through the API. | open |
