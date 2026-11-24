@@ -111,6 +111,7 @@
 | M/G/1 with exponential busy-time failures, preemptive resume | P-K on the completion time C = S + repairs during S | time in system, failed share, busy share |
 | Two M/M/1 in series | Burke's theorem | time in system |
 | M/M/1/5 with `when_blocked: drop` | finite-capacity formulas + PASTA | share of arrivals lost, time in system |
+| Two-machine line: exponential machines, buffer of 2 between them, the first never starved, blocking after service (added 2026-11-24) | Markov chain solved in the test (a birth–death chain, so also checked against its closed form; Buzacott & Shanthikumar) | throughput, first machine blocked, second machine starved, parts in the buffer |
 
 - **Pass rule:** 20 replications × 1000 h after a 50 h warm-up. The exact value must be within 4 standard errors of the estimate, and the relative standard error must be ≤ 2% (≤ 1% for utilization), so a pass actually means something. Seeds are fixed, so tests never flake.
 - **Bias check:** with the default seed, all estimates were slightly low (between −0.4 and −1.7 SE). They share the arrival stream through common random numbers, so they move together. Seeds 7, 12345 and 99 flip the signs (seed 12345 is mostly positive), so there's no sign of bias.
