@@ -147,6 +147,9 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/index.js", get(asset("index.js")))
         .route("/modeling.js", get(asset("modeling.js")))
         .route("/simulation.js", get(asset("simulation.js")))
+        .route("/favicon-32.png", get(asset("favicon-32.png")))
+        .route("/favicon.ico", get(asset("favicon-32.png")))
+        .route("/icon-180.png", get(asset("icon-180.png")))
         .route("/api/v1/health", get(health))
         .route("/api/v1/projects", get(list_projects).post(create_project))
         .route("/api/v1/templates", get(list_templates))
@@ -181,53 +184,63 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
-// --- web pages: plain HTML/CSS/JS compiled into the binary -------------------
+// --- web pages: plain HTML/CSS/JS and the icon, compiled into the binary -----
 
-const WEB: &[(&str, &str, &str)] = &[
+const WEB: &[(&str, &str, &[u8])] = &[
     (
         "index.html",
         "text/html; charset=utf-8",
-        include_str!("web/index.html"),
+        include_bytes!("web/index.html"),
     ),
     (
         "modeling.html",
         "text/html; charset=utf-8",
-        include_str!("web/modeling.html"),
+        include_bytes!("web/modeling.html"),
     ),
     (
         "simulation.html",
         "text/html; charset=utf-8",
-        include_str!("web/simulation.html"),
+        include_bytes!("web/simulation.html"),
     ),
     (
         "common.css",
         "text/css; charset=utf-8",
-        include_str!("web/common.css"),
+        include_bytes!("web/common.css"),
     ),
     (
         "art.js",
         "text/javascript; charset=utf-8",
-        include_str!("web/art.js"),
+        include_bytes!("web/art.js"),
     ),
     (
         "common.js",
         "text/javascript; charset=utf-8",
-        include_str!("web/common.js"),
+        include_bytes!("web/common.js"),
     ),
     (
         "index.js",
         "text/javascript; charset=utf-8",
-        include_str!("web/index.js"),
+        include_bytes!("web/index.js"),
     ),
     (
         "modeling.js",
         "text/javascript; charset=utf-8",
-        include_str!("web/modeling.js"),
+        include_bytes!("web/modeling.js"),
     ),
     (
         "simulation.js",
         "text/javascript; charset=utf-8",
-        include_str!("web/simulation.js"),
+        include_bytes!("web/simulation.js"),
+    ),
+    (
+        "favicon-32.png",
+        "image/png",
+        include_bytes!("web/favicon-32.png"),
+    ),
+    (
+        "icon-180.png",
+        "image/png",
+        include_bytes!("web/icon-180.png"),
     ),
 ];
 

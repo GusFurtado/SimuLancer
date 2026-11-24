@@ -320,7 +320,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 - **`/modeling` and `/simulation` show one project.** A top bar has the way back to the projects, the project's name, and a switch between editing and running the same project. The Modeling page's recent runs are this project's only. Without `?project=` the pages go back to `/`; an unknown or unpublished project gets a sentence and a link back instead of an empty page.
 - **The pages are called Modeling and Simulation** everywhere: UI, docs and URLs (`/modeling`, `/simulation`; they were `/build` and `/decide`, the Build and Decide pages, with no redirect since nothing depends on them yet). Each has a small line icon: connected nodes for Modeling, a play button trailed by parts for Simulation. Modeling's Run button is for testing the model; Simulation is where people use the published model to answer questions.
 - **No API link in the UI.** The app is kept minimal to make the first steps easy; the API is documented in `docs/api.md` and the README.
-- **The project list is headed "Outliers"** in Montserrat Bold, as in the Outliers Analytics logo (2026-10-22). The word is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet. Tab titles keep the product's name, simulancer.
+- **The project list is headed by the app's icon and name** (see "Name and look" below). The name is an SVG outline in `index.html`, not a web font, so the pages still load nothing from the internet.
 - **Controls say what they are:** "Show archived projects" has a caret that turns when the list opens (and `aria-expanded`), and the template search is a rounded box with a magnifying glass, so it isn't mistaken for a form field like the Name above it.
 
 ## Templates for the modeling features (2026-10-24)
@@ -798,5 +798,8 @@ Also fixed while drawing them: conveyor labels go on the longest segment, beside
 
 ## Name and look: SimuLancer (2026-11-24)
 
-- **SimuLancer** (simula + lancer). Lancer is the base class of the Dragoon.
+- **SimuLancer** (simula + lancer). Lancer is the base class of the Dragoon, whose icon from the shared RPG-class set is the app's icon.
 - **Names:** the crates (`simulancer`, `simulancer-engine`, `simulancer-model`), the binary, the Docker image, the systemd unit and user, `/var/lib/simulancer`, and the format ids (`simulancer/0.1`, `simulancer-project/0.1`, `simulancer-scenario/0.1`, `simulancer-layout/0.1`, `simulancer-events/0.1`, `simulancer-summary/0.1`, `simulancer-comparison/0.1`).
+- **Icon:** the Dragoon (crimson palette: `#C62828` background, `#F5D98B` moon, `#8B1F1F` highlight, `#1A1126` shadow), cropped from the set and masked to its rounded square: `favicon-32.png` (also served at `/favicon.ico`) and `icon-180.png` (touch icon and the project list's heading), compiled into the binary like the pages; `docs/simulancer.png` for the README.
+- **Brand color, kept to a few places:** a `--brand` token (`#C62828`) colors "Lancer" in the wordmark and a thin line along the top of the Modeling and Simulation bars. Controls stay blue and the state colors are unchanged, since red already means errors and orange a blocked server. Theme settings are planned; `--brand` is the token they would change.
+- **Wordmark:** "SimuLancer" in Montserrat Bold (with the font's kerning), outlined to SVG so the pages load no font: "Simu" in the text color, "Lancer" in the brand color.
