@@ -4,6 +4,8 @@
 
 Open-source discrete event simulation. Models are plain YAML files: you can diff them, review them, test them and run them headless.
 
+**Documentation:** [gustavofurtado.com/SimuLancer](https://www.gustavofurtado.com/SimuLancer/), with a tutorial, the model format, the methods and the HTTP API.
+
 > Early development. Sources, accumulating conveyors, queues, servers with failures, sinks, part types, part attributes set with formulas, shared resources, shifts, batches and assembly; validated against queueing theory. The model format is described in [docs/models.md](docs/models.md).
 
 ## Usage
@@ -83,7 +85,8 @@ servers:
 | `crates/cli` | The `simulancer` command (`validate`, `run`, `compare`, `serve`); the web pages are in `src/web/`, compiled into the binary. |
 | `examples/` | Example models, which are also the templates new projects start from: an assembly line, a bank branch, a warehouse, and smaller ones. `templates.yaml` tags them for the template search, `projects/*.yaml` are their project files (decisions and results), `projects/*.md` their documentation, `*.layout.yaml` their drawings, and `blank.yaml` is what a blank project starts as. |
 | `tests/` | Browser tests: `replay/` checks the animation's replay against the engine, `ui/` drives the web pages. |
-| `docs/`, `deploy/` | The model format, the HTTP API and how to deploy, with a systemd unit and an nginx example. |
+| `docs/`, `mkdocs.yml` | The documentation site (MkDocs Material): `mkdocs serve` to preview it. Published from `main` by `.github/workflows/docs.yml`. |
+| `deploy/` | A systemd unit and an nginx example, described in `docs/deploy.md`. |
 | `DECISIONS.md` | Design decisions and open questions. |
 | `proprietary-des-issues.md` | Problems with commercial DES tools that this project is a response to. |
 

@@ -7,7 +7,7 @@ SimuLancer is one program. `simulancer serve` runs the web pages (`/` lists the 
 
 ## Option 1: binary + systemd
 
-Download `simulancer-<version>-x86_64-linux.tar.gz` from the releases page, then:
+Download `simulancer-<version>-x86_64-linux.tar.gz` from the [releases page](https://github.com/GusFurtado/SimuLancer/releases), then:
 
 ```sh
 tar xzf simulancer-*-x86_64-linux.tar.gz && cd simulancer-*-x86_64-linux
@@ -66,4 +66,4 @@ For scale: 30 replications of the examples take about 0.2 s on 12 cores.
 
 ## Programs and scripts
 
-Everything the web interface does goes through the HTTP API. See `docs/api.md`, including a Python example.
+Everything the web interface does goes through the HTTP API. See [HTTP API](api.md), including a Python example.
