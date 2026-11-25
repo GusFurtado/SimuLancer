@@ -18,6 +18,7 @@
 
 ## Where to go next
 
+- [Why open source](why.md): what's wrong with commercial simulation tools, how SimuLancer answers each problem, and a comparison table.
 - [Getting started](getting-started.md): build it, run an example, open the web app.
 - [Tutorial](tutorial.md): build a model from scratch on the Modeling page and compare a scenario.
 - [Model files](models.md): the YAML format, object by object.

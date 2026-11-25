@@ -376,7 +376,7 @@ The landing page (`/`) used to ask which page you wanted, and both pages then li
 
 The first of the modeling-logic issues (#56 to #60): rules can't tell two parts of the same type apart, so dispatching, conditional routing and per-part patience all need values parts carry.
 
-- **Attributes are data, not methods.** Parts don't get code; rules read their values. That keeps the model readable top to bottom, which is the point of the format (see `proprietary-des-issues.md` §4 and §5). Categories stay part types.
+- **Attributes are data, not methods.** Parts don't get code; rules read their values. That keeps the model readable top to bottom, which is the point of the format (see `docs/why.md`, sections 4 and 5). Categories stay part types.
 - **Numbers and times only.** Text attributes (`channel: phone`) would duplicate part types. The kind comes from the default (`0` or `0 s`) and is checked in every formula.
 - **One small formula language** (`crates/model/src/formula.rs`) for `sets` now and for conditions next (#58): numbers, times with units, attributes, `now`, distributions, `+ - * /`, comparisons, `and`/`or`/`not` and `type == <part type>`. It is parsed and unit-checked when the model loads, so the engine evaluates it without errors. Plain numbers in formulas never take the model's default unit, so `uniform(1, 10)` is a number draw and `uniform(1 h, 2)` is an error rather than a guess.
 - **When `sets` apply:** at a source, on creation; at a server, when processing finishes, before routing (so a rework count can decide the way out) and before a split (whose parts inherit). An assembly keeps the attributes of the component whose clock it keeps: the order, not the parts that went into it.
