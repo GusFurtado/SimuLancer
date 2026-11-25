@@ -1,6 +1,4 @@
-<img src="docs/simulancer.png" alt="" width="96" align="right">
-
-# SimuLancer
+<h1 align="center"><img src="docs/assets/readme-banner.webp" alt="SimuLancer" width="100%"></h1>
 
 Open-source discrete event simulation. Models are plain YAML files: you can diff them, review them, test them and run them headless.
 
