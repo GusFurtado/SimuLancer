@@ -4,7 +4,7 @@
 
 Open-source discrete event simulation. Models are plain YAML files: you can diff them, review them, test them and run them headless.
 
-**Documentation:** [gustavofurtado.com/SimuLancer](https://www.gustavofurtado.com/SimuLancer/), with a tutorial, the model format, the methods and the HTTP API.
+**Documentation:** [gustavofurtado.com/SimuLancer](https://www.gustavofurtado.com/SimuLancer/), with a tutorial, the model format, the methods, the HTTP API, and [why it exists](https://www.gustavofurtado.com/SimuLancer/why/): the problems with commercial simulation tools and a comparison.
 
 > Early development. Sources, accumulating conveyors, queues, servers with failures, sinks, part types, part attributes set with formulas, shared resources, shifts, batches and assembly; validated against queueing theory. The model format is described in [docs/models.md](docs/models.md).
 
@@ -88,7 +88,6 @@ servers:
 | `docs/`, `mkdocs.yml` | The documentation site (MkDocs Material): `mkdocs serve` to preview it. Published from `main` by `.github/workflows/docs.yml`. |
 | `deploy/` | A systemd unit and an nginx example, described in `docs/deploy.md`. |
 | `DECISIONS.md` | Design decisions and open questions. |
-| `proprietary-des-issues.md` | Problems with commercial DES tools that this project is a response to. |
 
 ## Development
 

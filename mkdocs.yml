@@ -38,6 +38,7 @@ theme:
 
 nav:
   - Home: index.md
+  - Why open source: why.md
   - Getting started: getting-started.md
   - Tutorial: tutorial.md
   - Guide:
