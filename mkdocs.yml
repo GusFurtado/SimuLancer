@@ -1,0 +1,70 @@
+site_name: SimuLancer
+site_description: Open-source discrete event simulation. Models are plain YAML files you can diff, review, test and run headless.
+site_url: https://www.gustavofurtado.com/SimuLancer/
+repo_url: https://github.com/GusFurtado/SimuLancer
+repo_name: GusFurtado/SimuLancer
+edit_uri: edit/main/docs/
+
+extra_css:
+  - assets/extra.css
+
+theme:
+  name: material
+  logo: assets/icon.png
+  favicon: assets/favicon.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: red
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: red
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - content.action.edit
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Tutorial: tutorial.md
+  - Guide:
+      - Model files: models.md
+      - Scenarios: scenarios.md
+      - Results: results.md
+  - Methods:
+      - Replications and confidence intervals: methods/replications.md
+      - Warm-up: methods/warmup.md
+      - Comparing scenarios: methods/comparisons.md
+      - Validation: methods/validation.md
+  - Reference:
+      - Command line: cli.md
+      - HTTP API: api.md
+  - Deploying: deploy.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
