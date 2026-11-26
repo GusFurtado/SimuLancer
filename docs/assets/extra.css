@@ -28,3 +28,32 @@
   border: 1px solid var(--md-default-fg-color--lightest);
   border-radius: 6px;
 }
+
+/* Home page screenshots: one wide on top, two side by side below (stacked on phones). */
+.shots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+  margin: 1.5em 0;
+}
+
+.shots a {
+  display: block;
+}
+
+.shots img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 6px;
+}
+
+.shots .wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 600px) {
+  .shots {
+    grid-template-columns: 1fr;
+  }
+}
