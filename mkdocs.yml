@@ -54,6 +54,7 @@ nav:
       - Command line: cli.md
       - HTTP API: api.md
   - Deploying: deploy.md
+  - About: about.md
 
 markdown_extensions:
   - admonition
