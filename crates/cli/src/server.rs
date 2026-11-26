@@ -259,6 +259,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/common.css", get(asset("common.css")))
         .route("/art.js", get(asset("art.js")))
         .route("/common.js", get(asset("common.js")))
+        .route("/theme.js", get(asset("theme.js")))
         .route("/index.js", get(asset("index.js")))
         .route("/modeling.js", get(asset("modeling.js")))
         .route("/simulation.js", get(asset("simulation.js")))
@@ -331,6 +332,11 @@ const WEB: &[(&str, &str, &[u8])] = &[
         "common.js",
         "text/javascript; charset=utf-8",
         include_bytes!("web/common.js"),
+    ),
+    (
+        "theme.js",
+        "text/javascript; charset=utf-8",
+        include_bytes!("web/theme.js"),
     ),
     (
         "index.js",
