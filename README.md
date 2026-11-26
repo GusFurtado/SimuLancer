@@ -58,7 +58,7 @@ One static Linux binary (about 6 MB, plus git on the system) or a 41 MB Docker i
 docker run -d -p 127.0.0.1:8080:8080 -v simulancer-data:/data ghcr.io/gusfurtado/simulancer:latest
 ```
 
-`docs/deploy.md` covers the systemd service (`deploy/simulancer.service`), HTTPS and logins through your reverse proxy (`deploy/nginx.conf`), sizing, backups and upgrades. Tagging a version (`git tag v0.1.0 && git push --tags`) publishes the binary and the image.
+`docs/deploy.md` covers the systemd service (`deploy/simulancer.service`), HTTPS and logins through your reverse proxy (`deploy/nginx.conf`), sizing, backups and upgrades. The binary is on the [releases page](https://github.com/GusFurtado/SimuLancer/releases); tagging a version (`git tag v0.1.0 && git push --tags`) publishes both.
 
 ## Routing and merging
 
