@@ -113,4 +113,4 @@ A longer buffer ships 1.1 more parts per hour, but each part spends 5 minutes lo
 simulancer serve --data ./data
 ```
 
-Open <http://localhost:8080>. A new data folder has no projects: start one blank or from a template, then follow the [tutorial](tutorial.md).
+Open <http://localhost:8080>. A new data folder has no projects: start one blank or from a template, then follow the [tutorial](tutorial.md). The palette button at the top right of every page picks one of six color themes (Crimson Dragoon by default), light or dark; by default the mode follows the system.
