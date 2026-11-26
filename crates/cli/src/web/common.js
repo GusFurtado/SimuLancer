@@ -456,7 +456,9 @@ function runResults(container, run, view, onView) {
       el("span", { class: "spacer" }), ...downloads),
     body);
   if (view === "report") {
-    body.append(el("iframe", { class: "report", src: file("report.html"), title: "Report" }));
+    const report = el("iframe", { class: "report", src: file("report.html"), title: "Report" });
+    report.addEventListener("load", () => syncReportMode(report));
+    body.append(report);
   } else if (view === "animation" && !run.files.includes("events.jsonl")) {
     body.append(el("div", { class: "card note", id: "no-animation" },
       el("h3", { style: "margin-top: 0" }, "Nothing to animate in this run"),
@@ -969,3 +971,15 @@ async function startAnimation(container, run) {
   };
   a.frame = requestAnimationFrame(draw);
 }
+
+// --- themes (web/theme.js) ---------------------------------------------------
+
+// The report is a file of its own, with its own light and dark tokens: it follows the
+// page's mode, not its class.
+function syncReportMode(frame) {
+  try {
+    frame.contentDocument.documentElement.setAttribute("data-theme", document.documentElement.dataset.mode || "light");
+  } catch (e) { /* not loaded yet */ }
+}
+document.addEventListener("themechange", () => document.querySelectorAll("iframe.report").forEach(syncReportMode));
+document.querySelectorAll("[data-theme-picker]").forEach(btn => btn.addEventListener("click", () => THEME.picker(btn)));
