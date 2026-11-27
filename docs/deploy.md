@@ -2,7 +2,7 @@
 
 SimuLancer is one program. `simulancer serve` runs the web pages (`/` lists the projects; each opens on `/modeling` to edit its model or `/simulation` to compare scenarios) and their HTTP API, and runs simulations on the same machine. Users only need a browser.
 
-- **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results, kept across restarts until they're deleted from the Modeling page). A new data folder starts with no projects; people start them blank or from the built-in templates.
+- **There's no database.** One data folder holds `projects/` (one git repository per project) and `runs/` (each run's results, kept across restarts until they're deleted from the Modeling page or their project is deleted). A new data folder starts with no projects; people start them blank or from the built-in templates.
 - **The only runtime dependency is git**, used to version projects. The Linux binary itself is statically linked. The Docker image includes git.
 
 ## Option 1: binary + systemd

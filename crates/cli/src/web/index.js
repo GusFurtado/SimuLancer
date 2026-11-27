@@ -133,7 +133,7 @@ function archivedSection() {
   return [toggle, el("div", { class: "archived-list" }, ...state.archived.map(p => el("div", { class: "archived", "data-archived": p.id },
     el("span", { class: "name" }, el("b", {}, p.name), p.description ? el("span", { class: "sub" }, p.description) : null),
     state.deleting === p.id
-      ? el("span", { class: "confirm" }, `Delete ${p.name}, its versions and scenarios for good?`,
+      ? el("span", { class: "confirm" }, `Delete ${p.name}, its versions, scenarios and runs for good?`,
           el("button", { class: "danger", "data-action": "confirm-delete", onclick: () => remove(p) }, "Delete"),
           el("button", { onclick: () => { state.deleting = null; render(); } }, "Cancel"))
       : el("span", { class: "row-actions" },

@@ -511,6 +511,64 @@ impl AppState {
         state
     }
 
+    /// Whether a run of the project is queued or running.
+    fn has_unfinished_runs(&self, project: &str) -> bool {
+        self.jobs
+            .lock()
+            .expect("jobs lock")
+            .iter()
+            .any(|j| j.project == project && matches!(j.status, Status::Queued | Status::Running))
+    }
+
+    /// Removes the finished runs and the comparisons of a project that no
+    /// longer exists, from the lists and from disk, so a new project with the
+    /// same id starts with none. Comparison files are read from disk, since a
+    /// restart leaves an archived project's comparisons out of the list.
+    fn forget_project(&self, project: &str) -> Result<(), String> {
+        self.comparisons
+            .lock()
+            .expect("comparisons lock")
+            .retain(|c| c.project != project);
+        let runs: Vec<String> = {
+            let mut jobs = self.jobs.lock().expect("jobs lock");
+            let (gone, kept) = std::mem::take(&mut *jobs).into_iter().partition(|j| {
+                j.project == project && matches!(j.status, Status::Done | Status::Failed)
+            });
+            *jobs = kept;
+            gone.into_iter().map(|j: Job| j.id).collect()
+        };
+        let mut problems = Vec::new();
+        for id in runs {
+            match fs::remove_dir_all(self.runs.join(&id)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    problems.push(format!("run `{id}`: {e}"));
+                }
+                _ => {}
+            }
+        }
+        for entry in fs::read_dir(self.runs.join(COMPARISONS_DIR))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let theirs = fs::read_to_string(entry.path())
+                .ok()
+                .and_then(|text| serde_json::from_str::<StoredComparison>(&text).ok())
+                .is_some_and(|c| c.project == project);
+            if theirs && let Err(e) = fs::remove_file(entry.path()) {
+                problems.push(format!("{}: {e}", entry.path().display()));
+            }
+        }
+        if problems.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "can't remove all of project `{project}`'s results: {}",
+                problems.join("; ")
+            ))
+        }
+    }
+
     fn update(&self, id: &str, f: impl FnOnce(&mut Job)) {
         let mut jobs = self.jobs.lock().expect("jobs lock");
         if let Some(job) = jobs.iter_mut().find(|j| j.id == id) {
@@ -1003,8 +1061,8 @@ async fn restore_project(
     }
 }
 
-/// Deletes an archived project and its scenarios. A project on the list
-/// has to be archived first.
+/// Deletes an archived project with its scenarios, runs and comparisons. A
+/// project on the list has to be archived first, and its runs finished.
 async fn delete_project(
     State(state): State<Arc<AppState>>,
     UrlPath(id): UrlPath<String>,
@@ -1015,8 +1073,18 @@ async fn delete_project(
             format!("project `{id}` isn't archived; archive it before deleting it"),
         );
     }
+    if state.has_unfinished_runs(&id) {
+        return error(
+            StatusCode::CONFLICT,
+            format!("project `{id}` has runs that haven't finished; delete it when they're done"),
+        );
+    }
     match state.projects.delete_archived(&id) {
-        Ok(()) => match state.scenarios.remove_all(&id) {
+        Ok(()) => match state
+            .scenarios
+            .remove_all(&id)
+            .and_then(|()| state.forget_project(&id))
+        {
             Ok(()) => StatusCode::NO_CONTENT.into_response(),
             Err(e) => error(StatusCode::INTERNAL_SERVER_ERROR, e),
         },
@@ -1070,7 +1138,7 @@ async fn create_project(
             template,
             body.name.as_deref(),
         ) {
-            Ok(()) => (StatusCode::CREATED, Json(json!({ "id": body.id }))).into_response(),
+            Ok(()) => created(&state, &body.id),
             Err(e) if e.contains("already exists") => error(StatusCode::CONFLICT, e),
             Err(e) => error(StatusCode::BAD_REQUEST, e),
         };
@@ -1102,10 +1170,19 @@ async fn create_project(
         }
     };
     match state.projects.create(&body.id, &files, &message) {
-        Ok(()) => (StatusCode::CREATED, Json(json!({ "id": body.id }))).into_response(),
+        Ok(()) => created(&state, &body.id),
         Err(e) if e.contains("already exists") => error(StatusCode::CONFLICT, e),
         Err(e) => error(StatusCode::BAD_REQUEST, e),
     }
+}
+
+/// A new project's answer. Results still kept under its id belong to a project
+/// deleted before deleting took them along, so they go.
+fn created(state: &AppState, id: &str) -> Response {
+    if let Err(e) = state.forget_project(id) {
+        eprintln!("{e}");
+    }
+    (StatusCode::CREATED, Json(json!({ "id": id }))).into_response()
 }
 
 #[derive(Deserialize)]
@@ -2463,6 +2540,107 @@ mod tests {
         assert!(!root.join("scenarios/two-cells.json").exists());
         let (status, _) = call(&app, "DELETE", "/api/v1/projects/two-cells", None).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Deleting a project takes its runs and comparisons along, so a new
+    /// project with the same id starts clean, before and after a restart.
+    #[tokio::test]
+    async fn deleting_a_project_removes_its_runs_and_comparisons() {
+        let (app, root) = app("forget");
+        let compare = |project: &str| {
+            json!({
+                "project": project,
+                "scenarios": [{ "name": "Two inspectors", "decisions": { "inspectors": 2 } }],
+                "replications": 2,
+            })
+        };
+        let mut runs = Vec::new();
+        for _ in 0..2 {
+            let (status, c) = call(
+                &app,
+                "POST",
+                "/api/v1/comparisons",
+                Some(compare("two-cells")),
+            )
+            .await;
+            assert_eq!(status, StatusCode::ACCEPTED, "{c}");
+            for run in [&c["current"]["run"], &c["scenarios"][0]["run"]] {
+                runs.push(run.as_str().unwrap().to_string());
+            }
+        }
+        // Another project's run, which has to stay.
+        let other = json!({ "project": "warehouse", "replications": 2 });
+        let (status, run) = call(&app, "POST", "/api/v1/runs", Some(other)).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{run}");
+        runs.push(run["id"].as_str().unwrap().to_string());
+        for run in &runs {
+            wait_for(&app, run).await;
+        }
+        let comparisons_dir = root.join("runs").join(COMPARISONS_DIR);
+        assert_eq!(fs::read_dir(&comparisons_dir).unwrap().count(), 2);
+
+        call(&app, "POST", "/api/v1/projects/two-cells/archive", None).await;
+        let (status, _) = call(&app, "DELETE", "/api/v1/projects/two-cells", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, list) = call(&app, "GET", "/api/v1/comparisons", None).await;
+        assert_eq!(list["comparisons"], json!([]));
+        let (_, left) = call(&app, "GET", "/api/v1/runs", None).await;
+        let left: Vec<&str> = left["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["project"].as_str().unwrap())
+            .collect();
+        assert_eq!(left, ["warehouse"]);
+        assert_eq!(fs::read_dir(&comparisons_dir).unwrap().count(), 0);
+        let folders = fs::read_dir(root.join("runs"))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name() != COMPARISONS_DIR)
+            .count();
+        assert_eq!(folders, 1, "only warehouse's run folder is left");
+
+        // A new two-cells has nothing of the old one, also after a restart.
+        let body = json!({ "id": "two-cells", "template": "two-cells" });
+        let (status, _) = call(&app, "POST", "/api/v1/projects", Some(body)).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let app = reopen(&root);
+        let (_, list) = call(&app, "GET", "/api/v1/comparisons", None).await;
+        assert_eq!(list["comparisons"], json!([]));
+        let (_, all) = call(&app, "GET", "/api/v1/runs", None).await;
+        assert_eq!(all["runs"].as_array().unwrap().len(), 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Results left by a project deleted by hand (or before deleting took them
+    /// along) go when a project with that id is created.
+    #[tokio::test]
+    async fn a_new_project_clears_what_an_old_one_left() {
+        let (app, root) = app("leftovers");
+        let request = json!({
+            "project": "two-cells",
+            "scenarios": [{ "name": "Two inspectors", "decisions": { "inspectors": 2 } }],
+            "replications": 2,
+        });
+        let (_, c) = call(&app, "POST", "/api/v1/comparisons", Some(request)).await;
+        for run in [&c["current"]["run"], &c["scenarios"][0]["run"]] {
+            wait_for(&app, run.as_str().unwrap()).await;
+        }
+        fs::remove_dir_all(root.join("projects/two-cells")).unwrap();
+        let app = reopen(&root);
+        let comparisons_dir = root.join("runs").join(COMPARISONS_DIR);
+        assert_eq!(fs::read_dir(&comparisons_dir).unwrap().count(), 1);
+
+        let body = json!({ "id": "two-cells", "template": "two-cells" });
+        let (status, _) = call(&app, "POST", "/api/v1/projects", Some(body)).await;
+        assert_eq!(status, StatusCode::CREATED);
+        assert_eq!(fs::read_dir(&comparisons_dir).unwrap().count(), 0);
+        let (_, runs) = call(&app, "GET", "/api/v1/runs", None).await;
+        assert_eq!(runs["runs"], json!([]));
+        let app = reopen(&root);
+        let (_, list) = call(&app, "GET", "/api/v1/comparisons", None).await;
+        assert_eq!(list["comparisons"], json!([]));
         fs::remove_dir_all(root).unwrap();
     }
 
