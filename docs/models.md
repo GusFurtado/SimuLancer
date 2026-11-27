@@ -4,6 +4,7 @@ A model is one YAML file (format `simulancer/0.1`). The Modeling page writes the
 
 - `simulancer validate model.yaml` checks a model and prints what it understood.
 - Errors point to the line and say what's wrong.
+- **Format versions:** until SimuLancer 1.0, a release can change the format. A file in an older format is then refused with a message saying which release reads it; it isn't converted. The release notes announce every format change. The same goes for scenario, project and layout files.
 
 ```yaml
 format: simulancer/0.1

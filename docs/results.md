@@ -31,6 +31,7 @@ Values are in standard units (seconds, fractions, parts, parts per hour), with t
 ```json
 {
   "format": "simulancer-summary/0.1",
+  "simulancer_version": "0.1.0",
   "model": "conveyor-line",
   "seed": 20261009,
   "replications": 30,

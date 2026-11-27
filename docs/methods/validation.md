@@ -25,6 +25,14 @@ Conveyors in these models are made practically invisible (1 ms transit and room 
 - The estimate must also be precise: a relative standard error of at most 2% (1% for utilization). Otherwise a wide interval would pass anything.
 - Seeds are fixed, so a test never fails by chance from one build to the next.
 
+## Same seed, same numbers
+
+The random number generator and the distributions are SimuLancer's own, not a library's, and time is kept in integers, so a model run with the same seed gives byte-identical results, whatever the number of threads. On Linux, the release binary and a build from source give the same files.
+
+That holds across versions too: every example's `summary.json` is pinned in `tests/pinned/`, and every build runs the examples and compares the numbers exactly. A change that moves any of them fails the build. When a change is meant to move results (a bug fix in a distribution, say), the pinned copies are regenerated in the same pull request, so the diff shows what moved, and the release notes say *Results change*. A release whose notes don't say so gives the same numbers as the one before. `summary.json` records the version that ran it (`simulancer_version`).
+
+No release has changed results so far.
+
 ## No sign of bias
 
 With the default seed, every estimate came out slightly low, between −0.4 and −1.7 standard errors. Those estimates share the arrival stream through common random numbers, so they move together. Under seeds 7, 12345 and 99 the signs change, so there's no sign of a systematic bias. The newer cases pass under the same seeds.

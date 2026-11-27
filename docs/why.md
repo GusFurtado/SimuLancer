@@ -114,9 +114,9 @@ Be clear about what you give up:
 | No real version control | Projects are git repositories: on the Modeling page, **Save version** commits with a message about what changed and **Publish** tags it; the Simulation page only shows published versions. | done |
 | Huge files, multiplied by copies | A model is a few kilobytes of text (the templates are 1.4 to 2.5 KB), and each saved version is a git commit that stores only what changed: 100 saved versions of the warehouse model take 37 KB once packed, and there's one current file. Run results are kept apart from the project and can be recreated from the model and the seed. Each run can be deleted from *Recent runs*. | done |
 | Logic is scattered | The whole model is one readable file; `validate` shows everything the engine understood. | done |
-| No automated testing | The engine is [validated against queueing theory](methods/validation.md) on every build; models and scenarios can be checked in CI with `validate`. | done |
+| No automated testing | The engine is [validated against queueing theory](methods/validation.md) on every build; models and scenarios can be checked in CI with `validate`. A model's own expected results ("throughput between 55 and 62 per hour") can't be checked yet. | partial |
 | Hard to automate | A headless [command line](cli.md) and the [HTTP API](api.md); a Python parameter sweep is in the API docs. | done |
-| Results depend on the software version | Its own random number generator and distributions, so the same seed gives the same results; time is kept in integers. | done |
+| Results depend on the software version | Its own random number generator and distributions, so the same seed gives the same results; time is kept in integers. Every example's results are [pinned](methods/validation.md#same-seed-same-numbers) and checked exactly on every build, so a new version can't move a number without the release notes saying so. | done |
 | Models die with the license | No license to expire. | done |
 | Documentation by hand | The model file is the specification; `validate` prints an exact summary. What the model can't say (assumptions, business rules, data sources) goes in the project's `README.md`, written on the Modeling page's *Documentation* tab and versioned with the model; templates come with one. | partial |
 
@@ -168,8 +168,8 @@ Be clear about what you give up:
 
 | Problem | Answer | Status |
 |---|---|---|
-| The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. See [Replications](methods/replications.md). | done |
-| Warm-up and run length are guessed | Every report has a [warm-up check](methods/warmup.md) (Welch's method and the MSER rule), and `run` warns when the warm-up may be too short or the system never settles. Run length isn't checked yet. | done |
+| The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. See [Replications](methods/replications.md). Nothing says yet how many replications a result needs. | partial |
+| Warm-up and run length are guessed | Every report has a [warm-up check](methods/warmup.md) (Welch's method and the MSER rule), and `run` warns when the warm-up may be too short or the system never settles. Run length isn't checked yet. | partial |
 | Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
 | Comparing scenarios is unsound | Paired comparison on [common random numbers](methods/comparisons.md): an interval on the difference and a verdict. The Simulation page says it in words: *"Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better"*. | done |
 | Optimization is a black box | No optimizer yet; parameter sweeps through the API. | open |
@@ -294,7 +294,7 @@ Use these to judge any tool, open-source or commercial. SimuLancer's answers are
 | Can I write automated tests for model logic? | Partly: `validate` in CI, and runs are exactly reproducible from the seed |
 | Is the tool helping me do correct analysis, or just a convincing demo? | Judge for yourself: every result carries its interval, and "no clear difference" is a valid answer |
 
-**Status** in the tables above: *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). They're kept up to date with every change; last updated 2026-11-25.
+**Status** in the tables above: *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). They're kept up to date with every change; last updated 2026-11-27.
 
 ## Sources
 

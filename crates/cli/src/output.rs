@@ -134,6 +134,9 @@ pub fn write_report(
 #[derive(Serialize)]
 struct SummaryFile<'a> {
     format: &'static str,
+    /// The SimuLancer version that ran it: the same model, seed and version
+    /// give the same numbers.
+    simulancer_version: &'static str,
     model: &'a str,
     seed: u64,
     replications: u32,
@@ -174,6 +177,7 @@ pub fn write_summary(
     let file = SummaryFile {
         warmup_check: warmup,
         format: "simulancer-summary/0.1",
+        simulancer_version: env!("CARGO_PKG_VERSION"),
         model: model_name,
         seed: e.seed,
         replications: e.replications,
