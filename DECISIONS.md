@@ -130,6 +130,14 @@
 - **Event log format, decided: JSON Lines** (`simulancer-events/0.1`). The first line is a header with the model structure the viewer needs (conveyor ends, length, speed, spacing and capacity; server capacity and failure names). Then one event per line, with `t` in seconds written exactly to the µs, and objects referred to by name. Size: about 6 MB / 88k lines for 128 h of the conveyor line. Parquet can come later if size becomes a problem.
 - Display units are chosen per measure by the table (fractions → %, durations → s/min/h by magnitude). Files always use standard units.
 
+## Pinned results and format versions (2026-11-27, issue #93)
+
+- **Pinned results.** `crates/cli/tests/pinned.rs` runs every model and scenario in `examples/` with its own seed and compares `summary.json` with the copy in `tests/pinned/`, exactly (as text, minus the `simulancer_version` line). The summary is enough: it holds every measure's mean, sd, min and max, so a change in any replication shows. A change of 1e-12 in the exponential sampler fails it. A new example needs its copy; a copy without an example fails too.
+- **Moving results on purpose:** `UPDATE_PINNED=1 cargo test -p simulancer --test pinned` rewrites the copies in the same pull request, so the diff shows what moved, and the release notes get a *Results change* line. Without one, a release gives the same numbers as the one before (docs: Validation, "Same seed, same numbers").
+- `summary.json` records `simulancer_version` (the crate version).
+- The static musl binary (releases, Docker) and the glibc build used by the tests give identical files for every example (checked 2026-11-27). The engine calls the platform's `ln`, `exp`, `powf`, `sin` and `cos`, so Windows and macOS builds (#98) may differ in the last bits: check them against the pinned copies when they arrive, and switch to a pure-Rust libm if they don't match.
+- **Format versions, until 1.0:** a release may change a format (`simulancer/0.1`, `simulancer-scenario/0.1`, `simulancer-project/0.1`, `simulancer-layout/0.1`). Older files are refused, not migrated, with a message naming the last release that reads them (add that to the refusal when the first format changes). The release notes announce every format change. Chosen by the user over migrating on load or reading every old format forever. After 1.0, to be decided.
+
 ## HTML report (implemented 2026-10-09)
 
 - `run` always writes `report.html`: one self-contained file. The template (`crates/cli/src/report.html`) is compiled into the binary, and the results are embedded as JSON and drawn with plain JS and SVG. No CDN and no network: it opens offline, can be attached to an email, and still works in 10 years. It contains no timestamp, so the same model and seed give a byte-identical report (tested).

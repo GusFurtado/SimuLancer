@@ -28,6 +28,14 @@ tests/ui/run.sh                # browser tests: the animation's replay, then the
 
 CI also runs `cargo fmt --all --check` and `cargo clippy --workspace --all-targets`, and
 validates every example model: run fmt and clippy before opening a pull request.
+
+Every example's results are pinned in `tests/pinned/`, and `cargo test` fails if a number
+moves. If your change is meant to move results, regenerate them and say so in the pull
+request:
+
+```sh
+UPDATE_PINNED=1 cargo test -p simulancer --test pinned
+```
 Design decisions and open questions are recorded in
 [`DECISIONS.md`](https://github.com/GusFurtado/SimuLancer/blob/main/DECISIONS.md); read the
 relevant section before changing how something works.
