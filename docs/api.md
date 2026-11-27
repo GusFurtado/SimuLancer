@@ -154,7 +154,7 @@ Archiving takes a project off the list, keeping its files, history and scenarios
 
 ### `DELETE /api/v1/projects/{id}`
 
-Deletes an **archived** project for good, with its history and scenarios: `204`. A project on the list has to be archived first (`409`), so deleting always takes two steps.
+Deletes an **archived** project for good, with its history, scenarios, runs and comparisons: `204`. A project on the list has to be archived first (`409`), so deleting always takes two steps, and its runs have to be finished (`409` while one is queued or running).
 
 ### `POST /api/v1/projects/{id}/check`
 
