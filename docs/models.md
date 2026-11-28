@@ -30,7 +30,7 @@ outputs:    { ... }   # optional
 ## Names
 
 - **Allowed characters:** names use letters, digits, `_` and `-`, and start with a letter or `_`.
-- **Uniqueness:** sources, servers, conveyors, queues, sinks and resources share one namespace. Part types have their own.
+- **Uniqueness:** sources, servers, conveyors, queues, transports, vehicles, sinks and resources share one namespace. Part types, attributes, schedules and lines each have their own.
 
 ## What flows (`parts`)
 

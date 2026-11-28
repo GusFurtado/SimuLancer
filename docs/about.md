@@ -18,6 +18,8 @@ The web pages use no third-party code and no web fonts. The wordmark is set in
 
 ## Contributing
 
+[`CONTRIBUTING.md`](https://github.com/GusFurtado/SimuLancer/blob/main/CONTRIBUTING.md) has the details: tests, pull requests and where decisions are recorded. [Architecture](architecture.md) is the map of the code, and the [format specification](format.md) the reference for the files.
+
 Build and test with Cargo:
 
 ```sh
