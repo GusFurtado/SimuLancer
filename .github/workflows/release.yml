@@ -63,7 +63,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: simulancer-*
+          # The archive and its checksum, not the folder it was packed from.
+          path: |
+            simulancer-*.tar.gz
+            simulancer-*.zip
+            simulancer-*.sha256
 
   release:
     needs: binary
@@ -76,7 +80,7 @@ jobs:
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" simulancer-* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" simulancer-*.tar.gz simulancer-*.zip simulancer-*.sha256 --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
 
   image:
     if: startsWith(github.ref, 'refs/tags/')
