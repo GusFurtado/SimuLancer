@@ -88,6 +88,14 @@ results:
 
 For load balancers and monitoring.
 
+### `GET /api/v1/me`
+
+```json
+{ "role": "decider", "roles": true }
+```
+
+The role of whoever asks: `modeler` or `decider`. `roles` is false when the server runs without `--role-header`, and then everyone is a modeler. With roles on, a decider gets `403` on every request that changes a model or a project; see [Deploying](deploy.md#roles-modelers-and-deciders).
+
 ### `GET /api/v1/projects`
 
 ```json

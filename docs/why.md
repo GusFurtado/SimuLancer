@@ -246,7 +246,7 @@ Be clear about what you give up:
 
 | Problem | Answer | Status |
 |---|---|---|
-| Not built for teams | Separate pages for building (Modeling: build, save, publish) and deciding (Simulation: published versions only), plus the API for scripts and other programs. Concurrent editing and roles come later. | partial |
+| Not built for teams | Separate pages for building (Modeling: build, save, publish) and deciding (Simulation: published versions only), plus the API for scripts and other programs. With the proxy's groups, [roles](deploy.md#roles-modelers-and-deciders) keep people who decide out of the Modeling page and away from every change to a model. Concurrent editing comes later. | partial |
 | Hard to share with stakeholders | Anyone with the link opens the Simulation page, builds [scenarios](scenarios.md) from the decisions the model offers (options and bounded numbers, so they can't break the model) and reads comparisons in plain language. Exporting a comparison for a meeting is planned. | partial |
 | Hard to put into production | The server and API are the product: a static binary or a Docker image, health checks and [deployment docs](deploy.md). Webhooks are planned. | partial |
 

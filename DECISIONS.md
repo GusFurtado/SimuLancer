@@ -299,6 +299,13 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Roles: modelers and deciders (2026-11-27, issue #92)
+
+- Roles come from a header the reverse proxy sets after its login (`serve --role-header X-Forwarded-Groups --modelers a,b`): SSO stays in the proxy, as `deploy.md` already said, and the server has no users or passwords. Without `--role-header`, everyone is a modeler (unchanged).
+- Deciders: every GET except `/modeling`; scenarios (create, update, delete), comparisons, and runs of a published version without changes (checked in `start_run`, since it needs the body). Everything else answers 403, by an axum middleware that also puts the `Role` in the request's extensions. `GET /api/v1/me` tells the pages, which hide unpublished projects, the ⋯ menu, new project, archived projects and the Modeling links.
+- Trust: the header is only safe if the proxy always overwrites it and the server is only reachable through the proxy; `deploy.md` says so in bold.
+- Path rules in the proxy (the other option in the issue) were left out: fragile, and the pages would still show buttons that fail.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.

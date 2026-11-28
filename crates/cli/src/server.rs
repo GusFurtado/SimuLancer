@@ -39,6 +39,7 @@ use crate::output::layout_json;
 use crate::plain;
 use crate::precision::KeyResult;
 use crate::projects::{self, DOCUMENTATION_FILE, PROJECT_FILE, ProjectFile, Projects};
+use crate::roles::{Role, Roles, decider_may};
 use crate::runner::{self, RunOptions};
 use crate::scenarios::Scenarios;
 use crate::thread_count;
@@ -59,6 +60,16 @@ pub struct ServeArgs {
     /// Threads per run [default: all CPU cores].
     #[arg(short, long)]
     threads: Option<usize>,
+    /// Turns roles on: the header the reverse proxy sets with the user's
+    /// groups (e.g. `X-Forwarded-Groups`). Users in a modeler group can build
+    /// and publish models; everyone else only builds and compares scenarios.
+    /// Without it, everyone can do everything.
+    #[arg(long)]
+    role_header: Option<String>,
+    /// The groups, in the role header, of people who build models
+    /// (comma-separated).
+    #[arg(long, default_value = "modeler", value_delimiter = ',')]
+    modelers: Vec<String>,
 }
 
 /// A run's folder name: `<seconds>-<n>`. Returns `n`.
@@ -214,7 +225,29 @@ pub fn serve(args: &ServeArgs) -> Result<(), String> {
     }
     let projects = Projects::new(projects_dir);
     let scenarios = Scenarios::new(args.data.join("scenarios"));
-    let state = AppState::start(projects, scenarios, runs_dir, thread_count(args.threads));
+    let roles = match &args.role_header {
+        None => None,
+        Some(name) => Some(Roles {
+            header: name
+                .parse()
+                .map_err(|_| format!("`{name}` isn't a valid header name"))?,
+            modelers: args
+                .modelers
+                .iter()
+                .map(|m| m.trim().to_string())
+                .filter(|m| !m.is_empty())
+                .collect(),
+        }),
+    };
+    if let Some(r) = &roles {
+        println!(
+            "roles on: modelers are the groups {} in {}",
+            r.modelers.join(", "),
+            r.header
+        );
+    }
+    let state = AppState::start(projects, scenarios, runs_dir, thread_count(args.threads))
+        .with_roles(roles);
     let address = SocketAddr::new(args.host, args.port);
     let runtime = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     runtime.block_on(async {
@@ -268,6 +301,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/favicon.ico", get(asset("favicon-32.png")))
         .route("/icon-180.png", get(asset("icon-180.png")))
         .route("/api/v1/health", get(health))
+        .route("/api/v1/me", get(me))
         .route("/api/v1/projects", get(list_projects).post(create_project))
         .route("/api/v1/templates", get(list_templates))
         .route(
@@ -297,8 +331,46 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/runs", get(list_runs).post(start_run))
         .route("/api/v1/runs/{id}", get(get_run).delete(delete_run))
         .route("/api/v1/runs/{id}/files/{name}", get(get_run_file))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state),
+            enforce_roles,
+        ))
         .layer(CompressionLayer::new())
         .with_state(state)
+}
+
+/// With roles on, keeps deciders to what they may do, and tells handlers
+/// the role of each request.
+async fn enforce_roles(
+    State(state): State<Arc<AppState>>,
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let role = state.role(request.headers());
+    if role == Role::Decider && !decider_may(request.method(), request.uri().path()) {
+        if request.uri().path() == "/modeling" {
+            return (
+                StatusCode::FORBIDDEN,
+                [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+                "<!doctype html><meta charset=utf-8><title>SimuLancer</title>\
+                 <p style=\"font: 16px system-ui; margin: 40px\">The Modeling page is for the people who build the models. \
+                 You can compare scenarios of the published versions on the <a href=\"./\">projects' Simulation pages</a>.</p>",
+            )
+                .into_response();
+        }
+        return error(
+            StatusCode::FORBIDDEN,
+            "this needs a modeler: people who decide build and compare scenarios of published versions",
+        );
+    }
+    request.extensions_mut().insert(role);
+    next.run(request).await
+}
+
+/// The role of whoever asks, so the pages show only what they may do.
+async fn me(State(state): State<Arc<AppState>>, headers: axum::http::HeaderMap) -> Response {
+    let roles = state.roles.lock().expect("roles lock").is_some();
+    Json(json!({ "role": state.role(&headers), "roles": roles })).into_response()
 }
 
 // --- web pages: plain HTML/CSS/JS and the icon, compiled into the binary -----
@@ -397,6 +469,8 @@ pub struct AppState {
     comparisons: Mutex<Vec<ComparisonJob>>,
     queue: mpsc::Sender<String>,
     next_id: AtomicU64,
+    /// Who may change models, when the proxy says (`--role-header`).
+    roles: Mutex<Option<Roles>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -502,6 +576,7 @@ impl AppState {
             comparisons: Mutex::new(comparisons),
             queue,
             next_id: AtomicU64::new(next_id),
+            roles: Mutex::new(None),
         });
         let worker = Arc::clone(&state);
         thread::spawn(move || {
@@ -568,6 +643,20 @@ impl AppState {
                 problems.join("; ")
             ))
         }
+    }
+
+    /// Turns roles on (or off, with None).
+    pub fn with_roles(self: Arc<Self>, roles: Option<Roles>) -> Arc<Self> {
+        *self.roles.lock().expect("roles lock") = roles;
+        self
+    }
+
+    fn role(&self, headers: &axum::http::HeaderMap) -> Role {
+        self.roles
+            .lock()
+            .expect("roles lock")
+            .as_ref()
+            .map_or(Role::Modeler, |r| r.role(headers))
     }
 
     fn update(&self, id: &str, f: impl FnOnce(&mut Job)) {
@@ -1451,8 +1540,17 @@ struct RunRequest {
 
 async fn start_run(
     State(state): State<Arc<AppState>>,
+    axum::Extension(role): axum::Extension<Role>,
     Json(request): Json<RunRequest>,
 ) -> Response {
+    if role == Role::Decider
+        && (request.version.is_none() || !request.changes.is_empty() || request.layout.is_some())
+    {
+        return error(
+            StatusCode::FORBIDDEN,
+            "people who decide can run published versions as they are; running the working copy or changes needs a modeler",
+        );
+    }
     if request.replications == Some(0) {
         return error(StatusCode::BAD_REQUEST, "`replications` must be at least 1");
     }
@@ -2690,6 +2788,139 @@ mod tests {
             labels,
             ["Parts shipped per hour", "Lead time", "Inspection busy"]
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// With roles on, a decider builds and compares scenarios of published
+    /// versions, and gets a 403 on everything that changes a model or project.
+    #[tokio::test]
+    async fn deciders_cant_change_models() {
+        let root =
+            std::env::temp_dir().join(format!("simulancer-serve-{}-roles", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("projects")).unwrap();
+        let projects = Projects::new(root.join("projects"));
+        projects::create_from_template(&projects, "two-cells", "two-cells", None).unwrap();
+        let state = AppState::start(
+            projects,
+            Scenarios::new(root.join("scenarios")),
+            root.join("runs"),
+            2,
+        )
+        .with_roles(Some(Roles {
+            header: "x-forwarded-groups".parse().unwrap(),
+            modelers: vec!["engineering".into()],
+        }));
+        let app = router(state);
+        let as_who = |groups: &'static str| {
+            let app = app.clone();
+            move |method: &'static str, uri: String, body: Option<Value>| {
+                let app = app.clone();
+                async move {
+                    let request = Request::builder()
+                        .method(method)
+                        .uri(uri)
+                        .header(header::CONTENT_TYPE, "application/json")
+                        .header("x-forwarded-groups", groups)
+                        .body(body.map_or(Body::empty(), |b| Body::from(b.to_string())))
+                        .unwrap();
+                    let response = app.oneshot(request).await.unwrap();
+                    let status = response.status();
+                    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+                    (
+                        status,
+                        serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null),
+                    )
+                }
+            }
+        };
+        let decider = as_who("managers");
+        let modeler = as_who("staff, engineering");
+
+        let (_, me) = decider("GET", "/api/v1/me".into(), None).await;
+        assert_eq!(me, json!({ "role": "decider", "roles": true }));
+        let (_, me) = modeler("GET", "/api/v1/me".into(), None).await;
+        assert_eq!(me["role"], "modeler");
+
+        // What a decider may do.
+        let (status, _) = decider("GET", "/api/v1/projects/two-cells".into(), None).await;
+        assert_eq!(status, StatusCode::OK);
+        let (status, scenario) = decider(
+            "POST",
+            "/api/v1/projects/two-cells/scenarios".into(),
+            Some(json!({ "version": "v1", "name": "Two inspectors", "decisions": { "inspectors": 2 } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::CREATED, "{scenario}");
+        let (status, c) = decider(
+            "POST",
+            "/api/v1/comparisons".into(),
+            Some(
+                json!({ "project": "two-cells", "scenarios": [scenario["id"]], "replications": 2 }),
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{c}");
+        let (status, _) = decider(
+            "POST",
+            "/api/v1/runs".into(),
+            Some(json!({ "project": "two-cells", "version": "v1", "replications": 2 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+
+        // What only modelers may do.
+        for (method, uri, body) in [
+            ("GET", "/modeling".to_string(), None),
+            (
+                "POST",
+                "/api/v1/projects".to_string(),
+                Some(json!({ "id": "x" })),
+            ),
+            (
+                "PATCH",
+                "/api/v1/projects/two-cells".to_string(),
+                Some(json!({ "name": "Y" })),
+            ),
+            (
+                "POST",
+                "/api/v1/projects/two-cells/save".to_string(),
+                Some(json!({ "message": "m" })),
+            ),
+            (
+                "POST",
+                "/api/v1/projects/two-cells/publish".to_string(),
+                Some(json!({})),
+            ),
+            (
+                "POST",
+                "/api/v1/projects/two-cells/archive".to_string(),
+                None,
+            ),
+            ("DELETE", "/api/v1/projects/two-cells".to_string(), None),
+            (
+                "POST",
+                "/api/v1/runs".to_string(),
+                Some(json!({ "project": "two-cells" })),
+            ),
+            (
+                "POST",
+                "/api/v1/runs".to_string(),
+                Some(
+                    json!({ "project": "two-cells", "version": "v1", "changes": { "experiment.seed": 2 } }),
+                ),
+            ),
+        ] {
+            let (status, _) = decider(method, uri.clone(), body).await;
+            assert_eq!(status, StatusCode::FORBIDDEN, "{method} {uri}");
+        }
+        let (status, _) = modeler(
+            "PATCH",
+            "/api/v1/projects/two-cells".into(),
+            Some(json!({ "name": "Two mills" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
         fs::remove_dir_all(root).unwrap();
     }
 

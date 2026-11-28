@@ -8,6 +8,7 @@ mod plain;
 mod precision;
 mod projects;
 mod report;
+mod roles;
 mod runner;
 mod scenarios;
 mod server;

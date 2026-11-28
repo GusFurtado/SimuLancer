@@ -70,9 +70,11 @@ Serve the web application and its HTTP API
 Usage: simulancer serve [OPTIONS]
 
 Options:
-      --data <DATA>        Data folder: `projects/` (one git repository per project), `scenarios/` (managers' scenarios) and `runs/`. Created if missing. A new one starts with no projects [default: data]
-      --host <HOST>        Address to listen on. The default only accepts connections from this machine; use 0.0.0.0 to serve other machines (behind IT's proxy) [default: 127.0.0.1]
-      --port <PORT>        [default: 8080]
-  -t, --threads <THREADS>  Threads per run [default: all CPU cores]
-  -h, --help               Print help
+      --data <DATA>                Data folder: `projects/` (one git repository per project), `scenarios/` (managers' scenarios) and `runs/`. Created if missing. A new one starts with no projects [default: data]
+      --host <HOST>                Address to listen on. The default only accepts connections from this machine; use 0.0.0.0 to serve other machines (behind IT's proxy) [default: 127.0.0.1]
+      --port <PORT>                [default: 8080]
+  -t, --threads <THREADS>          Threads per run [default: all CPU cores]
+      --role-header <ROLE_HEADER>  Turns roles on: the header the reverse proxy sets with the user's groups (e.g. `X-Forwarded-Groups`). Users in a modeler group can build and publish models; everyone else only builds and compares scenarios. Without it, everyone can do everything
+      --modelers <MODELERS>        The groups, in the role header, of people who build models (comma-separated) [default: modeler]
+  -h, --help                       Print help
 ```
