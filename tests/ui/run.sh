@@ -42,7 +42,7 @@ if [ -z "$ready" ]; then
   exit 1
 fi
 # The web animation's replay against the engine, on logs the current CLI writes.
-for model in deterministic two-servers routing kits; do
+for model in deterministic two-servers routing kits non-accumulating; do
   "$ROOT/target/release/simulancer" run "$ROOT/tests/replay/fixtures/$model.yaml" --output-dir "$WORK/replay/$model" >/dev/null
 done
 python3 "$ROOT/tests/replay/test_replay.py" "http://127.0.0.1:$PORT/" "$MARIONETTE" "$WORK/replay"

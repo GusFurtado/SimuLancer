@@ -1,0 +1,23 @@
+# A part every 3 s on a 10 m non-accumulating belt (1 m/s) before a server
+# that takes 100 s: the belt stops with its gaps whenever the part at its end
+# waits for the server, so every position is known exactly.
+format: simulancer/0.1
+name: non-accumulating
+entities:
+  part: {}
+sources:
+  arrivals: { creates: part, interarrival: "3 s" }
+servers:
+  slow: { process_time: "100 s" }
+conveyors:
+  belt: { from: arrivals, to: slow, length: "10 m", speed: "1 m/s", spacing: "1 m", type: non_accumulating }
+queues:
+  out: { from: slow, to: done }
+sinks:
+  done: {}
+experiment:
+  replications: 1
+  run_length: "1 h"
+  seed: 1
+outputs:
+  event_log: jsonl

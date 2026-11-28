@@ -600,6 +600,9 @@ pub struct Conveyor {
     pub speed: f64,
     /// Minimum distance between parts, in meters.
     pub spacing: f64,
+    /// Parts queue up at the end when the next object can't take the head
+    /// (true), or the whole belt stops until it can (false). Conveyors only.
+    pub accumulating: bool,
     /// Maximum number of parts on the conveyor: `floor(length / spacing)`.
     /// For a queue, its capacity (`u32::MAX` when unlimited).
     pub capacity: u32,
@@ -666,6 +669,7 @@ impl Conveyor {
             length: 0.0,
             speed: 1.0,
             spacing: 0.0,
+            accumulating: true,
             capacity: capacity.unwrap_or(u32::MAX),
             target_wait,
             starts_with: None,

@@ -87,6 +87,18 @@ CHECKS = {
   const used = new Set(r.events.filter(e => e.type === "entered_conveyor").map(e => e.conveyor));
   for (const c of ["in_a", "in_b", "rework", "retest", "ship"]) check(used.has(c), `some part used conveyor ${c}`);
 """,
+    "non-accumulating": """
+  // Moving: parts on at 3, 6, 9 and 12 s (part 0 went into the server at 10 s).
+  r.seek(12);
+  positions("belt", [9, 6, 3, 0], "t=12 moving");
+  // Part 1 reached the end at 13 s and waits: the belt stopped with its gaps,
+  // and the part put on at 15 s stays at the entrance.
+  r.seek(50);
+  positions("belt", [10, 7, 4, 1, 0], "t=50 stopped with its gaps");
+  // At 110 s the server takes part 1 and the belt moves on together.
+  r.seek(110.5);
+  positions("belt", [7.5, 4.5, 1.5, 0.5], "t=110.5 moving again");
+""",
     "kits": """
   let offSeen = false;
   for (const t of [1800, 3600, 23.5 * 3600, 24.5 * 3600, r.end]) {
