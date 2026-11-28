@@ -763,6 +763,17 @@ fn load_with(
     } else {
         apply_changes(&base, &model_file, changes).map_err(LoadProblem::Invalid)?
     };
+    // Expected results that can't be read are model errors too.
+    if let Err(problems) = crate::expect::resolve(&model) {
+        return Err(LoadProblem::Invalid(
+            problems
+                .into_iter()
+                .map(|message| {
+                    json!({ "change": null, "file": model_file, "line": null, "column": null, "message": message })
+                })
+                .collect(),
+        ));
+    }
     let layout_source = match layout {
         Some(tree) => Ok(Some(layout_text(tree, &project.model))),
         None => state

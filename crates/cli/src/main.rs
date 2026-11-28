@@ -1,5 +1,6 @@
 mod compare;
 mod decisions;
+mod expect;
 mod files;
 mod markdown;
 mod measures;
@@ -52,6 +53,25 @@ enum Command {
     Compare(CompareArgs),
     /// Serve the web application and its HTTP API.
     Serve(server::ServeArgs),
+    /// Run models and check their expected results (`expect:`); fails when
+    /// one isn't met, for CI.
+    Test(TestArgs),
+}
+
+#[derive(Args)]
+struct TestArgs {
+    /// Model or scenario files to test.
+    #[arg(required = true)]
+    models: Vec<PathBuf>,
+    /// Number of replications, overriding each model's setting.
+    #[arg(short, long)]
+    replications: Option<u32>,
+    /// Threads to run replications on [default: all CPU cores].
+    #[arg(short, long)]
+    threads: Option<usize>,
+    /// Where to write each model's result files [default: results/<model name>].
+    #[arg(short, long)]
+    output_dir: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -101,6 +121,18 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             };
             print!("{}", describe(model, &loaded));
+            match expect::resolve(&loaded) {
+                Ok(expected) if !expected.is_empty() => {
+                    println!("\nexpected results: {}", expected.len());
+                }
+                Ok(_) => {}
+                Err(problems) => {
+                    for p in problems {
+                        eprintln!("error: {p}");
+                    }
+                    return ExitCode::FAILURE;
+                }
+            }
             match files::load_layout(model, layout.as_deref(), &loaded) {
                 Ok(None) => ExitCode::SUCCESS,
                 Ok(Some(l)) => {
@@ -118,6 +150,11 @@ fn main() -> ExitCode {
         }
         Command::Run(args) => report_errors(run(args)),
         Command::Compare(args) => report_errors(compare_scenarios(args)),
+        Command::Test(args) => match test_models(args) {
+            Ok(true) => ExitCode::SUCCESS,
+            Ok(false) => ExitCode::FAILURE,
+            Err(e) => report_errors(Err(e)),
+        },
         Command::Serve(args) => report_errors(server::serve(args)),
     }
 }
@@ -227,6 +264,67 @@ fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
     Ok(())
 }
 
+/// "expected results: 2 of 3 met", then each one.
+fn expectations_text(outcomes: &[expect::Outcome]) -> String {
+    let met = outcomes.iter().filter(|o| o.met).count();
+    let mut out = format!("expected results: {met} of {} met\n", outcomes.len());
+    for o in outcomes {
+        out += &format!("  {}\n", o.text);
+    }
+    out
+}
+
+/// Runs each model and checks its expectations. Ok(true) when all are met.
+fn test_models(args: &TestArgs) -> Result<bool, String> {
+    let (mut met, mut total, mut failed_models) = (0, 0, Vec::new());
+    for path in &args.models {
+        let model =
+            load(path).ok_or_else(|| format!("{} has errors (see above)", path.display()))?;
+        let out_dir = match &args.output_dir {
+            Some(dir) if args.models.len() > 1 => dir.join(&model.name),
+            Some(dir) => dir.clone(),
+            None => Path::new("results").join(&model.name),
+        };
+        let layout = files::load_layout(path, None, &model).ok().flatten();
+        let outcome = runner::execute(
+            &model,
+            &runner::RunOptions {
+                replications: args.replications,
+                threads: thread_count(args.threads),
+                log_replication: 1,
+                layout: layout.as_ref().map(|l| &l.layout),
+                progress: None,
+                key_results: &[],
+            },
+            &out_dir,
+        )?;
+        if outcome.expectations.is_empty() {
+            println!(
+                "{}: no expected results (add `expect:` to the model)\n",
+                path.display()
+            );
+            continue;
+        }
+        let ok = outcome.expectations.iter().filter(|o| o.met).count();
+        met += ok;
+        total += outcome.expectations.len();
+        if ok < outcome.expectations.len() {
+            failed_models.push(path.display().to_string());
+        }
+        println!(
+            "{} ({} replications): {}",
+            path.display(),
+            outcome.spec.experiment.replications,
+            expectations_text(&outcome.expectations)
+        );
+    }
+    println!("{met} of {total} expected results met");
+    if !failed_models.is_empty() {
+        println!("not met in: {}", failed_models.join(", "));
+    }
+    Ok(failed_models.is_empty())
+}
+
 fn run(args: &RunArgs) -> Result<(), String> {
     let model = load(&args.model).ok_or("the model has errors (see above)")?;
     let layout = match files::load_layout(&args.model, args.layout.as_deref(), &model) {
@@ -284,6 +382,9 @@ fn run(args: &RunArgs) -> Result<(), String> {
             ),
             _ => {}
         }
+    }
+    if !outcome.expectations.is_empty() {
+        print!("\n{}", expectations_text(&outcome.expectations));
     }
     if let Some(warning) = outcome.precision.as_ref().and_then(precision_warning) {
         println!("\n{warning}");

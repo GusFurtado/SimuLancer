@@ -751,6 +751,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     }
 
     let experiment = b.experiment(&raw.experiment);
+    let (expectations, problems) = expectations(&raw, &b.defaults);
+    b.diagnostics.extend(problems);
     // Paced lines: their own namespace (only `lines` names them).
     let mut lines = Vec::new();
     let mut in_a_line: Vec<Option<&str>> = vec![None; raw.servers.0.len()];
@@ -876,6 +878,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     check_carried(&spec, &raw)?;
 
     Ok(Model {
+        expectations,
         name: raw.name.value,
         description: raw.description,
         words,
@@ -2797,4 +2800,72 @@ impl Builder {
             precision: precision?,
         })
     }
+}
+
+/// The `expect:` list, read into bounds; checked against the measures after a run.
+fn expectations(
+    raw: &RawModel,
+    defaults: &DefaultUnits,
+) -> (Vec<crate::Expectation>, Vec<Diagnostic>) {
+    let mut out = Vec::new();
+    let mut diagnostics = Vec::new();
+    for item in &raw.expect {
+        let e = &item.value;
+        let line = Position::from_location(&item.referenced).map(|p| p.line);
+        let mut problem = |message: String| {
+            diagnostics.push(Diagnostic {
+                position: Position::from_location(&item.referenced),
+                message,
+            })
+        };
+        if e.at_least.is_none() && e.at_most.is_none() {
+            problem(format!(
+                "the expectation on `{}` {} needs `at_least`, `at_most` or both",
+                e.object, e.measure
+            ));
+            continue;
+        }
+        let whole_interval = match e.check.as_deref() {
+            None | Some("mean") => false,
+            Some("interval") => true,
+            Some(other) => {
+                problem(format!(
+                    "`check` is `mean` (the mean must be in range) or `interval` (the whole 95% interval must be), got `{other}`"
+                ));
+                continue;
+            }
+        };
+        let bound = |s: &Scalar| -> crate::Bound {
+            match s {
+                Scalar::Number(n) => crate::Bound {
+                    text: n.to_string(),
+                    number: Some(*n),
+                    seconds: parse_quantity(&n.to_string(), Dimension::Time, defaults).ok(),
+                    share: None,
+                },
+                Scalar::Text(t) => {
+                    let t = t.trim();
+                    crate::Bound {
+                        text: t.to_string(),
+                        number: t.parse::<f64>().ok().filter(|v| v.is_finite()),
+                        seconds: parse_quantity(t, Dimension::Time, defaults).ok(),
+                        share: t
+                            .strip_suffix('%')
+                            .and_then(|n| n.trim().parse::<f64>().ok())
+                            .map(|n| n / 100.0),
+                    }
+                }
+            }
+        };
+        out.push(crate::Expectation {
+            label: e.label.clone(),
+            object: e.object.clone(),
+            measure: e.measure.clone(),
+            at_least: e.at_least.as_ref().map(bound),
+            at_most: e.at_most.as_ref().map(bound),
+            whole_interval,
+            line,
+        });
+    }
+    (out, diagnostics)
 }

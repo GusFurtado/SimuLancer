@@ -299,6 +299,14 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Expected results and `simulancer test` (2026-11-27, issue #94)
+
+- Expectations live in the **model file** (`expect:`), not the project file: the CLI and CI only see model files, scenarios inherit them from their base, and in a project they're versioned with the model. Additive and optional, so `simulancer/0.1` files stay valid.
+- Each names `object` + `measure` (as the full table does) with `at_least`/`at_most` in the measure's terms: a time with a unit for seconds, a percentage for fractions, a plain number otherwise (throughput per `throughput_per`). The model crate keeps every reading of a limit (`Bound`); the CLI picks by the measure's unit, since only it knows the measures. Unknown measures and wrong units are errors before the run starts (and in `validate`).
+- `check: mean` (default) or `interval` (the whole 95% CI must be in range). With one replication, the mean is used.
+- Every run checks them (stdout, report section after the headline tiles, `summary.json` `expectations`); `simulancer test MODEL...` exits 1 when one isn't met. CI runs it on every example; conveyor-line has three expectations (its scenario inherits them).
+- Not done: editing expectations on the Modeling page (YAML only for now); see the issue.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.

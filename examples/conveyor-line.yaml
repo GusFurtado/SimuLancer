@@ -83,3 +83,10 @@ outputs:
     - server_states               # idle (starved), busy, blocked, failed: % of time, with CI
     - conveyor_occupancy          # time-weighted mean, max, % of time full, with CI
     - source_blocked_time
+
+# What the results should be. `simulancer test` runs the model and fails if
+# one isn't met, so a change that breaks the line shows up in CI.
+expect:
+  - { object: shipping, measure: throughput, at_least: 54 }          # parts per hour, the mean
+  - { object: shipping, measure: time in system, at_most: 40 min, check: interval }
+  - { label: Lathe busy, object: lathe, measure: busy, at_least: 70%, at_most: 85% }

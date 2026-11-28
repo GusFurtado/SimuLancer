@@ -256,3 +256,71 @@ fn throughput_per_hour_day_week_or_working_hour() {
         );
     }
 }
+
+/// `simulancer test` passes when every expected result is met and fails
+/// (exit 1) when one isn't; `validate` rejects expectations it can't read.
+#[test]
+fn test_checks_expected_results() {
+    let dir = temp_dir("expect");
+    let base = fs::read_to_string(example()).unwrap();
+    let ok = run(&[
+        "test",
+        example().to_str().unwrap(),
+        "--replications",
+        "5",
+        "--output-dir",
+        dir.join("ok").to_str().unwrap(),
+    ]);
+    let stdout = String::from_utf8(ok.stdout).unwrap();
+    assert!(stdout.contains("expected results: 3 of 3 met"), "{stdout}");
+    let summary: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("ok/summary.json")).unwrap()).unwrap();
+    assert_eq!(summary["expectations"].as_array().unwrap().len(), 3);
+    assert_eq!(summary["expectations"][2]["met"], true);
+
+    // A model whose line ships fewer than 60 an hour fails the test.
+    let failing = dir.join("failing.yaml");
+    fs::write(&failing, base.replace("at_least: 54 }", "at_least: 60 }")).unwrap();
+    let out = Command::new(BIN)
+        .args(["test", failing.to_str().unwrap(), "-r", "5", "-o"])
+        .arg(dir.join("failing"))
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.contains("expected results: 2 of 3 met"), "{stdout}");
+    assert!(
+        stdout.contains("expected the mean at least 60.0 /h · NOT MET"),
+        "{stdout}"
+    );
+
+    // Limits in the wrong kind of unit, and unknown measures, are errors.
+    for (from, to, message) in [
+        (
+            "at_least: 70%",
+            "at_least: 0.7",
+            "is a percentage, like `85%`, got `0.7`",
+        ),
+        (
+            "at_most: 40 min",
+            "at_most: 40 m",
+            "is a time, like `30 min`",
+        ),
+        (
+            "measure: busy",
+            "measure: bussy",
+            "`lathe` has no measure `bussy` (it has: idle, busy",
+        ),
+        ("check: interval", "check: everything", "`check` is `mean`"),
+    ] {
+        let bad = dir.join("bad.yaml");
+        fs::write(&bad, base.replace(from, to)).unwrap();
+        let out = Command::new(BIN)
+            .args(["validate", bad.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{to}");
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        assert!(stderr.contains(message), "{to}: {stderr}");
+    }
+}

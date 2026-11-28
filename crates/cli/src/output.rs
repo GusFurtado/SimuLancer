@@ -13,6 +13,7 @@ use simulancer_engine::{Observer, SimTime, TraceEvent};
 use simulancer_model::{DrawnAs, Layout, Model};
 
 use crate::compare::Comparison;
+use crate::expect::Outcome;
 use crate::measures::Measure;
 use crate::precision::PrecisionCheck;
 use crate::warmup::WarmupCheck;
@@ -74,6 +75,7 @@ pub fn write_report(
     measures: &[(Measure, Summary)],
     warmup: Option<&WarmupCheck>,
     precision: Option<&PrecisionCheck>,
+    expectations: &[Outcome],
 ) -> io::Result<()> {
     let node = |n: Node| match n {
         Node::Source(i) => &spec.sources[i].name,
@@ -93,6 +95,7 @@ pub fn write_report(
         "confidence": CONFIDENCE,
         "warmup_check": warmup,
         "precision_check": precision,
+        "expectations": expectations,
         "sources": spec.sources.iter().map(|s| json!({
             "name": s.name,
             "when_blocked": match s.when_blocked {
@@ -155,6 +158,9 @@ struct SummaryFile<'a> {
     /// Whether the key results' intervals are narrow enough.
     #[serde(skip_serializing_if = "Option::is_none")]
     precision_check: Option<&'a PrecisionCheck>,
+    /// The model's expected results, and whether each was met.
+    #[serde(skip_serializing_if = "<[Outcome]>::is_empty")]
+    expectations: &'a [Outcome],
 }
 
 #[derive(Serialize)]
@@ -179,9 +185,11 @@ pub fn write_summary(
     measures: &[(Measure, Summary)],
     warmup: Option<&WarmupCheck>,
     precision: Option<&PrecisionCheck>,
+    expectations: &[Outcome],
 ) -> io::Result<()> {
     let e = &spec.experiment;
     let file = SummaryFile {
+        expectations,
         warmup_check: warmup,
         precision_check: precision,
         format: "simulancer-summary/0.1",

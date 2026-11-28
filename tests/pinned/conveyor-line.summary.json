@@ -587,5 +587,55 @@
         "replications_needed": null
       }
     ]
-  }
+  },
+  "expectations": [
+    {
+      "label": "throughput at shipping",
+      "object_type": "sink",
+      "object": "shipping",
+      "measure": "throughput",
+      "unit": "parts/h",
+      "at_least": 54.0,
+      "at_most": null,
+      "check": "mean",
+      "mean": 55.87444444444444,
+      "half_width": 0.28851437428075866,
+      "met": true,
+      "now": "55.9 /h ± 0.3 /h",
+      "expected": "the mean at least 54.0 /h",
+      "text": "throughput at shipping: 55.9 /h ± 0.3 /h, expected the mean at least 54.0 /h · met"
+    },
+    {
+      "label": "time in system at shipping",
+      "object_type": "sink",
+      "object": "shipping",
+      "measure": "time in system",
+      "unit": "s",
+      "at_least": null,
+      "at_most": 2400.0,
+      "check": "interval",
+      "mean": 1545.7399397291715,
+      "half_width": 32.512509698988296,
+      "met": true,
+      "now": "25.76 min ± 0.54 min",
+      "expected": "the whole interval at most 40.00 min",
+      "text": "time in system at shipping: 25.76 min ± 0.54 min, expected the whole interval at most 40.00 min · met"
+    },
+    {
+      "label": "Lathe busy",
+      "object_type": "server",
+      "object": "lathe",
+      "measure": "busy",
+      "unit": "fraction",
+      "at_least": 0.7,
+      "at_most": 0.85,
+      "check": "mean",
+      "mean": 0.7757921747314814,
+      "half_width": 0.003911245344754525,
+      "met": true,
+      "now": "77.6% ± 0.4%",
+      "expected": "the mean between 70.0% and 85.0%",
+      "text": "Lathe busy: 77.6% ± 0.4%, expected the mean between 70.0% and 85.0% · met"
+    }
+  ]
 }
