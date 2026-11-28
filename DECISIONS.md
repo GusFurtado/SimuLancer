@@ -299,6 +299,12 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Coming from Simio (2026-11-28, issue #88)
+
+- `docs/from-simio.md`, written after `from-arena.md` (PR #124) because the user knows Simio better than Arena and can review it: Simio's words, Standard Library objects, links and nodes, data and definitions, experiments and results, each mapped to SimuLancer or marked *Not yet*, plus the gaps a migrating modeler hits first and how to move a model over.
+- The page opens with the main difference: Simio keeps waiting parts in objects' buffers, SimuLancer in the connections between objects.
+- Gaps it adds to Arena's: data tables, user-defined objects, workers that travel, task sequences, schedules with capacity values, count-based failures, input-parameter analysis.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.
