@@ -1,6 +1,6 @@
 # Getting started
 
-SimuLancer is one program, `simulancer`, with four commands: `validate` and `run` for a model, `compare` for two of them, and `serve` for the web app.
+SimuLancer is one program, `simulancer`, for Linux, Windows and macOS, with four commands: `validate` and `run` for a model, `compare` for two of them, and `serve` for the web app.
 
 ## Install
 
