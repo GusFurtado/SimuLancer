@@ -226,7 +226,8 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
 - `Distribution` and `Count` are no longer `Copy` (the tables are `Arc<[f64]>`); the engine's `rng` module is public so the CLI's fit tests can draw from it.
 - Validation: M/G/1 with empirical and with discrete service against Pollaczek-Khinchine, and M^X/M/1 with a discrete group size against Gross & Harris.
 - `simulancer fit FILE [--column] [--unit] [--empirical]`: exponential, uniform, triangular (range + the mode that matches the mean), lognormal, gamma (MLE: Minka's start + Newton) and Weibull (MLE by bisection), ranked by KS distance, with Stephens' p-value labeled as optimistic. Reads CSV with `,`/`;`/tab and a decimal comma when the separator isn't a comma. No crates added.
-- Not done (issue #96 steps 2 to 4, left for a decision): data files read by the model, trace-driven arrivals, fitting on the Modeling page.
+- **Fitting on the Modeling page** (the user's call, 2026-11-28: "tem que ir para o Modeling, abrindo uma caixa de diálogo para selecionar o arquivo"): **Fit from data…** under every time distribution opens the system's file dialog; the file is read in the browser and sent to `POST /api/v1/fit` (the CLI's code, nothing stored, 32 MB limit), and a dialog ranks the candidates with a column and unit picker. **Use** writes the expression into the model, so the data file isn't part of the project. The values as they are (`empirical`) are offered up to 1,000 values; more would make the model unreadable.
+- Not done (issue #96 steps 2 and 3): data files read by the model, trace-driven arrivals.
 
 ## Scenario comparison (implemented 2026-10-09)
 

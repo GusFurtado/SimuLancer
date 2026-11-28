@@ -35,31 +35,63 @@ pub struct Candidate {
 pub fn read_column(path: &Path, column: Option<&str>) -> Result<Vec<f64>, String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
-    let separator = [',', ';', '\t']
+    parse_column(&text, &path.display().to_string(), column)
+}
+
+/// The separator of a CSV text: the one the first line uses most, if any.
+fn separator(text: &str) -> Option<char> {
+    let first = text.lines().next().unwrap_or("");
+    [',', ';', '\t']
         .into_iter()
-        .max_by_key(|s| text.lines().next().unwrap_or("").matches(*s).count())
-        .filter(|s| text.lines().next().unwrap_or("").contains(*s));
-    let split = |line: &str| -> Vec<String> {
-        match separator {
+        .max_by_key(|s| first.matches(*s).count())
+        .filter(|s| first.contains(*s))
+}
+
+/// The fields of each non-blank line.
+fn rows(text: &str) -> impl Iterator<Item = Vec<String>> + '_ {
+    let separator = separator(text);
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(move |line| match separator {
             Some(s) => line
                 .split(s)
                 .map(|f| f.trim().trim_matches('"').to_string())
                 .collect(),
             None => vec![line.trim().trim_matches('"').to_string()],
-        }
+        })
+}
+
+fn is_number(field: &str) -> bool {
+    field.replace(',', ".").parse::<f64>().is_ok()
+}
+
+/// The columns of a CSV text: the header's names, or `1`, `2`... when the
+/// first row is already data.
+pub fn columns(text: &str) -> Vec<String> {
+    let Some(first) = rows(text).next() else {
+        return Vec::new();
     };
-    let mut rows = text.lines().filter(|l| !l.trim().is_empty()).map(split);
+    if first.iter().all(|f| is_number(f)) {
+        (1..=first.len()).map(|n| n.to_string()).collect()
+    } else {
+        first
+    }
+}
+
+/// [`read_column`] on text already read; `name` is the file's name, for messages.
+pub fn parse_column(text: &str, name: &str, column: Option<&str>) -> Result<Vec<f64>, String> {
+    let separator = separator(text);
+    let mut rows = rows(text);
     let Some(first) = rows.next() else {
-        return Err(format!("{} is empty", path.display()));
+        return Err(format!("{name} is empty"));
     };
-    let numeric = |f: &str| f.replace(',', ".").parse::<f64>().is_ok();
-    let header = !first.iter().all(|f| numeric(f));
+    let header = !first.iter().all(|f| is_number(f));
     let index = match column {
         None if first.len() == 1 => 0,
         None => {
             return Err(format!(
                 "{} has {} columns: pick one with --column ({})",
-                path.display(),
+                name,
                 first.len(),
                 if header {
                     first.join(", ")
@@ -73,7 +105,7 @@ pub fn read_column(path: &Path, column: Option<&str>) -> Result<Vec<f64>, String
             _ => first.iter().position(|h| header && h == c).ok_or_else(|| {
                 format!(
                     "{} has no column `{c}` ({})",
-                    path.display(),
+                    name,
                     if header {
                         first.join(", ")
                     } else {
@@ -106,14 +138,14 @@ pub fn read_column(path: &Path, column: Option<&str>) -> Result<Vec<f64>, String
             .ok_or_else(|| {
                 format!(
                     "{}: row {} has `{field}`, not a number",
-                    path.display(),
+                    name,
                     i + 1 + usize::from(header)
                 )
             })?;
         if v < 0.0 {
             return Err(format!(
                 "{}: row {} has a negative duration ({v})",
-                path.display(),
+                name,
                 i + 1 + usize::from(header)
             ));
         }
@@ -122,7 +154,7 @@ pub fn read_column(path: &Path, column: Option<&str>) -> Result<Vec<f64>, String
     if values.len() < 2 {
         return Err(format!(
             "{} needs at least two values to fit, has {}",
-            path.display(),
+            name,
             values.len()
         ));
     }

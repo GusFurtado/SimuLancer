@@ -152,7 +152,7 @@ Be clear about what you give up:
 |---|---|---|
 | Clumsy data input | Models are YAML (easy to generate) and scenarios are change sets sent through the API. No database connectors yet. | partial |
 | Rigid output formats | A JSON summary, long-format CSV, a JSON Lines event log and a self-contained HTML report. See [Results](results.md). | done |
-| Weak input modeling | Nine distributions, including Weibull, gamma, empirical (from observed values) and discrete, and arrival rates by time of day. `simulancer fit` suggests a distribution for a column of observed times. No trace-driven arrivals, data files read by the model, or fitting on the Modeling page yet. | partial |
+| Weak input modeling | Nine distributions, including Weibull, gamma, empirical (from observed values) and discrete, and arrival rates by time of day. `simulancer fit` suggests a distribution for a column of observed times. The Modeling page fits a CSV file too (**Fit from data…**). No trace-driven arrivals or data files read by the model yet. | partial |
 | Disconnected from modern data tools | CSV and JSON open in pandas or R directly. No Parquet or Python package yet. | partial |
 
 ## 7. Statistics and methodology

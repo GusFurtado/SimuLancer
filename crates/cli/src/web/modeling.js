@@ -1269,7 +1269,86 @@ function distField(label, path) {
     kind,
     el("div", { class: "params" }, ...inputs),
     el("div", { class: "hint", style: "margin: 2px 0 0" }, el("code", { id }, value)),
+    el("button", { class: "expose", id: `${id}-fit`, onclick: () => pickDataFile(label, path), title: "Pick a CSV file with observed durations: SimuLancer suggests the distributions that fit them" }, "Fit from data…"),
     error ? el("div", { class: "message" }, error.message) : null);
+}
+
+// --- fitting a distribution to observed data -----------------------------------
+
+const FIT_UNITS = [["s", "seconds"], ["min", "minutes"], ["h", "hours"], ["d", "days"]];
+
+/** Opens the system's file dialog; the chosen file goes to fitDialog. */
+function pickDataFile(label, path) {
+  const input = el("input", { type: "file", accept: ".csv,.tsv,.txt,text/csv,text/plain", style: "display: none" });
+  input.addEventListener("change", async () => {
+    const file = input.files[0];
+    input.remove();
+    if (file) fitDialog(label, path, file.name, await file.text());
+  });
+  document.body.append(input);
+  input.click();
+}
+
+/** The ranked distributions for a column of `text`; one click puts one in the model. */
+function fitDialog(label, path, name, text) {
+  const tree = currentTree();
+  const fit = { column: null, unit: FIT_UNITS.some(([u]) => u === tree.units?.time) ? tree.units.time : "min" };
+  const body = el("div", { class: "fit-body" }, el("p", { class: "hint" }, "Fitting…"));
+  const dialog = el("dialog", { class: "fit-dialog", "aria-label": `Fit ${label} from ${name}` },
+    el("h3", {}, `${label}: fit from ${name}`),
+    body,
+    el("div", { class: "row fit-actions" }, el("button", { onclick: () => dialog.close() }, "Cancel")));
+  dialog.addEventListener("close", () => dialog.remove());
+  document.body.append(dialog);
+  dialog.showModal();
+
+  const use = expression => { dialog.close(); setChange(path, expression); };
+  async function refresh() {
+    const { ok, data } = await api("POST", "fit", { name, text, column: fit.column, unit: fit.unit });
+    body.replaceChildren();
+    if (!ok) {
+      body.append(el("p", { class: "message" }, data?.error || "Couldn't read the file."));
+      return;
+    }
+    const controls = el("div", { class: "row fit-controls" });
+    if (data.columns.length > 1) {
+      controls.append(el("label", {}, "Column",
+        el("select", { id: "fit-column", onchange: e => { fit.column = e.target.value || null; refresh(); } },
+          el("option", { value: "", selected: !data.column || null, disabled: true }, "Pick a column"),
+          ...data.columns.map(c => el("option", { value: c, selected: c === data.column || null }, c)))));
+    }
+    controls.append(el("label", {}, "The values are in",
+      el("select", { id: "fit-unit", onchange: e => { fit.unit = e.target.value; refresh(); } },
+        ...FIT_UNITS.map(([u, words]) => el("option", { value: u, selected: u === fit.unit || null }, words)))));
+    body.append(controls);
+    if (!data.column) {
+      body.append(el("p", { class: "hint" }, `${name} has ${data.columns.length} columns: pick the one with the durations.`));
+      return;
+    }
+    body.append(el("p", {}, `${data.count} values: mean ${data.mean}, std. deviation ${data.sd}, from ${data.min} to ${data.max}.`));
+    const best = data.candidates[0];
+    if (best && best.p < 0.05) {
+      body.append(el("p", { class: "message" }, "Even the best fit is far from the data: consider using the values as they are."));
+    }
+    const round = v => v.toFixed(3);
+    body.append(el("div", { class: "table-wrap" }, el("table", { class: "compare-table fit-table" },
+      el("thead", {}, el("tr", {}, ...["Distribution", "KS distance", "p", "Mean", "Std. deviation", ""].map(h => el("th", {}, h)))),
+      el("tbody", {}, ...data.candidates.map((c, i) => el("tr", {},
+        el("td", {}, el("code", {}, c.expression), i === 0 ? el("div", { class: "best-tag" }, "best fit") : null),
+        el("td", {}, round(c.ks)), el("td", {}, round(c.p)), el("td", {}, c.mean), el("td", {}, c.sd),
+        el("td", {}, el("button", { class: i === 0 ? "primary" : null, onclick: () => use(c.expression) }, "Use")))),
+        el("tr", {},
+          el("td", { colspan: 5 }, el("b", {}, "The values as they are"),
+            el("div", { class: "hint" }, data.empirical
+              ? `empirical(...) with all ${data.count} values: no distribution assumed, but nothing outside ${data.min} to ${data.max}.`
+              : `Over ${data.empirical_max} values would make the model too long to read: use a fitted distribution, or a sample of the values.`)),
+          el("td", {}, el("button", { disabled: !data.empirical || null, onclick: () => use(data.empirical) }, "Use")))))));
+    body.append(el("p", { class: "hint" },
+      "The KS distance is the largest gap between the fitted and the observed distribution: smaller is better. ",
+      "The p-values are optimistic, since each distribution's parameters come from the same data: read them as a ranking, not a test.",
+      data.count < 30 ? ` With only ${data.count} values, several distributions may fit equally well.` : ""));
+  }
+  refresh();
 }
 
 function panel(tree) {

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use axum::extract::{Path as UrlPath, Query, State};
+use axum::extract::{DefaultBodyLimit, Path as UrlPath, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -33,6 +33,7 @@ use tower_http::compression::CompressionLayer;
 
 use crate::compare::compare_pair;
 use crate::decisions::{self, Exposed, Target};
+use crate::fit;
 use crate::markdown;
 use crate::measures::{self, Measure};
 use crate::output::layout_json;
@@ -297,6 +298,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/runs", get(list_runs).post(start_run))
         .route("/api/v1/runs/{id}", get(get_run).delete(delete_run))
         .route("/api/v1/runs/{id}/files/{name}", get(get_run_file))
+        .route(
+            "/api/v1/fit",
+            post(fit_data).layer(DefaultBodyLimit::max(FIT_LIMIT)),
+        )
         .layer(CompressionLayer::new())
         .with_state(state)
 }
@@ -964,6 +969,88 @@ fn project_problems(problems: &[String]) -> Vec<Value> {
         .iter()
         .map(|message| json!({ "change": null, "file": PROJECT_FILE, "line": null, "column": null, "message": message }))
         .collect()
+}
+
+// --- fitting observed data --------------------------------------------------------
+
+/// The largest CSV the Modeling page may send to be fitted.
+const FIT_LIMIT: usize = 32 * 1024 * 1024;
+
+/// Above this many values, `empirical(...)` would make the model unreadable:
+/// the page offers only the fitted distributions.
+const EMPIRICAL_MAX: usize = 1000;
+
+#[derive(Deserialize)]
+struct FitRequest {
+    /// The file's name, for messages.
+    #[serde(default)]
+    name: Option<String>,
+    /// The file's contents: CSV, or one value per line.
+    text: String,
+    /// A header name or a 1-based position; needed with several columns.
+    #[serde(default)]
+    column: Option<String>,
+    /// The unit the values are in: s, min, h or d.
+    #[serde(default = "default_fit_unit")]
+    unit: String,
+}
+
+fn default_fit_unit() -> String {
+    "min".into()
+}
+
+/// `simulancer fit` for the Modeling page: the file's columns, and once one
+/// is chosen (or there's only one), the ranked candidates.
+async fn fit_data(Json(request): Json<FitRequest>) -> Response {
+    if !["s", "min", "h", "d"].contains(&request.unit.as_str()) {
+        return error(
+            StatusCode::BAD_REQUEST,
+            format!("the unit is s, min, h or d, got `{}`", request.unit),
+        );
+    }
+    let name = request.name.as_deref().unwrap_or("the file");
+    let columns = fit::columns(&request.text);
+    if columns.is_empty() {
+        return error(StatusCode::UNPROCESSABLE_ENTITY, format!("{name} is empty"));
+    }
+    let column = match request.column {
+        Some(c) => c,
+        None if columns.len() == 1 => columns[0].clone(),
+        // Let the page ask which column.
+        None => return Json(json!({ "columns": columns, "column": null })).into_response(),
+    };
+    let values = match fit::parse_column(&request.text, name, Some(&column)) {
+        Ok(values) => values,
+        Err(message) => return error(StatusCode::UNPROCESSABLE_ENTITY, message),
+    };
+    let unit = &request.unit;
+    let (mean, sd, min, max) = fit::describe(&values);
+    let candidates: Vec<Value> = fit::fit(&values, unit)
+        .iter()
+        .map(|c| {
+            json!({
+                "expression": c.expression,
+                "ks": c.ks,
+                "p": c.p,
+                "mean": format!("{} {unit}", fit::short(c.mean)),
+                "sd": format!("{} {unit}", fit::short(c.sd)),
+            })
+        })
+        .collect();
+    let t = |v: f64| format!("{} {unit}", fit::short(v));
+    Json(json!({
+        "columns": columns,
+        "column": column,
+        "count": values.len(),
+        "mean": t(mean),
+        "sd": t(sd),
+        "min": t(min),
+        "max": t(max),
+        "candidates": candidates,
+        "empirical": (values.len() <= EMPIRICAL_MAX).then(|| fit::empirical(&values, unit)),
+        "empirical_max": EMPIRICAL_MAX,
+    }))
+    .into_response()
 }
 
 // --- health ----------------------------------------------------------------------
@@ -2156,6 +2243,81 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         }
         panic!("run {id} didn't finish");
+    }
+
+    #[tokio::test]
+    async fn fits_a_column_sent_by_the_page() {
+        let (app, root) = app("fit");
+        let text = "order;minutes;who\n1;2,5;a\n2;3,1;b\n3;4,0;a\n4;2,2;b\n5;3,6;a\n";
+        // Several columns: the page asks which one first.
+        let (status, body) = call(
+            &app,
+            "POST",
+            "/api/v1/fit",
+            Some(json!({ "name": "times.csv", "text": text })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["columns"], json!(["order", "minutes", "who"]));
+        assert_eq!(body["column"], Value::Null);
+        assert!(body.get("candidates").is_none());
+
+        let (status, body) = call(
+            &app,
+            "POST",
+            "/api/v1/fit",
+            Some(json!({ "name": "times.csv", "text": text, "column": "minutes", "unit": "min" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["count"], 5);
+        assert_eq!(body["min"], "2.2 min");
+        assert_eq!(
+            body["empirical"],
+            "empirical(2.2 min, 2.5 min, 3.1 min, 3.6 min, 4 min)"
+        );
+        let candidates = body["candidates"].as_array().unwrap();
+        assert!(candidates.len() >= 5);
+        let ks: Vec<f64> = candidates
+            .iter()
+            .map(|c| c["ks"].as_f64().unwrap())
+            .collect();
+        assert!(ks.windows(2).all(|w| w[0] <= w[1]), "best first: {ks:?}");
+        // Every suggestion is a valid process time.
+        let blank = include_str!("../../../examples/blank.yaml");
+        assert!(blank.contains("triangular(40 s, 50 s, 70 s)"));
+        for c in candidates {
+            let yaml = blank.replace(
+                "triangular(40 s, 50 s, 70 s)",
+                c["expression"].as_str().unwrap(),
+            );
+            if let Err(e) = simulancer_model::load_str(&yaml) {
+                panic!("{}: {e:?}", c["expression"]);
+            }
+        }
+
+        // A column that isn't numbers, and a unit that isn't one.
+        let (status, body) = call(
+            &app,
+            "POST",
+            "/api/v1/fit",
+            Some(json!({ "name": "times.csv", "text": text, "column": "who" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            body["error"].as_str().unwrap().contains("not a number"),
+            "{body}"
+        );
+        let (status, _) = call(
+            &app,
+            "POST",
+            "/api/v1/fit",
+            Some(json!({ "text": "1\n2\n", "unit": "weeks" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]
