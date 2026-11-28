@@ -25,9 +25,10 @@ async function loadProjects() {
   state.projects = data.projects || [];
   state.archived = archived.projects || [];
   state.templates = templates.templates || [];
+  state.decider = (await ME).role === "decider";
   if (!state.archived.length) state.showArchived = false;
   // Nothing yet: the first thing to do is start a project.
-  if (!state.projects.length && !state.archived.length && !state.creating) startCreating();
+  if (!state.decider && !state.projects.length && !state.archived.length && !state.creating) startCreating();
   render();
 }
 
@@ -40,8 +41,10 @@ function render() {
   document.getElementById("lead").hidden = creating;
   document.getElementById("create").replaceChildren(...(creating ? [newProjectView()] : []));
   document.getElementById("projects").replaceChildren(...(creating ? [] : [
-    ...state.projects.map(p => state.editing?.id === p.id ? editForm(p) : projectCard(p)), newProjectCard()]));
-  document.getElementById("archived").replaceChildren(...(creating ? [] : archivedSection()));
+    // Deciders only see what's published: the rest is a modeler's work in progress.
+    ...state.projects.filter(p => !state.decider || p.published).map(p => state.editing?.id === p.id ? editForm(p) : projectCard(p)),
+    ...(state.decider ? [] : [newProjectCard()])]));
+  document.getElementById("archived").replaceChildren(...(creating || state.decider ? [] : archivedSection()));
   const again = focused && document.getElementById(focused);
   if (again && again !== document.activeElement) {
     again.focus();
@@ -61,14 +64,14 @@ function noticeBar() {
 function projectCard(p) {
   return el("div", { class: "door project", "data-project": p.id },
     el("span", { class: "who" }, p.published ? `Published ${p.published.name} · ${new Date(p.published.date).toLocaleDateString()}` : "Not published yet"),
-    el("button", { class: "more", title: "More", "aria-label": `More for ${p.name}`, onclick: e => { e.stopPropagation(); state.menu = state.menu === p.id ? null : p.id; render(); } }, "⋯"),
+    state.decider ? null : el("button", { class: "more", title: "More", "aria-label": `More for ${p.name}`, onclick: e => { e.stopPropagation(); state.menu = state.menu === p.id ? null : p.id; render(); } }, "⋯"),
     state.menu === p.id ? el("div", { class: "menu" },
       el("button", { "data-action": "rename", onclick: () => startEditing(p) }, "Rename and describe…"),
       el("button", { "data-action": "archive", onclick: () => archive(p) }, "Archive")) : null,
     el("h2", {}, p.name),
     el("p", {}, p.description || ""),
     el("div", { class: "actions" },
-      el("a", { class: "button", href: `modeling?project=${enc(p.id)}` }, icon("modeling"), PAGES.modeling),
+      state.decider ? null : el("a", { class: "button", href: `modeling?project=${enc(p.id)}` }, icon("modeling"), PAGES.modeling),
       p.published
         ? el("a", { class: "button primary", href: `simulation?project=${enc(p.id)}` }, icon("simulation"), PAGES.simulation)
         : el("span", { class: "hint", style: "margin: 0" }, "Publish a version to simulate scenarios.")));

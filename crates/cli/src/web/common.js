@@ -38,6 +38,13 @@ function svg(tag, attrs = {}, ...children) {
   return node;
 }
 
+/** Who's looking: { role: "modeler" | "decider", roles }. Deciders (when the
+ *  proxy sets roles) don't see what they can't do. */
+const ME = fetch(`${API}/me`)
+  .then(r => (r.ok ? r.json() : null))
+  .catch(() => null)
+  .then(me => me || { role: "modeler", roles: false });
+
 async function api(method, path, body) {
   const response = await fetch(`${API}/${path}`, {
     method,
@@ -389,6 +396,7 @@ function pageProject() {
     link.replaceChildren(icon(page), PAGES[page]);
   }
   document.getElementById("project-name").textContent = id;
+  ME.then(me => { if (me.role === "decider") document.getElementById("to-modeling").hidden = true; });
   return id;
 }
 

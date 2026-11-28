@@ -47,6 +47,30 @@ The simulator has **no built-in authentication**. Put it behind the reverse prox
 - **Sub-paths:** the web interface uses relative URLs, so it can live under a sub-path (`https://intranet/simulator/`).
 - **Health checks:** `GET /api/v1/health` returns `200` with the version and queue size, for load balancers and monitoring.
 
+## Roles: modelers and deciders
+
+By default, everyone who reaches the server can do everything. To keep the people who decide out of the Modeling page, let the proxy say who's who: after the login, it sets a header with the user's groups, and SimuLancer reads it.
+
+```sh
+simulancer serve --role-header X-Forwarded-Groups --modelers engineering,simulation
+```
+
+- **Modelers**, users in one of the `--modelers` groups (`modeler` by default), can do everything.
+- **Deciders**, everyone else, see only published projects. They open the Simulation page, build scenarios, compare them, and run published versions as they are. The Modeling page and every request that changes a model or a project (create, save, publish, archive, delete, run a working copy or changes, delete a run) answer `403`.
+- Groups in the header are separated by commas, semicolons or spaces, and compared ignoring case. Most SSO proxies can send them: oauth2-proxy (`X-Forwarded-Groups`), Authelia and Authentik (`Remote-Groups`), Keycloak gatekeepers, or a `map` of `$remote_user` in nginx with basic auth.
+
+**The header must come from the proxy only.** Make the proxy always set it (overwriting whatever the browser sent), and keep the server reachable only through the proxy (the default `--host 127.0.0.1`, or a firewall). Otherwise anyone could claim to be a modeler by sending the header. With nginx and basic auth:
+
+```nginx
+map $remote_user $simulancer_groups {
+    default  "";
+    alice    "engineering";
+    bob      "engineering";
+}
+# in the location block:
+proxy_set_header X-Forwarded-Groups $simulancer_groups;
+```
+
 ## Sizing
 
 | Resource | What drives it |
