@@ -306,6 +306,12 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - Engine tests check the hand-worked times on a deterministic belt for both kinds. The pinned results don't move: the accumulating path's arithmetic is unchanged.
 - The escape hatch for logic stays open; see the comment on the issue.
 
+## Benchmark, and sampling only what changed (2026-11-27, issue #100)
+
+- `bench/bench.py` (Python, stdlib only): K parallel lines of L stations with failures, one replication on one thread, timed with `wait4` for peak memory; cases for objects (100, 1,000, 10,000), parts in the system, run length and the event log. Results in `docs/performance.md`.
+- Its first run found the engine quadratic in model size: `sample_state` updated every server's and conveyor's time averages after every event. Now mutation points mark servers and conveyors (`mark_server`, `mark_conveyor`) and only those are sampled; everything at the start, at shift changes and at the end. Bit-identical (integer areas); a `debug_assertions` check in `sample_state` proves no unmarked object changed, over the whole test suite. 1,000 objects: 149 s → 5.6 s.
+- Left as is: 10,000 objects cost about 3× more per event than 1,000 (cache misses, a longer event list) and 281 MB, of which about 60 MB are the queues' wait histograms (12 KB each for waits up to an hour). Worth revisiting only for models of that size.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.
