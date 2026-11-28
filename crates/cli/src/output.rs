@@ -1,5 +1,5 @@
 //! Result files: summary.json, replications.csv, report.html and the
-//! events.jsonl event log.
+//! events.jsonl event log. The Parquet files are in `columnar`.
 
 use std::fs;
 use std::io::{self, Write};
@@ -284,51 +284,57 @@ pub struct EventLog<'a, W: Write> {
     error: Option<io::Error>,
 }
 
+/// The first line of `events.jsonl` (and the metadata of `events.parquet`):
+/// the model's objects, so a reader needs nothing else to make sense of the
+/// events.
+pub fn event_log_header(model_name: &str, spec: &Spec, replication: u32) -> serde_json::Value {
+    let node = |n: Node| match n {
+        Node::Source(i) => &spec.sources[i].name,
+        Node::Server(i) => &spec.servers[i].name,
+        Node::Sink(i) => &spec.sinks[i].name,
+    };
+    let e = &spec.experiment;
+    json!({
+        "format": "simulancer-events/0.1",
+        "model": model_name,
+        "replication": replication,
+        "seed": e.seed,
+        "warmup": e.warmup.as_secs_f64(),
+        "end": (e.warmup + e.run_length).as_secs_f64(),
+        "entities": spec.entities,
+        "attributes": spec.attributes.iter().map(|a| json!({
+            "name": a.name,
+            "unit": if a.time { Some("s") } else { None },
+            "default": a.default,
+        })).collect::<Vec<_>>(),
+        "sources": spec.sources.iter().map(|s| &s.name).collect::<Vec<_>>(),
+        "servers": spec.servers.iter().map(|s| json!({
+            "name": s.name,
+            "capacity": s.capacity,
+            "batch": match s.kind { ServerKind::Batch(n) => Some(n), _ => None },
+            "needs": s.needs.iter().map(|&(r, _)| &spec.resources[r].name).collect::<Vec<_>>(),
+            "failures": s.failures.iter().map(|f| &f.name).collect::<Vec<_>>(),
+            "schedule": s.schedule.map(|i| &spec.schedules[i].name),
+        })).collect::<Vec<_>>(),
+        "conveyors": spec.conveyors.iter().map(|c| json!({
+            "name": c.name,
+            "queue": c.is_queue(),
+            "transport": c.transport_by().map(|(f, d)| json!({ "by": spec.vehicles[f].name, "distance": d })),
+            "from": node(c.from),
+            "to": node(c.to),
+            "length": c.length,
+            "speed": c.speed,
+            "spacing": c.spacing,
+            "capacity": c.capacity,
+        })).collect::<Vec<_>>(),
+        "sinks": spec.sinks.iter().map(|s| &s.name).collect::<Vec<_>>(),
+        "resources": spec.resources.iter().map(|r| json!({ "name": r.name, "capacity": r.capacity })).collect::<Vec<_>>(),
+        "vehicles": spec.vehicles.iter().map(|f| json!({ "name": f.name, "count": f.count, "home": node(f.home) })).collect::<Vec<_>>(),
+    })
+}
+
 impl<'a, W: Write> EventLog<'a, W> {
-    pub fn new(mut out: W, model_name: &str, spec: &'a Spec, replication: u32) -> io::Result<Self> {
-        let node = |n: Node| match n {
-            Node::Source(i) => &spec.sources[i].name,
-            Node::Server(i) => &spec.servers[i].name,
-            Node::Sink(i) => &spec.sinks[i].name,
-        };
-        let e = &spec.experiment;
-        let header = json!({
-            "format": "simulancer-events/0.1",
-            "model": model_name,
-            "replication": replication,
-            "seed": e.seed,
-            "warmup": e.warmup.as_secs_f64(),
-            "end": (e.warmup + e.run_length).as_secs_f64(),
-            "entities": spec.entities,
-            "attributes": spec.attributes.iter().map(|a| json!({
-                "name": a.name,
-                "unit": if a.time { Some("s") } else { None },
-                "default": a.default,
-            })).collect::<Vec<_>>(),
-            "sources": spec.sources.iter().map(|s| &s.name).collect::<Vec<_>>(),
-            "servers": spec.servers.iter().map(|s| json!({
-                "name": s.name,
-                "capacity": s.capacity,
-                "batch": match s.kind { ServerKind::Batch(n) => Some(n), _ => None },
-                "needs": s.needs.iter().map(|&(r, _)| &spec.resources[r].name).collect::<Vec<_>>(),
-                "failures": s.failures.iter().map(|f| &f.name).collect::<Vec<_>>(),
-                "schedule": s.schedule.map(|i| &spec.schedules[i].name),
-            })).collect::<Vec<_>>(),
-            "conveyors": spec.conveyors.iter().map(|c| json!({
-                "name": c.name,
-                "queue": c.is_queue(),
-                "transport": c.transport_by().map(|(f, d)| json!({ "by": spec.vehicles[f].name, "distance": d })),
-                "from": node(c.from),
-                "to": node(c.to),
-                "length": c.length,
-                "speed": c.speed,
-                "spacing": c.spacing,
-                "capacity": c.capacity,
-            })).collect::<Vec<_>>(),
-            "sinks": spec.sinks.iter().map(|s| &s.name).collect::<Vec<_>>(),
-            "resources": spec.resources.iter().map(|r| json!({ "name": r.name, "capacity": r.capacity })).collect::<Vec<_>>(),
-            "vehicles": spec.vehicles.iter().map(|f| json!({ "name": f.name, "count": f.count, "home": node(f.home) })).collect::<Vec<_>>(),
-        });
+    pub fn new(mut out: W, header: &serde_json::Value, spec: &'a Spec) -> io::Result<Self> {
         writeln!(out, "{header}")?;
         Ok(EventLog {
             out,

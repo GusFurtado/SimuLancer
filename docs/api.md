@@ -315,7 +315,9 @@ Removes a finished run and its result folder: `204`. A queued or running run giv
 | `report.html` | The self-contained report. |
 | `summary.json` | Every measure with mean, 95% CI, sd, min, max, in standard units; `warmup_check`: parts in the system per time bin (mean across replications and smoothed), and the warm-up the MSER rule suggests (`suggested`, seconds; `settles`); `precision_check`: whether the project's results (or the sinks') are as precise as the model asks, and the replications they need. |
 | `replications.csv` | One row per replication × measure. |
+| `replications.parquet` | The same rows, in Parquet. |
 | `events.jsonl` | Event log of replication 1, if the model asks for one (`outputs.event_log: jsonl`). |
+| `events.parquet` | The same events in Parquet, if the model asks for them (`outputs.event_log: parquet`). |
 | `layout.json` | The layout, if the model has one. |
 | `model.yaml` | The exact model that ran (the version plus any changes). |
 

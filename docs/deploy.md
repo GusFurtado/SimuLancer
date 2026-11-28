@@ -53,7 +53,7 @@ The simulator has **no built-in authentication**. Put it behind the reverse prox
 |---|---|
 | CPU | Each run uses **all cores**, one run at a time; other runs wait in a queue. More cores means faster runs. `--threads N` limits a run to N cores, e.g. on a shared host. |
 | Memory | Small: tens of MB, plus the event log of the run being written. |
-| Disk | Each run keeps its results. The event log is the big file, about 7 MB per 128 simulated hours of the conveyor-line example; it's only written for models that ask for one (`outputs.event_log: jsonl`). |
+| Disk | Each run keeps its results. The event log is the big file, about 7 MB per 128 simulated hours of the conveyor-line example; it's only written for models that ask for one (`outputs.event_log: jsonl`). In Parquet (`event_log: parquet`) it's about a tenth of that. |
 
 For scale: 30 replications of the examples take about 0.2 s on 12 cores.
 

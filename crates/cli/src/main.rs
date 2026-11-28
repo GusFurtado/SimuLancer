@@ -1,3 +1,4 @@
+mod columnar;
 mod compare;
 mod decisions;
 mod files;

@@ -386,11 +386,12 @@ Each replication uses its own random streams, named after the objects that draw 
 
 ```yaml
 outputs:
-  event_log: jsonl       # write events.jsonl (replication 1) for the animation
+  event_log: jsonl       # events.jsonl (replication 1) for the animation; parquet for analysis; or [jsonl, parquet]
   summary: [throughput, time_in_system, server_states, conveyor_occupancy, source_blocked_time]
   throughput_per: two_shifts   # hour (default), day, week, or a schedule's name
 ```
 
+- `event_log` writes every event of one replication (the first, or `simulancer run --log-replication`): `jsonl` is what the animation replays, `parquet` is the same events in a file about a tenth of the size, for pandas, R or DuckDB, and `[jsonl, parquet]` writes both. None by default. See [The event log](results.md#the-event-log).
 - `summary` lists which measures to report; all of them by default.
 - `throughput_per` sets what every throughput is counted per. `hour`, `day` and `week` are calendar time: a line that works 80 hours a week and ships 1,900 machines a week reports 11.3 /h. A schedule's name counts per hour of that schedule's working time instead: the same line reports 23.8 /working h with `throughput_per: two_shifts`.
 

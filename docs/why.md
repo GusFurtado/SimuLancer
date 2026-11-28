@@ -153,7 +153,7 @@ Be clear about what you give up:
 | Clumsy data input | Models are YAML (easy to generate) and scenarios are change sets sent through the API. No database connectors yet. | partial |
 | Rigid output formats | A JSON summary, long-format CSV, a JSON Lines event log and a self-contained HTML report. See [Results](results.md). | done |
 | Weak input modeling | Seven distributions, including Weibull and gamma, and arrival rates by time of day. No distribution fitting yet. | partial |
-| Disconnected from modern data tools | CSV and JSON open in pandas or R directly. No Parquet or Python package yet. | partial |
+| Disconnected from modern data tools | Replication values and the event log come in Parquet as well as CSV and JSON, so pandas, R, DuckDB or Power BI read them directly. No Python package yet. | partial |
 
 ## 7. Statistics and methodology
 
@@ -289,7 +289,7 @@ Use these to judge any tool, open-source or commercial. SimuLancer's answers are
 | Can someone without a license audit and rerun the model? | Yes |
 | Are queueing, tie-breaking and event-ordering rules explicit and documented? | Yes |
 | Does the workflow make replications, warm-up and confidence intervals the default? | Yes |
-| Can I get raw event logs out in an open format? | Yes: JSON Lines and CSV (no Parquet yet) |
+| Can I get raw event logs out in an open format? | Yes: JSON Lines, CSV and Parquet |
 | Will my models still run in 10 years if the vendor disappears? | The source is open, so anyone can keep building it |
 | Can I write automated tests for model logic? | Partly: `validate` in CI, and runs are exactly reproducible from the seed |
 | Is the tool helping me do correct analysis, or just a convincing demo? | Judge for yourself: every result carries its interval, and "no clear difference" is a valid answer |

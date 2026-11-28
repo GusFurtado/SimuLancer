@@ -32,8 +32,8 @@ Scenario files work anywhere a model does (`validate`, `run`, `compare`). Errors
 
 - `report.html`: a self-contained report with charts that works offline.
 - `summary.json`: every measure with its confidence interval, and the warm-up check (parts in the system over time).
-- `replications.csv`: raw values per replication.
-- `events.jsonl`: an event log, if the model asks for one. See `simulancer run --help` for options.
+- `replications.csv` and `replications.parquet`: raw values per replication.
+- `events.jsonl` (for the animation) or `events.parquet` (for analysis): an event log, if the model asks for one. See `simulancer run --help` for options.
 
 ## Server and HTTP API
 

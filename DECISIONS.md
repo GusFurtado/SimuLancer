@@ -127,7 +127,7 @@
   - `summary.json`: one entry per measure with n, mean, half-width, sd, min and max, in standard units with an explicit `unit` field (`s`, `fraction`, `parts`, `parts/h`, `count`).
   - `replications.csv`: long format, one row per replication × measure. Raw values for spreadsheets, pandas or R.
   - `events.jsonl`: only when the model sets `outputs.event_log: jsonl`, and for one replication (`--log-replication`, default 1). The whole run is included, warm-up too.
-- **Event log format, decided: JSON Lines** (`simulancer-events/0.1`). The first line is a header with the model structure the viewer needs (conveyor ends, length, speed, spacing and capacity; server capacity and failure names). Then one event per line, with `t` in seconds written exactly to the µs, and objects referred to by name. Size: about 6 MB / 88k lines for 128 h of the conveyor line. Parquet can come later if size becomes a problem.
+- **Event log format, decided: JSON Lines** (`simulancer-events/0.1`). The first line is a header with the model structure the viewer needs (conveyor ends, length, speed, spacing and capacity; server capacity and failure names). Then one event per line, with `t` in seconds written exactly to the µs, and objects referred to by name. Size: about 6 MB / 88k lines for 128 h of the conveyor line. Parquet can come later if size becomes a problem (it came on 2026-11-28; see "Parquet output").
 - Display units are chosen per measure by the table (fractions → %, durations → s/min/h by magnitude). Files always use standard units.
 
 ## Pinned results and format versions (2026-11-27, issue #93)
@@ -298,6 +298,16 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
+
+## Parquet output (2026-11-28, issue #102)
+
+- The user's pick among the options of #102 ("vamos começar pelo parquet, mantendo o app relativamente stand-alone"): Parquet first, before a Python package or database inputs.
+- **Every run writes `replications.parquet`** next to `replications.csv`: the same rows, typed (`replication` INT64, `value` DOUBLE, null where the CSV cell is empty), with `{"format": "simulancer-replications/0.1", "model": ...}` in the key-value metadata under `simulancer`. It's small, so there's no setting. The CSV stays: the server reads it back to restore runs.
+- **`outputs.event_log`** takes `none`, `jsonl`, `parquet` or `[jsonl, parquet]`. `events.parquet` has one row per event, its columns are the JSONL keys (nullable where an event type lacks them), and the JSONL header goes in the metadata under `simulancer`. Attribute values that aren't finite are null, as in the JSONL. The animation still reads only JSONL; the Modeling page has a second checkbox, "Save the events for analysis (Parquet)".
+- **Stand-alone:** the `parquet` crate with no default features plus `snap`, so no Arrow and no C code. It's about 29 crates, all pure Rust, and the binary grew by 0.8 MB (9.4 → 10.2 MB). Written through the column API in row groups of 262,144 rows, Snappy-compressed and dictionary-encoded, so repeated names cost almost nothing.
+- **Size and speed** (warehouse template, 35 days, one replication, release build): JSONL 38 MB, Parquet 3.2 MB (11.8× smaller); run time 0.29 s with JSONL, 0.32 s with Parquet, 0.18 s without a log. The row-group buffer adds about 34 MB of peak memory.
+- **Tests:** every template's run gives Parquet files equal to the text ones, row for row (`parquet_files_match_the_text_ones`), covering 17 event types. Files are byte-identical across thread counts. pyarrow, pandas and DuckDB read them (checked by hand).
+- `parquet` and `snap` are optimized in debug builds too, like the engine, so `cargo test` stays quick.
 
 ## Packaging and deployment (implemented 2026-10-09)
 
