@@ -379,7 +379,7 @@ function comparisonView() {
   const ranking = (c.ranking || []).length
     ? el("div", { class: "ranking" },
         el("h4", {}, "Which does best"),
-        el("ul", {}, ...c.ranking.map(r => el("li", { class: "sentence" }, r.sentence))),
+        el("ul", {}, ...c.ranking.map(r => el("li", { class: "rank-sentence" }, r.sentence))),
         el("p", { class: "hint" }, "Each result's best is compared with every other alternative at once, with intervals wide enough to be 95% sure of all those comparisons together."))
     : null;
   return el("section", { class: "comparison", id: "comparison" },
