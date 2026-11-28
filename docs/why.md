@@ -16,7 +16,7 @@ This page lists them, theme by theme, with what SimuLancer does about each. Not 
 | **ExtendSim** | Proprietary | Published | Student package (paid), trial | Windows (on a Mac, through Parallels or Boot Camp) | ExtendSim model files | ModL |
 | **JaamSim** | Open source (Apache-2.0) | Free | The full program | Windows, macOS, Linux (Java) | Text (`.cfg`) | Expressions; new objects in Java |
 | **SimPy** | Open source (MIT) | Free | The full library | Wherever Python runs | Python code | Python |
-| **SimuLancer** | Open source (MIT or Apache-2.0) | Free | The full program | Server: Linux or Docker. Users: any browser | YAML text | None: the model is data, plus a small formula language |
+| **SimuLancer** | Open source (MIT or Apache-2.0) | Free | The full program | Linux, Windows, macOS, or Docker. Users: any browser | YAML text | None: the model is data, plus a small formula language |
 
 Checked on 2026-11-25 against the vendors' own pages where they exist (see [Sources](#sources)). Vendors change editions and limits often: if something here is out of date, [open an issue](https://github.com/GusFurtado/SimuLancer/issues). ProModel and WITNESS aren't in the table yet.
 
@@ -90,7 +90,7 @@ Be clear about what you give up:
 
 | Problem | Answer | Status |
 |---|---|---|
-| Old foundations, Windows-only | A Rust engine; a Linux binary, a Docker image, and a web app in any browser. | done |
+| Old foundations, Windows-only | A Rust engine; binaries for Linux, Windows and macOS (tested on all three on every build), a Docker image, and a web app in any browser. On a laptop, `simulancer serve` runs the web app for one person, with no server. | done |
 | Single-threaded engines | Replications run in parallel across all cores, with results independent of the thread count. | done |
 | Slow startup and heavy UI | 30 replications of most examples take under 0.2 s, report included. The web app is plain HTML and JavaScript with nothing to install, and loads nothing from the internet (not even a font). | done |
 | The GUI is the only full interface | The command line, the HTTP API and the web app are equal citizens; the web app uses only the public API. | done |

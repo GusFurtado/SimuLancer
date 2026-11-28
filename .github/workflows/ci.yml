@@ -28,6 +28,27 @@ jobs:
             cargo run -q -- validate "$model"
           done
 
+  # Windows and macOS: build, test (pinned results included), and run the
+  # examples' expected results. The browser and replay tests stay on Linux.
+  other-platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+      - name: Validate example models
+        shell: bash
+        run: |
+          for model in examples/*.yaml; do
+            case "$model" in *.layout.yaml|*/templates.yaml) continue ;; esac
+            cargo run -q -- validate "$model"
+          done
+
   web-ui:
     # Checks the animation's replay against the engine, then drives the web
     # interface in a real (headless) Firefox, and keeps the

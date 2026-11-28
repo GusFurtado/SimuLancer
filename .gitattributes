@@ -1,0 +1,7 @@
+# Text files keep LF on every platform: the pinned results (tests/pinned/)
+# are compared byte for byte, and models are read the same everywhere.
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.ico binary
+*.gz binary
