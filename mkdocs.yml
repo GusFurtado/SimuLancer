@@ -45,6 +45,7 @@ nav:
       - Model files: models.md
       - Scenarios: scenarios.md
       - Results: results.md
+      - Coming from Arena: from-arena.md
   - Methods:
       - Replications and confidence intervals: methods/replications.md
       - Warm-up: methods/warmup.md
