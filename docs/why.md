@@ -27,7 +27,7 @@ Two things stand out. First, the open-source tools aren't new: JaamSim and SimPy
 Be clear about what you give up:
 
 - **3D.** Most commercial tools animate in 3D. SimuLancer animates in 2D, on purpose (see [section 8](#8-animation-used-as-a-substitute-for-rigor)), but if a client needs a 3D walkthrough, it won't make one.
-- **Optimization.** Most commercial tools include an optimizer, often OptQuest. SimuLancer has none: you can sweep parameters through the [API](api.md).
+- **Optimization.** Most commercial tools include an optimizer, often OptQuest. SimuLancer tries every value of one decision and picks the best with honest statistics, but has no search over several decisions at once.
 - **Breadth.** Decades of libraries: material handling, pedestrians, fluids, agent-based and system dynamics models. SimuLancer covers the lines, cells, stores and service systems described in [Model files](models.md), and not yet the rest.
 - **Maturity and support.** Thousands of users, consultants, courses and support contracts. SimuLancer is in early development, and its model format can still change.
 
@@ -172,7 +172,7 @@ Be clear about what you give up:
 | Warm-up and run length are guessed | Every report has a [warm-up check](methods/warmup.md) (Welch's method and the MSER rule), and `run` warns when the warm-up may be too short or the system never settles. Run length isn't checked yet. | partial |
 | Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
 | Comparing scenarios is unsound | Paired comparison on [common random numbers](methods/comparisons.md): an interval on the difference and a verdict. The Simulation page says it in words: *"Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better"*. | done |
-| Optimization is a black box | No optimizer yet; parameter sweeps through the API. | open |
+| Optimization is a black box | **Try every value** on the Simulation page runs every option or value of a decision on common random numbers and says which does best, with Bonferroni-adjusted intervals so the choice accounts for the multiple comparisons, in words: "none clearly does best" is a possible answer. No search over several decisions at once yet. | partial |
 | Validation is skipped | The engine itself is [validated against queueing theory](methods/validation.md). Nothing yet helps validate a user's model against real data. | partial |
 | Verification is hard | Readable models, a per-part event log, and a replay that reproduces the engine exactly. | done |
 

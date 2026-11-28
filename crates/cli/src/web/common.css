@@ -395,6 +395,10 @@
   .section-title { font-size: 16px; margin: 24px 0 8px; }
   .headline { font-size: 16px; margin: 0 0 14px; padding-left: 20px; }
   .headline li { margin: 3px 0; }
+  .ranking { margin: 0 0 14px; }
+  .ranking h4 { margin: 0 0 4px; font-size: 14px; }
+  .ranking ul { margin: 0 0 4px; padding-left: 20px; }
+  dd button.link[data-sweep] { display: block; margin-top: 2px; padding: 0; font-size: 12px; }
   .table-wrap { overflow-x: auto; border-radius: 12px; box-shadow: 0 0 0 1px var(--ring); background: var(--surface); }
   table.compare-table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   .compare-table th, .compare-table td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--grid); }

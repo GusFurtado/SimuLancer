@@ -42,3 +42,16 @@ An interval 5.9 times narrower is worth about 35 times as many independent repli
 ## Many scenarios at once
 
 Each interval has a 95% chance of covering the true difference. Compare many scenarios on many results and some small differences will look clear by chance. The Simulation page says so under every comparison. Treat a single surprising "better" among many with care, and confirm it with more replications.
+
+## Choosing the best of several
+
+With two scenarios or more, the question changes from "is this better than now?" to "which is best?". For each result with a direction (higher or lower is better), the Simulation page answers it under *Which does best*:
+
+1. The alternative with the best mean, the current setup included, is the candidate.
+2. It's compared with each of the other *k* − 1 alternatives on paired differences (common random numbers again), with **Bonferroni-adjusted** intervals: each at 1 − 0.05 / (*k* − 1) confidence, so that all the comparisons together hold with at least 95%.
+3. If every interval says the candidate is better, it **clearly does best**. Otherwise the page names the alternatives that could be as good: more replications can tell them apart, or the difference doesn't matter.
+4. When every difference is surely under 1% (1 point for shares of time), it says they're all **too small to matter**.
+
+Bonferroni is conservative: with many alternatives, the intervals get wide, and the page will more often say "could be as good". That's the honest answer with few replications. A table of 12 values, each run 30 times, rarely separates neighbors that differ by less than the noise.
+
+The **Try every value** link next to a decision builds this kind of comparison in one click: every option of a choice, or every value of a number from its minimum to its maximum (whole numbers when the limits are, or five evenly spaced values), up to 12.

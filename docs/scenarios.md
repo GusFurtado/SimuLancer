@@ -40,4 +40,6 @@ People who decide don't need to read YAML. On the Modeling page, the engineer ch
 
 Once that version is published, the Simulation page lists the decisions with their current values. A scenario is a set of choices, and **Compare** runs the selected scenarios against the current setup and says what changed in words. The [tutorial](tutorial.md) walks through it.
 
+**Try every value**, next to each decision, compares every option (or every value in its range, up to 12) with the current setup at once, without saving scenarios, and says which does best on each result. See [Choosing the best of several](methods/comparisons.md#choosing-the-best-of-several).
+
 A scenario made on the Simulation page is stored as its choices (decision → option or number) and the version it was made on, so it never changes under its user. Scripts can create and compare them through the [HTTP API](api.md).
