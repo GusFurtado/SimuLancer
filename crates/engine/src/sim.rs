@@ -2646,7 +2646,6 @@ impl<'a, O: Observer> Sim<'a, O> {
         }
     }
 
-
     fn reset_statistics(&mut self) {
         self.sample_state();
         let now = self.now;
