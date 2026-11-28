@@ -21,6 +21,8 @@ tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "net", "s
 tower-http = { version = "0.7.1", features = ["compression-gzip"] }
 serde-saphyr = "1.3.0"
 pulldown-cmark = { version = "0.13.5", default-features = false, features = ["html"] }
+parquet = { version = "60", default-features = false, features = ["snap"] }
+bytes = "1"
 
 [dev-dependencies]
 http-body-util = "0.1.5"

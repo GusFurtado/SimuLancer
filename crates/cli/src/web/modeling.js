@@ -1539,6 +1539,23 @@ function throughputPerField(tree) {
     error ? el("div", { class: "message" }, error.message) : null);
 }
 
+/** outputs.event_log: none, jsonl (the animation), parquet (for analysis) or both. */
+function eventLogFields(tree) {
+  const value = getAt(tree, "outputs.event_log");
+  const has = format => value === format || (Array.isArray(value) && value.includes(format));
+  const set = (format, on) => {
+    const formats = ["jsonl", "parquet"].filter(f => f === format ? on : has(f));
+    setChange("outputs.event_log", formats.length === 0 ? null : formats.length === 1 ? formats[0] : formats);
+  };
+  return el("div", {},
+    el("label", { class: "check" },
+      el("input", { type: "checkbox", id: "f-event-log", checked: has("jsonl") || null, onchange: e => set("jsonl", e.target.checked) }),
+      "Record an animation (replication 1)"),
+    el("label", { class: "check", title: "events.parquet: every event of replication 1, one row each, for pandas, R, DuckDB or Power BI" },
+      el("input", { type: "checkbox", id: "f-event-log-parquet", checked: has("parquet") || null, onchange: e => set("parquet", e.target.checked) }),
+      "Save the events for analysis (Parquet)"));
+}
+
 function experimentPanel(tree) {
   return el("div", { class: "group", id: "experiment" },
     field("Replications", "experiment.replications", "int"),
@@ -1546,12 +1563,7 @@ function experimentPanel(tree) {
     field("Run length (after warm-up)", "experiment.run_length"),
     field("Seed", "experiment.seed", "int"),
     field("Precision of key results (±)", "experiment.precision", "text", [], "5%"),
-    el("label", { class: "check" },
-      el("input", {
-        type: "checkbox", id: "f-event-log", checked: getAt(tree, "outputs.event_log") === "jsonl" ? true : null,
-        onchange: e => setChange("outputs.event_log", e.target.checked ? "jsonl" : null),
-      }),
-      "Record an animation (replication 1)"),
+    eventLogFields(tree),
     throughputPerField(tree));
 }
 

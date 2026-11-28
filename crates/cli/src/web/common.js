@@ -446,7 +446,7 @@ function runResults(container, run, view, onView) {
     class: view === name ? "primary" : null, title,
     onclick: () => { stopAnimation(); onView(name); },
   }, label);
-  const downloads = ["summary.json", "replications.csv", "events.jsonl", "layout.json", "model.yaml"]
+  const downloads = ["summary.json", "replications.csv", "replications.parquet", "events.jsonl", "events.parquet", "layout.json", "model.yaml"]
     .filter(f => run.files.includes(f))
     .map(f => el("a", { href: file(f), download: f }, f));
   const body = el("div");
@@ -462,7 +462,9 @@ function runResults(container, run, view, onView) {
   } else if (view === "animation" && !run.files.includes("events.jsonl")) {
     body.append(el("div", { class: "card note", id: "no-animation" },
       el("h3", { style: "margin-top: 0" }, "Nothing to animate in this run"),
-      el("p", {}, "The animation replays what happened in the first replication, and this model doesn't record it."),
+      el("p", {}, run.files.includes("events.parquet")
+        ? "The animation replays what happened in the first replication. This run saved those events for analysis (events.parquet), but the animation needs its own log."
+        : "The animation replays what happened in the first replication, and this model doesn't record it."),
       el("p", {}, "To turn it on, open the project's Modeling page, check “Record an animation” under Definitions → Experiment, and run again. (In the model file it's ", el("code", {}, "outputs: { event_log: jsonl }"), ".)")));
   } else {
     startAnimation(body, run);

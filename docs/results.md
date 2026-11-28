@@ -7,7 +7,9 @@
 | `report.html` | The report: one self-contained file with charts, which works offline and can be attached to an email. |
 | `summary.json` | Every measure with its confidence interval, and the warm-up check. |
 | `replications.csv` | The raw value of every measure in every replication. |
+| `replications.parquet` | The same values in [Parquet](https://parquet.apache.org), typed, for pandas, R, DuckDB or Power BI. |
 | `events.jsonl` | The event log behind the animation, for one replication, when the model asks for it (`outputs.event_log: jsonl`). |
+| `events.parquet` | The same events in Parquet, for analysis, when the model asks for it (`outputs.event_log: parquet`). |
 | `layout.json` | The drawing the animation uses, when the model has a layout file. |
 
 The same model with the same seed gives byte-identical files, whatever the number of threads.
@@ -78,6 +80,28 @@ replication,object_type,object,measure,unit,value
 2,source,arrivals,blocked,fraction,0.07628457237037037
 ```
 
+`replications.parquet` holds the same rows, with `replication` as an integer and `value` as a double (null where the CSV cell is empty):
+
+```python
+import pandas as pd
+values = pd.read_parquet("results/conveyor-line/replications.parquet")
+values.groupby(["object", "measure"])["value"].mean()
+```
+
 ## The event log
 
 `events.jsonl` is [JSON Lines](https://jsonlines.org): a header with the model's structure, then one event per line, with its time in seconds (exact to the microsecond) and objects referred to by name. It covers the whole run, warm-up included. It's the largest file, about 6 MB for five days of the conveyor line, so models only write it when they ask for it.
+
+`events.parquet` holds the same events, one row each, for analysis rather than the animation. Its columns are the keys of `events.jsonl`: `t` (seconds), `type`, then `part`, `source`, `server`, `sink`, `conveyor`, `entity`, `slot`, `resource`, `units`, `failure`, `attribute`, `value`, `fleet`, `vehicle`, `from`, `to` and `until`. Each is null where an event of that type doesn't have it. The header of `events.jsonl` is in the file's metadata, under the key `simulancer`.
+
+It's about a tenth of the size: 3.2 MB against 38 MB for 35 days of the warehouse template, written in about the same time. Ask for both with `event_log: [jsonl, parquet]`.
+
+```python
+import duckdb
+duckdb.sql("""
+    select server, count(*) as parts
+    from 'results/warehouse/events.parquet'
+    where type = 'finished_process' and t >= 7 * 86400   -- after the warm-up
+    group by server
+""")
+```

@@ -627,12 +627,73 @@ impl Default for RawOutputs {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventLog {
-    #[default]
-    None,
-    Jsonl,
+/// Which event log files a run writes: `none` (the default), `jsonl` (what
+/// the animation replays), `parquet` (for analysis), or both as a list.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct EventLog {
+    pub jsonl: bool,
+    pub parquet: bool,
+}
+
+impl EventLog {
+    pub const NONE: EventLog = EventLog {
+        jsonl: false,
+        parquet: false,
+    };
+    pub const JSONL: EventLog = EventLog {
+        jsonl: true,
+        parquet: false,
+    };
+
+    /// Whether any event log is written.
+    pub fn any(self) -> bool {
+        self.jsonl || self.parquet
+    }
+
+    fn add(&mut self, format: &str) -> Result<(), String> {
+        match format {
+            "none" => {}
+            "jsonl" => self.jsonl = true,
+            "parquet" => self.parquet = true,
+            other => {
+                return Err(format!(
+                    "unknown event log format `{other}`: none, jsonl or parquet, or a list like [jsonl, parquet]"
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'de> Deserialize<'de> for EventLog {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Formats;
+        impl<'de> Visitor<'de> for Formats {
+            type Value = EventLog;
+            fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                f.write_str("none, jsonl, parquet, or a list like [jsonl, parquet]")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<EventLog, E> {
+                let mut log = EventLog::NONE;
+                log.add(v).map_err(E::custom)?;
+                Ok(log)
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<EventLog, E> {
+                Ok(EventLog::NONE)
+            }
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<EventLog, A::Error> {
+                let mut log = EventLog::NONE;
+                while let Some(format) = seq.next_element::<String>()? {
+                    log.add(&format).map_err(serde::de::Error::custom)?;
+                }
+                Ok(log)
+            }
+        }
+        deserializer.deserialize_any(Formats)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

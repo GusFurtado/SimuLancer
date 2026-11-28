@@ -1605,7 +1605,9 @@ const RUN_FILES: &[(&str, &str)] = &[
     ("report.html", "text/html; charset=utf-8"),
     ("summary.json", "application/json"),
     ("replications.csv", "text/csv; charset=utf-8"),
+    ("replications.parquet", "application/vnd.apache.parquet"),
     ("events.jsonl", "application/x-ndjson"),
+    ("events.parquet", "application/vnd.apache.parquet"),
     ("layout.json", "application/json"),
     ("model.yaml", "text/yaml; charset=utf-8"),
 ];
@@ -2432,6 +2434,7 @@ mod tests {
             "report.html",
             "summary.json",
             "replications.csv",
+            "replications.parquet",
             "events.jsonl",
             "layout.json",
             "model.yaml",

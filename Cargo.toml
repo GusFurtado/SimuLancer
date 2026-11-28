@@ -18,6 +18,12 @@ lto = "thin"
 [profile.dev.package.simulancer-engine]
 opt-level = 3
 
+# Writing and reading Parquet is slow unoptimized; the tests do both.
+[profile.dev.package.parquet]
+opt-level = 3
+[profile.dev.package.snap]
+opt-level = 3
+
 [workspace.dependencies]
 simulancer-engine = { path = "crates/engine" }
 simulancer-model = { path = "crates/model" }

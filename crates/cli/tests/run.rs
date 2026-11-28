@@ -256,3 +256,200 @@ fn throughput_per_hour_day_week_or_working_hour() {
         );
     }
 }
+
+/// A Parquet file's rows, each as a JSON object of its non-null columns,
+/// and its `simulancer` metadata.
+fn parquet_rows(path: &Path) -> (Vec<serde_json::Value>, Option<String>) {
+    use parquet::file::reader::{FileReader, SerializedFileReader};
+    use parquet::record::Field;
+    let reader = SerializedFileReader::new(fs::File::open(path).unwrap()).unwrap();
+    let metadata = reader
+        .metadata()
+        .file_metadata()
+        .key_value_metadata()
+        .and_then(|kv| kv.iter().find(|k| k.key == "simulancer"))
+        .and_then(|k| k.value.clone());
+    let rows = reader
+        .get_row_iter(None)
+        .unwrap()
+        .map(|row| {
+            let mut object = serde_json::Map::new();
+            for (name, field) in row.unwrap().get_column_iter() {
+                let value = match field {
+                    Field::Null => continue,
+                    Field::Double(v) => serde_json::json!(v),
+                    Field::Long(v) => serde_json::json!(v),
+                    Field::Str(v) => serde_json::json!(v),
+                    other => panic!("unexpected {other:?} in {name}"),
+                };
+                object.insert(name.clone(), value);
+            }
+            serde_json::Value::Object(object)
+        })
+        .collect();
+    (rows, metadata)
+}
+
+/// events.parquet holds the same events as events.jsonl, row for row, and
+/// replications.parquet the same values as replications.csv.
+#[test]
+fn parquet_files_match_the_text_ones() {
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+    let mut types = std::collections::BTreeSet::new();
+    for name in [
+        "assembly-line",
+        "bank-branch",
+        "bike-assembly",
+        "conveyor-line",
+        "two-cells",
+        "warehouse",
+    ] {
+        // Three days are enough to see every kind of event, and keep the
+        // comparison quick in a debug build.
+        let source: String = fs::read_to_string(examples.join(format!("{name}.yaml")))
+            .unwrap()
+            .lines()
+            .map(|line| match line.trim_start() {
+                l if l.starts_with("run_length:") => "  run_length: \"3 d\"\n".to_string(),
+                l if l.starts_with("warmup:") => "  warmup: \"1 h\"\n".to_string(),
+                _ => format!("{line}\n"),
+            })
+            .collect();
+        let both = "event_log: [jsonl, parquet]";
+        let source = if source.contains("event_log: jsonl") {
+            source.replace("event_log: jsonl", both)
+        } else if source.contains("\noutputs:\n") {
+            source.replace("\noutputs:\n", &format!("\noutputs:\n  {both}\n"))
+        } else {
+            format!("{source}\noutputs:\n  {both}\n")
+        };
+        let dir = temp_dir(&format!("parquet-{name}"));
+        let model = dir.join("model.yaml");
+        fs::write(&model, source).unwrap();
+        let out = dir.join("out");
+        run(&[
+            "run",
+            model.to_str().unwrap(),
+            "--replications",
+            "1",
+            "--output-dir",
+            out.to_str().unwrap(),
+        ]);
+
+        let jsonl = fs::read_to_string(out.join("events.jsonl")).unwrap();
+        let mut lines = jsonl.lines();
+        let header: serde_json::Value = serde_json::from_str(lines.next().unwrap()).unwrap();
+        let (rows, metadata) = parquet_rows(&out.join("events.parquet"));
+        let metadata: serde_json::Value = serde_json::from_str(&metadata.unwrap()).unwrap();
+        assert_eq!(metadata, header, "{name}: the header is in the metadata");
+        let events: Vec<serde_json::Value> = lines
+            .map(|line| {
+                let mut event: serde_json::Value = serde_json::from_str(line).unwrap();
+                // A null in events.jsonl is a null column in events.parquet.
+                event.as_object_mut().unwrap().retain(|_, v| !v.is_null());
+                event
+            })
+            .collect();
+        assert_eq!(rows.len(), events.len(), "{name}: as many events");
+        for (i, (row, event)) in rows.iter().zip(&events).enumerate() {
+            // serde_json's default float parsing can be one ulp off, so
+            // attribute values (any double) are compared within that.
+            let (mut row, mut event) = (row.clone(), event.clone());
+            if let (Some(a), Some(b)) = (
+                row.as_object_mut().unwrap().remove("value"),
+                event.as_object_mut().unwrap().remove("value"),
+            ) {
+                let (a, b) = (a.as_f64().unwrap(), b.as_f64().unwrap());
+                assert!(
+                    (a - b).abs() <= 1e-15 * a.abs().max(1.0),
+                    "{name}: event {}: {a} vs {b}",
+                    i + 1
+                );
+            }
+            assert_eq!(row, event, "{name}: event {}", i + 1);
+            types.insert(row["type"].as_str().unwrap().to_string());
+        }
+
+        let csv = fs::read_to_string(out.join("replications.csv")).unwrap();
+        let (rows, metadata) = parquet_rows(&out.join("replications.parquet"));
+        assert!(metadata.unwrap().contains("simulancer-replications/0.1"));
+        let csv_rows: Vec<&str> = csv.lines().skip(1).collect();
+        assert_eq!(rows.len(), csv_rows.len(), "{name}: as many values");
+        for (row, line) in rows.iter().zip(csv_rows) {
+            let cells: Vec<&str> = line.split(',').collect();
+            assert_eq!(row["replication"], cells[0].parse::<i64>().unwrap());
+            assert_eq!(row["object_type"], cells[1]);
+            assert_eq!(row["object"], cells[2]);
+            assert_eq!(row["measure"], cells[3]);
+            assert_eq!(row["unit"], cells[4]);
+            match cells[5] {
+                "" => assert!(row.get("value").is_none(), "{line}"),
+                v => assert_eq!(row["value"].as_f64().unwrap(), v.parse::<f64>().unwrap()),
+            }
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+    // The examples between them cover most kinds of event.
+    for kind in [
+        "created",
+        "entered_conveyor",
+        "reached_end",
+        "delivered",
+        "started_process",
+        "finished_process",
+        "exited",
+        "failed",
+        "repaired",
+        "resource_taken",
+        "resource_returned",
+        "vehicle_trip",
+        "assembled",
+        "set",
+        "gave_up",
+        "shift_ended",
+        "shift_started",
+    ] {
+        assert!(types.contains(kind), "no example has `{kind}`: {types:?}");
+    }
+}
+
+/// `event_log: parquet` alone writes no events.jsonl, and a format that
+/// isn't one is an error that says which there are.
+#[test]
+fn event_log_in_parquet_only() {
+    let source = fs::read_to_string(example())
+        .unwrap()
+        .replace("event_log: jsonl", "event_log: parquet");
+    assert!(source.contains("event_log: parquet"));
+    let dir = temp_dir("parquet-only");
+    let model = dir.join("model.yaml");
+    fs::write(&model, &source).unwrap();
+    let out = dir.join("out");
+    run(&[
+        "run",
+        model.to_str().unwrap(),
+        "--replications",
+        "1",
+        "--output-dir",
+        out.to_str().unwrap(),
+    ]);
+    assert!(out.join("events.parquet").exists());
+    assert!(!out.join("events.jsonl").exists());
+
+    fs::write(
+        &model,
+        source.replace("event_log: parquet", "event_log: csv"),
+    )
+    .unwrap();
+    let output = Command::new(BIN)
+        .args(["validate", model.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unknown event log format `csv`: none, jsonl or parquet"),
+        "{stderr}"
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
