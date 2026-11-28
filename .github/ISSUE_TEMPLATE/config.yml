@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://gustavofurtado.com/SimuLancer/
+    about: Guides, the model format, methods and the HTTP API.

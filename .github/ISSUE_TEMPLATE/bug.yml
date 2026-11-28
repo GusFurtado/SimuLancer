@@ -1,0 +1,28 @@
+name: Bug
+description: Something gives a wrong result, an error it shouldn't, or crashes.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran (command, or what you did on which page), and what you saw. Paste errors as text.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: model
+    attributes:
+      label: The model
+      description: The smallest model file that shows it, if there is one. Remove anything confidential.
+      render: yaml
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The output of `simulancer --version`, and your operating system or Docker.

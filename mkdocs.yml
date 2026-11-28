@@ -53,6 +53,8 @@ nav:
   - Reference:
       - Command line: cli.md
       - HTTP API: api.md
+      - Format specification: format.md
+      - Architecture: architecture.md
   - Deploying: deploy.md
   - About: about.md
 

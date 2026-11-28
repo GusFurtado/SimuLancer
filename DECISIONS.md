@@ -299,6 +299,13 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Lowering the bus factor (2026-11-27, issue #101)
+
+- `CONTRIBUTING.md` (build, the tests that matter, pull requests, dependencies policy, the format policy, issues, license of contributions), `docs/architecture.md` (crates and modules, files on disk, reproducibility rules, where a change usually goes) and `docs/format.md` (versions, YAML rules, value/distribution/formula grammars, required keys, validity rules, the two semantics rules another implementation needs).
+- Issue templates for bugs and features (forms), with a link to the docs.
+- "Vendor survival risk" in why.md went from *done* to *partial*: the docs make it possible for someone else to continue, but there's still one maintainer.
+- Not done: a JSON Schema for the model format (planned in "YAML guardrails"), and labeling issues *good first issue* (none of the open ones is small enough yet).
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.

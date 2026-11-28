@@ -1,0 +1,21 @@
+name: Feature
+description: Something a real system does that SimuLancer can't model or report yet.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: system
+    attributes:
+      label: The real system
+      description: What you're modeling and what it does that SimuLancer can't express or measure.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today
+      description: A workaround, another tool, or nothing.
+  - type: textarea
+    id: idea
+    attributes:
+      label: How it could work
+      description: Optional. Concepts from other tools (Arena, Simio, FlexSim...) are welcome.

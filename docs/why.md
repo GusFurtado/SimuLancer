@@ -75,7 +75,7 @@ Be clear about what you give up:
 | Skills don't transfer | No proprietary scripting language: the model is data, plus a small, documented formula language for distributions. | done |
 | No migration path | The model is readable text and the engine is open, so it can be converted or reimplemented. Importers from other tools are being considered ([#88](https://github.com/GusFurtado/SimuLancer/issues/88)). | partial |
 | Consulting ecosystem | Models are readable enough that an organization can own them, with separate pages for building the model (Modeling) and for deciding with it (Simulation), so nobody depends on an outside expert to operate the tool. | partial |
-| Vendor survival risk | Open source: anyone can keep it alive. | done |
+| Vendor survival risk | Open source, and written to be picked up: a [contributor guide](https://github.com/GusFurtado/SimuLancer/blob/main/CONTRIBUTING.md), an [architecture](architecture.md) map, a [format specification](format.md) another program could implement, and design decisions recorded with their reasons. It still has one maintainer. | partial |
 
 ## 3. Old architecture
 
