@@ -260,7 +260,7 @@ Be clear about what you give up:
 
 | Problem | Answer | Status |
 |---|---|---|
-| Large models, big experiments | A fast native engine on all cores, with no allocation per event. Not yet tested on very large models. | partial |
+| Large models, big experiments | A fast native engine on all cores. [Benchmarked](performance.md) up to 10,000 objects: about 4 million events per second, 5.6 s per replication of 8 simulated days for 1,000 objects, under 3 minutes for 10,000; the benchmark is in the repository for anyone to rerun. | done |
 | No distributed engine | One machine only, for now. | open |
 
 ## 14. Modern workflows and AI
