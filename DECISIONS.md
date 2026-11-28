@@ -299,6 +299,11 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Coming from Arena (2026-11-27, issue #88, step 1)
+
+- `docs/from-arena.md`: Arena's words, Basic Process and data modules, Advanced Process and Transfer, and reports, each mapped to SimuLancer or marked *Not yet*, plus the gaps a migrating modeler hits first (logic modules and global variables, non-accumulating conveyors, custom statistics, VA/NVA and costs, file I/O) and how to move a model over (rebuild, then compare intervals).
+- Only Arena so far; the other tools follow the same table once Arena's page has been read by someone who uses it. Steps 2 to 4 (vocabulary setting, report categories, importers) wait on that.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.
