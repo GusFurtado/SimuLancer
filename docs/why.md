@@ -173,7 +173,7 @@ Be clear about what you give up:
 | Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
 | Comparing scenarios is unsound | Paired comparison on [common random numbers](methods/comparisons.md): an interval on the difference and a verdict. The Simulation page says it in words: *"Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better"*. | done |
 | Optimization is a black box | No optimizer yet; parameter sweeps through the API. | open |
-| Validation is skipped | The engine itself is [validated against queueing theory](methods/validation.md). Nothing yet helps validate a user's model against real data. | partial |
+| Validation is skipped | The engine itself is [validated against queueing theory](methods/validation.md). A model records what the real system did (`observed:`), and every run compares it with the model's results and says *consistent*, *close* or *off*, with the method explained in [Validating your model](methods/model-validation.md). | done |
 | Verification is hard | Readable models, a per-part event log, and a replay that reproduces the engine exactly. | done |
 
 ## 8. Animation used as a substitute for rigor

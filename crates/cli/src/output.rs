@@ -15,6 +15,7 @@ use simulancer_model::{DrawnAs, Layout, Model};
 use crate::compare::Comparison;
 use crate::expect::Outcome;
 use crate::measures::Measure;
+use crate::observed;
 use crate::precision::PrecisionCheck;
 use crate::warmup::WarmupCheck;
 
@@ -66,6 +67,15 @@ pub fn layout_json(layout: &Layout) -> serde_json::Value {
     })
 }
 
+/// What a run checked besides the measures: the warm-up, the precision, the
+/// expected results and the observed values.
+pub struct Checks<'a> {
+    pub warmup: Option<&'a WarmupCheck>,
+    pub precision: Option<&'a PrecisionCheck>,
+    pub expectations: &'a [Outcome],
+    pub observations: &'a [observed::Outcome],
+}
+
 /// A self-contained HTML report: the template with the results embedded as
 /// JSON. No network access needed to view it.
 pub fn write_report(
@@ -73,10 +83,14 @@ pub fn write_report(
     model: &Model,
     spec: &Spec,
     measures: &[(Measure, Summary)],
-    warmup: Option<&WarmupCheck>,
-    precision: Option<&PrecisionCheck>,
-    expectations: &[Outcome],
+    checks: &Checks,
 ) -> io::Result<()> {
+    let Checks {
+        warmup,
+        precision,
+        expectations,
+        observations,
+    } = *checks;
     let node = |n: Node| match n {
         Node::Source(i) => &spec.sources[i].name,
         Node::Server(i) => &spec.servers[i].name,
@@ -96,6 +110,7 @@ pub fn write_report(
         "warmup_check": warmup,
         "precision_check": precision,
         "expectations": expectations,
+        "observations": observations,
         "sources": spec.sources.iter().map(|s| json!({
             "name": s.name,
             "when_blocked": match s.when_blocked {
@@ -161,6 +176,9 @@ struct SummaryFile<'a> {
     /// The model's expected results, and whether each was met.
     #[serde(skip_serializing_if = "<[Outcome]>::is_empty")]
     expectations: &'a [Outcome],
+    /// The real system's observed values against the model's.
+    #[serde(skip_serializing_if = "<[observed::Outcome]>::is_empty")]
+    observations: &'a [observed::Outcome],
 }
 
 #[derive(Serialize)]
@@ -183,13 +201,18 @@ pub fn write_summary(
     model_name: &str,
     spec: &Spec,
     measures: &[(Measure, Summary)],
-    warmup: Option<&WarmupCheck>,
-    precision: Option<&PrecisionCheck>,
-    expectations: &[Outcome],
+    checks: &Checks,
 ) -> io::Result<()> {
+    let Checks {
+        warmup,
+        precision,
+        expectations,
+        observations,
+    } = *checks;
     let e = &spec.experiment;
     let file = SummaryFile {
         expectations,
+        observations,
         warmup_check: warmup,
         precision_check: precision,
         format: "simulancer-summary/0.1",

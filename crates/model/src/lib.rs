@@ -40,6 +40,23 @@ pub struct Model {
     pub outputs: Outputs,
     /// What the results should be (`expect:`), checked after a run.
     pub expectations: Vec<Expectation>,
+    /// What the real system did (`observed:`), compared after a run.
+    pub observations: Vec<Observation>,
+}
+
+/// Values of a measure observed in the real system, one per period (a week,
+/// a month...), to compare with the model's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Observation {
+    pub label: Option<String>,
+    pub object: String,
+    pub measure: String,
+    pub values: Vec<Bound>,
+    /// Where the values come from, for people.
+    pub source: Option<String>,
+    /// How far from the model (a share of its mean) still counts as close.
+    pub close_within: Option<f64>,
+    pub line: Option<u64>,
 }
 
 /// One expected result: a measure of an object, and the range its mean (or

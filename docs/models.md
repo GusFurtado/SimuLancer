@@ -414,6 +414,20 @@ Every run checks them: `run` prints each with its verdict, the report has an *Ex
 
 Pick limits from what the real system must do, or from a validated run with some room: a limit right at the current mean fails half the time a harmless change moves it by noise. With `check: interval`, too few replications can fail a test the model actually meets.
 
+## Observed values (`observed`)
+
+What the real system did, to validate the model against: one value (`value`) or one per period (`values`), in the measure's terms, with an optional `source` and `close_within` (`10%` by default).
+
+```yaml
+observed:
+  - object: shipping
+    measure: throughput
+    values: [59.2, 60.8, 61.5, 58.9, 60.3]    # one per week
+    source: "Shipping scanner, weekly averages"
+```
+
+Every run compares them with the model's results and says *consistent*, *close* or *off*. See [Validating your model](methods/model-validation.md) for the method and how to pick the periods.
+
 ## Layout files
 
 A model's drawing lives next to it in `<model>.layout.yaml`. The engine never reads it, so moving things around never changes a result. The Modeling page writes it as you draw.

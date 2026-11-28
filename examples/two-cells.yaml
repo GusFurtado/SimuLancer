@@ -61,3 +61,16 @@ experiment:
 
 outputs:
   event_log: jsonl
+
+# What the real line did, to validate the model against: one value per
+# week. MADE-UP EXAMPLE DATA, to show the format; record your own system's.
+observed:
+  - object: shipping
+    measure: throughput
+    values: [59.2, 60.8, 61.5, 58.9, 60.3]        # parts per hour
+    source: "Example data (made up): weekly averages from the shipping scanner"
+  - object: shipping
+    measure: time in system
+    values: [9.8 min, 10.1 min, 9.7 min, 10.0 min]
+    source: "Example data (made up): weekly means of order lead time"
+  - { label: Inspection busy, object: inspect, measure: busy, value: 73% }

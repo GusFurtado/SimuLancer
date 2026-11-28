@@ -743,5 +743,77 @@
         "replications_needed": null
       }
     ]
-  }
+  },
+  "observations": [
+    {
+      "label": "throughput at shipping",
+      "object_type": "sink",
+      "object": "shipping",
+      "measure": "throughput",
+      "unit": "parts/h",
+      "source": "Example data (made up): weekly averages from the shipping scanner",
+      "values": [
+        59.2,
+        60.8,
+        61.5,
+        58.9,
+        60.3
+      ],
+      "observed_mean": 60.14,
+      "model_mean": 60.07111111111111,
+      "model_half_width": 0.2607278305611092,
+      "difference": 0.06888888888889255,
+      "low": -1.261612820639802,
+      "high": 1.3993905984175872,
+      "verdict": "consistent",
+      "observed_text": "60.1 /h (mean of 5)",
+      "model_text": "60.1 /h ± 0.3 /h",
+      "text": "throughput at shipping: observed 60.1 /h (mean of 5), model 60.1 /h ± 0.3 /h · consistent: no clear difference"
+    },
+    {
+      "label": "time in system at shipping",
+      "object_type": "sink",
+      "object": "shipping",
+      "measure": "time in system",
+      "unit": "s",
+      "source": "Example data (made up): weekly means of order lead time",
+      "values": [
+        588.0,
+        606.0,
+        582.0,
+        600.0
+      ],
+      "observed_mean": 594.0,
+      "model_mean": 548.4507269624447,
+      "model_half_width": 21.256418605968644,
+      "difference": 45.54927303755528,
+      "low": 21.449229242198562,
+      "high": 69.649316832912,
+      "verdict": "close",
+      "observed_text": "9.90 min (mean of 4)",
+      "model_text": "9.14 min ± 0.35 min",
+      "text": "time in system at shipping: observed 9.90 min (mean of 4), model 9.14 min ± 0.35 min · close"
+    },
+    {
+      "label": "Inspection busy",
+      "object_type": "server",
+      "object": "inspect",
+      "measure": "busy",
+      "unit": "fraction",
+      "source": null,
+      "values": [
+        0.73
+      ],
+      "observed_mean": 0.73,
+      "model_mean": 0.7408096790512345,
+      "model_half_width": 0.0032596993988739716,
+      "difference": -0.010809679051234533,
+      "low": -0.02895891719782348,
+      "high": 0.007339559095354414,
+      "verdict": "consistent",
+      "observed_text": "73.0%",
+      "model_text": "74.1% ± 0.3%",
+      "text": "Inspection busy: observed 73.0%, model 74.1% ± 0.3% · consistent: within the model's spread"
+    }
+  ]
 }

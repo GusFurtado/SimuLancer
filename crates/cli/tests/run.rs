@@ -324,3 +324,60 @@ fn test_checks_expected_results() {
         assert!(stderr.contains(message), "{to}: {stderr}");
     }
 }
+
+/// Observed values are compared with the model after a run, with a verdict
+/// each; unreadable ones are errors.
+#[test]
+fn run_compares_with_observed_values() {
+    let dir = temp_dir("observed");
+    let two_cells = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/two-cells.yaml");
+    let out = run(&[
+        "run",
+        two_cells.to_str().unwrap(),
+        "--output-dir",
+        dir.to_str().unwrap(),
+    ]);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("compared with the real system:"),
+        "{stdout}"
+    );
+    let summary: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("summary.json")).unwrap()).unwrap();
+    let verdicts: Vec<&str> = summary["observations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| o["verdict"].as_str().unwrap())
+        .collect();
+    assert_eq!(verdicts, ["consistent", "close", "consistent"]);
+
+    let base = fs::read_to_string(&two_cells).unwrap();
+    for (from, to, message) in [
+        (
+            "value: 73%",
+            "value: 0.73",
+            "are each a percentage, like `85%`, got `0.73`",
+        ),
+        (
+            "measure: busy, value",
+            "measure: bussy, value",
+            "`inspect` has no measure `bussy`",
+        ),
+        (
+            "value: 73% }",
+            "value: 73%, values: [70%] }",
+            "has both `value` and `values`",
+        ),
+    ] {
+        let bad = dir.join("bad.yaml");
+        fs::write(&bad, base.replace(from, to)).unwrap();
+        let out = Command::new(BIN)
+            .args(["validate", bad.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "{to}");
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        assert!(stderr.contains(message), "{to}: {stderr}");
+    }
+}

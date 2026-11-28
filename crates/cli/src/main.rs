@@ -4,6 +4,7 @@ mod expect;
 mod files;
 mod markdown;
 mod measures;
+mod observed;
 mod output;
 mod plain;
 mod precision;
@@ -124,6 +125,18 @@ fn main() -> ExitCode {
             match expect::resolve(&loaded) {
                 Ok(expected) if !expected.is_empty() => {
                     println!("\nexpected results: {}", expected.len());
+                }
+                Ok(_) => {}
+                Err(problems) => {
+                    for p in problems {
+                        eprintln!("error: {p}");
+                    }
+                    return ExitCode::FAILURE;
+                }
+            }
+            match observed::resolve(&loaded) {
+                Ok(observed) if !observed.is_empty() => {
+                    println!("observed values to compare with: {}", observed.len());
                 }
                 Ok(_) => {}
                 Err(problems) => {
@@ -385,6 +398,12 @@ fn run(args: &RunArgs) -> Result<(), String> {
     }
     if !outcome.expectations.is_empty() {
         print!("\n{}", expectations_text(&outcome.expectations));
+    }
+    if !outcome.observations.is_empty() {
+        println!("\ncompared with the real system:");
+        for o in &outcome.observations {
+            println!("  {}", o.text);
+        }
     }
     if let Some(warning) = outcome.precision.as_ref().and_then(precision_warning) {
         println!("\n{warning}");

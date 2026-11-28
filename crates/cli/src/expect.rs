@@ -82,12 +82,7 @@ pub fn resolve(model: &Model) -> Result<Vec<Resolved>, Vec<String>> {
         };
         let read = |b: &Option<Bound>, what: &str| -> Result<Option<f64>, String> {
             let Some(b) = b else { return Ok(None) };
-            let (value, wanted) = match m.unit {
-                Unit::Seconds => (b.seconds, "a time, like `30 min`"),
-                Unit::Fraction => (b.share, "a percentage, like `85%`"),
-                _ => (b.number, "a plain number"),
-            };
-            value.map(Some).ok_or_else(|| {
+            read_value(m.unit, b).map(Some).map_err(|wanted| {
                 format!(
                     "{at}expected results: `{what}` for `{}` {} is {wanted}, got `{}`",
                     e.object, e.measure, b.text
@@ -124,6 +119,18 @@ pub fn resolve(model: &Model) -> Result<Vec<Resolved>, Vec<String>> {
     } else {
         Err(problems)
     }
+}
+
+/// A value as written, read for a measure's unit: a time for seconds, a
+/// percentage for shares of time, a plain number otherwise. The error says
+/// what was wanted.
+pub fn read_value(unit: Unit, b: &Bound) -> Result<f64, &'static str> {
+    let (value, wanted) = match unit {
+        Unit::Seconds => (b.seconds, "a time, like `30 min`"),
+        Unit::Fraction => (b.share, "a percentage, like `85%`"),
+        _ => (b.number, "a plain number"),
+    };
+    value.ok_or(wanted)
 }
 
 fn label(e: &Expectation) -> String {
