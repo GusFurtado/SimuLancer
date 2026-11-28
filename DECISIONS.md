@@ -303,7 +303,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 
 - CI runs `cargo test --workspace` (pinned results included) and validates the examples on `windows-latest` and `macos-latest`. Both passed on the first try: the pinned results are bit-identical to Linux, so the platform's `ln`/`exp`/`powf` give the same doubles there (the concern noted under "Pinned results"). The browser tests stay on Linux.
 - `.gitattributes` keeps LF on every platform (pinned results are compared byte for byte), and git runs with `core.autocrlf=false` for projects.
-- Releases add `x86_64-windows` (.zip, MSVC with a static C runtime, so no installer), `aarch64-macos` and `x86_64-macos` (.tar.gz), each with its SHA-256. The binaries aren't code-signed or notarized: Getting started says how to get past SmartScreen and Gatekeeper. Signing is a decision (a certificate costs money; Apple's notarization needs a paid developer account).
+- Releases add `x86_64-windows` (.zip, MSVC with a static C runtime, so no installer), `aarch64-macos` and `x86_64-macos` (.tar.gz), each with its SHA-256. The binaries aren't code-signed or notarized: Getting started says how to get past SmartScreen and Gatekeeper. No signing (the user, 2026-11-28): a certificate and Apple's developer account cost money every year, and the priority is the Linux server; the desktop binaries are for trying SimuLancer on one's own computer.
 - The release workflow also runs (build and package only) in pull requests that change it, so a broken matrix shows before a tag.
 
 ## Packaging and deployment (implemented 2026-10-09)
