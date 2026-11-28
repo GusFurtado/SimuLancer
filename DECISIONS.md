@@ -314,6 +314,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - Informative only: `simulancer test` doesn't fail on *off* (that's what `expect:` is for).
 - Shown in `run`'s output, the report ("Compared with the real system", after expected results) and `summary.json` `observations`. Docs: Methods → Validating your model (face validity, historical data, why one month isn't a CI, what counts as validated).
 - two-cells carries made-up example observations, labeled as such in `source`, to show the format.
+- Both confirmed by the user on 2026-11-28: the 10% (2 points) default stays independent of `experiment.precision`, and two-cells keeps its labeled example data.
 
 ## Packaging and deployment (implemented 2026-10-09)
 
