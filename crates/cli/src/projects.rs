@@ -464,6 +464,9 @@ pub fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
             "tag.gpgsign=false",
             "-c",
             "core.hooksPath=/dev/null",
+            // Files are stored as written, also on Windows.
+            "-c",
+            "core.autocrlf=false",
         ])
         .args(args)
         .env("GIT_CONFIG_NOSYSTEM", "1")
