@@ -40,6 +40,7 @@ it runs on a laptop, a CI job or a shared server for the whole team.
 - [Getting started](getting-started.md): download it, run an example, open the web app.
 - [Tutorial](tutorial.md): build a model from scratch on the Modeling page and compare a scenario.
 - [Model files](models.md): the YAML format, object by object.
+- [Modeling guides](guides/index.md): failures, shifts, shared operators, rework, restocking, vehicles and priorities, each with a complete model, plus choosing distributions and a checklist.
 - [Methods](methods/replications.md): replications, warm-up, comparisons and how the engine is validated.
 - [HTTP API](api.md): everything the web app does, for scripts and integrations.
 - [Deploying](deploy.md): run it for a team, behind your own proxy.

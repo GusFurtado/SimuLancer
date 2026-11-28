@@ -45,6 +45,18 @@ nav:
       - Model files: models.md
       - Scenarios: scenarios.md
       - Results: results.md
+  - Modeling guides:
+      - guides/index.md
+      - Breakdowns and repairs: guides/failures.md
+      - Shifts and working hours: guides/shifts.md
+      - Shared operators and tools: guides/shared-resources.md
+      - Rework and scrap: guides/rework.md
+      - Stock and restocking: guides/restocking.md
+      - Vehicles: guides/vehicles.md
+      - Priorities, due dates and impatience: guides/priorities.md
+      - Choosing distributions: guides/distributions.md
+      - The templates: guides/templates.md
+      - Modeling checklist: guides/checklist.md
   - Methods:
       - Replications and confidence intervals: methods/replications.md
       - Warm-up: methods/warmup.md

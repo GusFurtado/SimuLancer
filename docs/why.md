@@ -219,8 +219,8 @@ Be clear about what you give up:
 
 | Problem | Answer | Status |
 |---|---|---|
-| Tool training replaces method training | These docs explain the [methods](methods/replications.md) (confidence intervals, warm-up, common random numbers) next to the tool, and the Simulation page explains in one paragraph why its comparisons are fair. | partial |
-| Weak documentation | The docs are public, live in the repository and are built on every change. Still thin on building models. | partial |
+| Tool training replaces method training | These docs explain the [methods](methods/replications.md) (confidence intervals, warm-up, common random numbers) next to the tool, the [guides](guides/index.md) explain why to model something one way rather than another, and the Simulation page explains in one paragraph why its comparisons are fair. | partial |
+| Weak documentation | The docs are public, live in the repository and are built on every change. Besides the reference, [modeling guides](guides/index.md) go pattern by pattern (failures, shifts, shared operators, rework, restocking, vehicles, priorities, distributions), each with a complete model that the tests load, and a [modeling checklist](guides/checklist.md). | done |
 | Hard to debug | Errors point to the exact line or form field, in plain language. | done |
 
 ## 11. Academia–industry pipeline

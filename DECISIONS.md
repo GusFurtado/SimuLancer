@@ -299,6 +299,12 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Modeling guides (2026-11-27, issue #104)
+
+- `docs/guides/`: one page per pattern (failures, shifts, shared resources, rework, restocking, vehicles, priorities), plus choosing distributions, the templates and a checklist. Each pattern page has one complete model; `crates/cli/tests/docs.rs` loads every YAML block in `docs/guides/` that starts a model file, so the guides can't drift from the format (it caught two invalid examples while they were written).
+- The templates get one page with a table, not a page each: their own READMEs already explain each model; the page points to them by pattern.
+- Not yet in the guides (on other branches when written): expected results, observed values, empirical distributions and `fit`. Add them to the checklist and the distributions page when those merge.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.
