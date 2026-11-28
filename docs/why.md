@@ -137,7 +137,7 @@ Be clear about what you give up:
 | Implicit default behavior | Tie-breaking, blocking and failure rules are documented; routing and merging rules are required whenever there's a choice. | done |
 | Too many overlapping features | One way to express each thing. | done |
 | Abstraction leaks, weak programming | A deliberately small model language, plus the API for anything beyond it; a scripting escape hatch is an open question. | partial |
-| Hard to model non-standard systems | Lines, cells, stores and service systems: failures, part types, shared resources, shifts, batches, assembly and splitting, restocking, vehicles, paced lines, attributes, priorities, conditional routing and customers who give up. Several of them are checked against exact results. Still missing: non-accumulating conveyors, and a scripting escape hatch. See [Model files](models.md). | partial |
+| Hard to model non-standard systems | Lines, cells, stores and service systems: failures, part types, shared resources, shifts, batches, assembly and splitting, restocking, vehicles, paced lines, attributes, priorities, conditional routing and customers who give up. Several of them are checked against exact results. Conveyors accumulate or not (the whole belt stops). Still missing: a scripting escape hatch. See [Model files](models.md). | partial |
 
 ## 6. Data integration
 

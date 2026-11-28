@@ -594,6 +594,12 @@ class Replay {
       case "shift_ended": this.servers[e.server].off = true; break;
       case "shift_started": this.servers[e.server].off = false; break;
       case "exited": this.leave(e.part, e.sink, e.t); this.exited++; this.types.delete(e.part); this.slots.delete(e.part); break;
+      case "reached_end": {
+        // A non-accumulating belt stops until its head leaves.
+        const c = this.conveyors[e.conveyor];
+        if (c && c.accumulating === false) c.stoppedAt = e.t;
+        break;
+      }
     }
   }
 
@@ -605,15 +611,18 @@ class Replay {
         const positions = this.positions(c, t);
         c.belt.forEach((item, i) => { item.pos = positions[i]; item.since = t; });
         c.belt.splice(at, 1);
+        c.stoppedAt = null;
         return;
       }
     }
   }
 
   positions(c, t) {
+    // A stopped non-accumulating belt hasn't moved since it stopped.
+    const until = c.stoppedAt != null ? Math.min(c.stoppedAt, t) : t;
     let limit = c.length;
     return c.belt.map(item => {
-      const pos = Math.min(item.pos + c.speed * (t - item.since), limit);
+      const pos = Math.min(item.pos + c.speed * Math.max(0, until - item.since), limit);
       limit = pos - c.spacing;
       return pos;
     });

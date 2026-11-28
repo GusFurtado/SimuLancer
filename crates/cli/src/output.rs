@@ -324,6 +324,7 @@ impl<'a, W: Write> EventLog<'a, W> {
                 "speed": c.speed,
                 "spacing": c.spacing,
                 "capacity": c.capacity,
+                "accumulating": c.accumulating,
             })).collect::<Vec<_>>(),
             "sinks": spec.sinks.iter().map(|s| &s.name).collect::<Vec<_>>(),
             "resources": spec.resources.iter().map(|r| json!({ "name": r.name, "capacity": r.capacity })).collect::<Vec<_>>(),

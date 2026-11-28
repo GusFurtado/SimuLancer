@@ -299,6 +299,13 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Non-accumulating conveyors (2026-11-27, issue #103, first part)
+
+- `type: non_accumulating` on a conveyor (the key already existed with `accumulating` as its only value). When the head reaches the end, the belt's `stopped_at` is set; positions are computed as if time stopped there (parts put on since don't move), and when the head leaves, every part's baseline moves to now and the belt runs again. If the next object takes the head at once, nothing changes.
+- The event log header says `accumulating` per conveyor, and the animation's replay mirrors the rule (`stoppedAt` set on `reached_end`, cleared when the head leaves); a replay fixture checks exact positions while moving, stopped with its gaps, and moving again.
+- Engine tests check the hand-worked times on a deterministic belt for both kinds. The pinned results don't move: the accumulating path's arithmetic is unchanged.
+- The escape hatch for logic stays open; see the comment on the issue.
+
 ## Benchmark, and sampling only what changed (2026-11-27, issue #100)
 
 - `bench/bench.py` (Python, stdlib only): K parallel lines of L stations with failures, one replication on one thread, timed with `wait4` for peak memory; cases for objects (100, 1,000, 10,000), parts in the system, run length and the event log. Results in `docs/performance.md`.

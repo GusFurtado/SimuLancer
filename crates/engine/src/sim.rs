@@ -279,6 +279,9 @@ struct ConveyorState {
     parts: TimeAverage,
     full: TimeAverage,
     empty: TimeAverage,
+    /// Non-accumulating conveyors: when the whole belt stopped, because its
+    /// head reached the end and couldn't leave yet.
+    stopped_at: Option<SimTime>,
 }
 
 impl ConveyorState {
@@ -287,9 +290,16 @@ impl ConveyorState {
     /// this runs several times per event, so `.next()` for the head stops early.
     fn positions(&self, c: &Conveyor, now: SimTime) -> impl Iterator<Item = f64> + '_ {
         let (speed, spacing) = (c.speed, c.spacing);
+        // A stopped non-accumulating belt hasn't moved since it stopped; a
+        // part put on it since then hasn't moved at all.
+        let moving_until = match self.stopped_at {
+            Some(t) if !c.accumulating => t.min(now),
+            _ => now,
+        };
         let mut limit = c.length;
         self.belt.iter().map(move |p| {
-            let free = p.pos + speed * (now - p.since).as_secs_f64();
+            let moved = (moving_until - p.since).as_secs_f64().max(0.0);
+            let free = p.pos + speed * moved;
             let pos = free.min(limit);
             limit = pos - spacing;
             pos
@@ -589,6 +599,7 @@ impl<'a, O: Observer> Sim<'a, O> {
                 parts: TimeAverage::default(),
                 full: TimeAverage::default(),
                 empty: TimeAverage::default(),
+                stopped_at: None,
             })
             .collect();
         let experiment = &spec.experiment;
@@ -783,6 +794,11 @@ impl<'a, O: Observer> Sim<'a, O> {
                             },
                         );
                         self.conveyors[conveyor].head_arrived = Some(self.now);
+                        if !self.spec.conveyors[conveyor].accumulating {
+                            // The whole belt stops until the head leaves
+                            // (at once, if the next object takes it now).
+                            self.conveyors[conveyor].stopped_at = Some(self.now);
+                        }
                         self.head_at_end(conveyor);
                     }
                 }
@@ -1485,14 +1501,13 @@ impl<'a, O: Observer> Sim<'a, O> {
         // as `positions`, done in place.
         let now = self.now;
         let state = &mut self.conveyors[conveyor];
-        let mut limit = c.length;
-        for p in state.belt.iter_mut() {
-            let free = p.pos + c.speed * (now - p.since).as_secs_f64();
-            let pos = free.min(limit);
-            limit = pos - c.spacing;
+        let positions: Vec<f64> = state.positions(c, now).collect();
+        for (p, pos) in state.belt.iter_mut().zip(positions) {
             p.pos = pos;
             p.since = now;
         }
+        // A non-accumulating belt moves again.
+        state.stopped_at = None;
         let head = state.belt.pop_front().expect("head exists");
         state.departed_total += 1;
         let time = (now - head.entered).as_secs_f64();

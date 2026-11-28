@@ -476,6 +476,8 @@ pub struct RawConveyor {
 pub enum ConveyorKind {
     #[default]
     Accumulating,
+    /// The whole belt stops while the part at its end can't leave.
+    NonAccumulating,
 }
 
 /// Parts wait here in order, with no travel time.

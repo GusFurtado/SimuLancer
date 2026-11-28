@@ -250,7 +250,8 @@ conveyors:
   c1: { from: arrivals, to: mill, length: "12 m", speed: "0.5 m/s", spacing: "0.5 m" }
 ```
 
-- **Accumulating:** parts queue up at the end when the next object can't take them.
+- **Accumulating** (the default): parts queue up at the end when the next object can't take them, closing the gaps between them.
+- **Non-accumulating:** with `type: non_accumulating`, the whole belt stops while the part at its end can't leave, and starts again, all parts together, when it does. The gaps between parts stay while it's stopped; parts can still be put on at its entrance (they wait there), one spacing behind the last. Use it for chain and slat conveyors, and lines where parts must keep their pitch.
 - **Capacity:** a conveyor holds `floor(length / spacing)` parts.
 
 ## Queues

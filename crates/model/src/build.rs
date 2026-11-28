@@ -178,8 +178,6 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     // target "unconnected"; skip those follow-on errors and report only the cause.
     let mut endpoints_ok = true;
     for (i, (name, c)) in raw.conveyors.0.iter().enumerate() {
-        // Accumulating is the only kind so far; a new kind makes this fail to compile.
-        let raw::ConveyorKind::Accumulating = c.kind;
         let from = b.endpoint(&objects, "conveyor", name, &c.from, End::From);
         let to = b.endpoint(&objects, "conveyor", name, &c.to, End::To);
         endpoints_ok &= from.is_some() && to.is_some();
@@ -226,6 +224,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                 length,
                 speed,
                 spacing,
+                accumulating: matches!(c.kind, raw::ConveyorKind::Accumulating),
                 capacity,
                 target_wait: None,
                 starts_with: None,
