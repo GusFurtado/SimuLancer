@@ -763,8 +763,15 @@ fn load_with(
     } else {
         apply_changes(&base, &model_file, changes).map_err(LoadProblem::Invalid)?
     };
-    // Expected results that can't be read are model errors too.
-    if let Err(problems) = crate::expect::resolve(&model) {
+    // Expected results and observed values that can't be read are model errors too.
+    let unreadable = [
+        crate::expect::resolve(&model).err(),
+        crate::observed::resolve(&model).err(),
+    ];
+    if let Some(problems) = unreadable.into_iter().flatten().reduce(|mut a, b| {
+        a.extend(b);
+        a
+    }) {
         return Err(LoadProblem::Invalid(
             problems
                 .into_iter()

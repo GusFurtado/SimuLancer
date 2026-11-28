@@ -48,6 +48,23 @@ pub struct RawModel {
     /// What the results should be: tests of the model.
     #[serde(default)]
     pub expect: Vec<Spanned<RawExpectation>>,
+    /// What the real system did: to validate the model against.
+    #[serde(default)]
+    pub observed: Vec<Spanned<RawObservation>>,
+}
+
+/// `{ object: shipping, measure: throughput, values: [55.1, 57.3], source: MES }`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawObservation {
+    pub label: Option<String>,
+    pub object: String,
+    pub measure: String,
+    pub value: Option<Scalar>,
+    pub values: Option<Vec<Scalar>>,
+    pub source: Option<String>,
+    /// A percentage: how far from the model still counts as close.
+    pub close_within: Option<String>,
 }
 
 /// `{ object: shipping, measure: throughput, at_least: 55, check: interval }`.

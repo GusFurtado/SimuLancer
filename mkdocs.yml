@@ -49,7 +49,8 @@ nav:
       - Replications and confidence intervals: methods/replications.md
       - Warm-up: methods/warmup.md
       - Comparing scenarios: methods/comparisons.md
-      - Validation: methods/validation.md
+      - Validating the engine: methods/validation.md
+      - Validating your model: methods/model-validation.md
   - Reference:
       - Command line: cli.md
       - HTTP API: api.md

@@ -14,6 +14,7 @@ use simulancer_model::{EventLog, Layout, Model};
 
 use crate::expect::{self, Outcome};
 use crate::measures::{self, Measure};
+use crate::observed;
 use crate::output;
 use crate::precision::{self, KeyResult, PrecisionCheck};
 use crate::warmup::{self, Both, PartsInSystem, WarmupCheck};
@@ -38,6 +39,8 @@ pub struct RunOutcome {
     pub precision: Option<PrecisionCheck>,
     /// The model's expected results, and whether each was met.
     pub expectations: Vec<Outcome>,
+    /// The real system's observed values against the model's.
+    pub observations: Vec<observed::Outcome>,
     pub elapsed: Duration,
     pub threads: usize,
     /// Files written, in the order they were written.
@@ -57,6 +60,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
     let replications = spec.experiment.replications;
     // Expected results that can't be read stop the run before it starts.
     let expected = expect::resolve(model).map_err(|problems| problems.join("\n"))?;
+    let observed = observed::resolve(model).map_err(|problems| problems.join("\n"))?;
     let log_events = model.outputs.event_log == EventLog::Jsonl;
     if log_events && !(1..=replications).contains(&options.log_replication) {
         return Err(format!(
@@ -100,34 +104,25 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
         .collect();
     let precision = precision::check(&spec, &measures, options.key_results);
     let expectations = expect::check(&expected, &measures);
+    let observations = observed::compare(&observed, &measures);
 
     let write = |name: &str, f: &dyn Fn(&Path) -> std::io::Result<()>| -> Result<PathBuf, String> {
         let path = out_dir.join(name);
         f(&path).map_err(|e| format!("can't write {}: {e}", path.display()))?;
         Ok(path)
     };
+    let checks = output::Checks {
+        warmup: warmup.as_ref(),
+        precision: precision.as_ref(),
+        expectations: &expectations,
+        observations: &observations,
+    };
     let mut files = vec![
         write("report.html", &|p| {
-            output::write_report(
-                p,
-                model,
-                &spec,
-                &measures,
-                warmup.as_ref(),
-                precision.as_ref(),
-                &expectations,
-            )
+            output::write_report(p, model, &spec, &measures, &checks)
         })?,
         write("summary.json", &|p| {
-            output::write_summary(
-                p,
-                &model.name,
-                &spec,
-                &measures,
-                warmup.as_ref(),
-                precision.as_ref(),
-                &expectations,
-            )
+            output::write_summary(p, &model.name, &spec, &measures, &checks)
         })?,
         write("replications.csv", &|p| {
             output::write_replications_csv(p, &measures)
@@ -146,6 +141,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
         warmup,
         precision,
         expectations,
+        observations,
         elapsed,
         files,
         logged_replication: log_events.then_some(options.log_replication),

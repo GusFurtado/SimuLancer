@@ -753,6 +753,8 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
     let experiment = b.experiment(&raw.experiment);
     let (expectations, problems) = expectations(&raw, &b.defaults);
     b.diagnostics.extend(problems);
+    let (observations, problems) = observations(&raw, &b.defaults);
+    b.diagnostics.extend(problems);
     // Paced lines: their own namespace (only `lines` names them).
     let mut lines = Vec::new();
     let mut in_a_line: Vec<Option<&str>> = vec![None; raw.servers.0.len()];
@@ -879,6 +881,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
 
     Ok(Model {
         expectations,
+        observations,
         name: raw.name.value,
         description: raw.description,
         words,
@@ -2835,28 +2838,7 @@ fn expectations(
                 continue;
             }
         };
-        let bound = |s: &Scalar| -> crate::Bound {
-            match s {
-                Scalar::Number(n) => crate::Bound {
-                    text: n.to_string(),
-                    number: Some(*n),
-                    seconds: parse_quantity(&n.to_string(), Dimension::Time, defaults).ok(),
-                    share: None,
-                },
-                Scalar::Text(t) => {
-                    let t = t.trim();
-                    crate::Bound {
-                        text: t.to_string(),
-                        number: t.parse::<f64>().ok().filter(|v| v.is_finite()),
-                        seconds: parse_quantity(t, Dimension::Time, defaults).ok(),
-                        share: t
-                            .strip_suffix('%')
-                            .and_then(|n| n.trim().parse::<f64>().ok())
-                            .map(|n| n / 100.0),
-                    }
-                }
-            }
-        };
+        let bound = |s: &Scalar| read_bound(s, defaults);
         out.push(crate::Expectation {
             label: e.label.clone(),
             object: e.object.clone(),
@@ -2865,6 +2847,95 @@ fn expectations(
             at_most: e.at_most.as_ref().map(bound),
             whole_interval,
             line,
+        });
+    }
+    (out, diagnostics)
+}
+
+/// A limit or an observed value as written, with every reading it allows.
+fn read_bound(s: &Scalar, defaults: &DefaultUnits) -> crate::Bound {
+    match s {
+        Scalar::Number(n) => crate::Bound {
+            text: n.to_string(),
+            number: Some(*n),
+            seconds: parse_quantity(&n.to_string(), Dimension::Time, defaults).ok(),
+            share: None,
+        },
+        Scalar::Text(t) => {
+            let t = t.trim();
+            crate::Bound {
+                text: t.to_string(),
+                number: t.parse::<f64>().ok().filter(|v| v.is_finite()),
+                seconds: parse_quantity(t, Dimension::Time, defaults).ok(),
+                share: t
+                    .strip_suffix('%')
+                    .and_then(|n| n.trim().parse::<f64>().ok())
+                    .map(|n| n / 100.0),
+            }
+        }
+    }
+}
+
+/// The `observed:` list: values of the real system, one per period.
+fn observations(
+    raw: &RawModel,
+    defaults: &DefaultUnits,
+) -> (Vec<crate::Observation>, Vec<Diagnostic>) {
+    let mut out = Vec::new();
+    let mut diagnostics = Vec::new();
+    for item in &raw.observed {
+        let o = &item.value;
+        let mut problem = |message: String| {
+            diagnostics.push(Diagnostic {
+                position: Position::from_location(&item.referenced),
+                message,
+            })
+        };
+        let values: Vec<crate::Bound> = match (&o.value, &o.values) {
+            (Some(v), None) => vec![read_bound(v, defaults)],
+            (None, Some(vs)) if !vs.is_empty() => {
+                vs.iter().map(|v| read_bound(v, defaults)).collect()
+            }
+            (Some(_), Some(_)) => {
+                problem(format!(
+                    "the observation of `{}` {} has both `value` and `values`: give one",
+                    o.object, o.measure
+                ));
+                continue;
+            }
+            _ => {
+                problem(format!(
+                    "the observation of `{}` {} needs `value` (one period) or `values` (one per period)",
+                    o.object, o.measure
+                ));
+                continue;
+            }
+        };
+        let close_within = match &o.close_within {
+            None => None,
+            Some(t) => match t
+                .trim()
+                .strip_suffix('%')
+                .and_then(|n| n.trim().parse::<f64>().ok())
+                .filter(|n| *n > 0.0 && *n < 100.0)
+            {
+                Some(n) => Some(n / 100.0),
+                None => {
+                    problem(format!(
+                        "`close_within` is a percentage between 0% and 100%, like `10%`, got `{t}`"
+                    ));
+                    continue;
+                }
+            },
+        };
+        out.push(crate::Observation {
+            label: o.label.clone(),
+            object: o.object.clone(),
+            measure: o.measure.clone(),
+            values,
+            source: o.source.clone(),
+            close_within,
+            line: Position::from_location(&item.referenced).map(|p| p.line),
         });
     }
     (out, diagnostics)

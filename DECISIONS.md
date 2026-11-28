@@ -307,6 +307,14 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - Every run checks them (stdout, report section after the headline tiles, `summary.json` `expectations`); `simulancer test MODEL...` exits 1 when one isn't met. CI runs it on every example; conveyor-line has three expectations (its scenario inherits them).
 - Not done: editing expectations on the Modeling page (YAML only for now); see the issue.
 
+## Observed values: validating a model against the real system (2026-11-27, issue #97)
+
+- `observed:` in the model file, next to `expect:` (same reasons: CLI, CI, versioned with the model): `object`, `measure`, `value` or `values` (one per period), `source`, `close_within`. Values are read per the measure's unit like expectation limits (`expect::read_value`).
+- Verdicts: *consistent* (several values: Welch 95% interval on observed − model includes 0; one value: inside the prediction interval of one replication, mean ± t·sd·√(1 + 1/n)), *close* (within `close_within`, 10% of the model's mean by default, 2 points for shares of time), *off*. A single period is compared with the spread of single replications, not with the CI of the mean, which would reject a right model almost always.
+- Informative only: `simulancer test` doesn't fail on *off* (that's what `expect:` is for).
+- Shown in `run`'s output, the report ("Compared with the real system", after expected results) and `summary.json` `observations`. Docs: Methods → Validating your model (face validity, historical data, why one month isn't a CI, what counts as validated).
+- two-cells carries made-up example observations, labeled as such in `source`, to show the format.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.

@@ -304,6 +304,29 @@ function expectations() {
       el("tbody", {}, ...rows)))));
 }
 
+function observations() {
+  const list = data.observations || [];
+  if (!list.length) return;
+  const words = { consistent: "✓ consistent", close: "≈ close", off: "✗ off", unknown: "no model value" };
+  const off = list.filter(o => o.verdict === "off").length;
+  const rows = list.map(o => el("tr", {},
+    el("td", {}, o.label, ...(o.source ? [el("div", { class: "note", style: "margin: 2px 0 0" }, o.source)] : [])),
+    el("td", {}, o.observed_text),
+    el("td", {}, o.model_text ?? "–"),
+    el("td", {}, el("b", {}, words[o.verdict]))));
+  app.append(el("section", {},
+    el("h2", {}, "Compared with the real system"),
+    el("p", {}, off
+      ? `${off} of ${list.length} observed results ${off === 1 ? "is" : "are"} off: the model doesn't match the real system there yet.`
+      : `None of the ${list.length} observed results is off.`),
+    el("p", { class: "note" },
+      "Values the model's file records from the real system (observed:), one per period. Consistent: with several values, no clear difference from the model (a 95% interval on the difference); with one, inside the range one replication gives 95% of the time. " +
+      "Close: a clear difference, but within 10% of the model's mean (2 points for shares of time) unless the file says otherwise. Compare like with like: periods as long as a replication, measured the same way."),
+    el("div", { class: "card table-wrap" }, el("table", {},
+      el("thead", {}, el("tr", {}, ...["result", "observed", "model (95% CI)", ""].map(h => el("th", {}, h)))),
+      el("tbody", {}, ...rows)))));
+}
+
 const STATES = [
   ["busy", "--busy", "Busy"],
   ["blocked", "--blocked", "Blocked (output full)"],
@@ -698,6 +721,7 @@ function footer() {
 header();
 headlineTiles();
 expectations();
+observations();
 serverStates(app);
 queues(app);
 conveyors(app);
