@@ -14,7 +14,7 @@ Each replication then gives a **paired difference** (scenario − base) for ever
 | *no clear difference* | it does |
 | *identical* | every pair is equal |
 
-The Simulation page says the same in words, with the change as a percentage of the current value: *"Time in system to shipping: 7.29 min → 5.12 min, down 30% (between 27% and 32%) · better"*.
+The Simulation page says the same in words, with the change as a percentage of the current value: *"Time in system to shipping: 7.25 min → 5.00 min, down 31% (between 28% and 34%) · better"*.
 
 ## How much it helps
 

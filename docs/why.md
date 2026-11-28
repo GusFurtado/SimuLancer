@@ -168,7 +168,7 @@ Be clear about what you give up:
 
 | Problem | Answer | Status |
 |---|---|---|
-| The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. See [Replications](methods/replications.md). Nothing says yet how many replications a result needs. | partial |
+| The easiest thing is to run once | Replications are the default; every number comes with a 95% confidence interval; the report shows the spread across replications. Every run checks its key results against a precision (± 5% by default) and says how many replications would reach it, and a comparison with no clear change says whether the change is too small to matter or how many replications would tell. See [Replications](methods/replications.md). | done |
 | Warm-up and run length are guessed | Every report has a [warm-up check](methods/warmup.md) (Welch's method and the MSER rule), and `run` warns when the warm-up may be too short or the system never settles. Run length isn't checked yet. | partial |
 | Confidence intervals are an afterthought | Every measure, in every output, has its interval. | done |
 | Comparing scenarios is unsound | Paired comparison on [common random numbers](methods/comparisons.md): an interval on the difference and a verdict. The Simulation page says it in words: *"Lead time: 9.10 min → 7.24 min, down 20% (between 18% and 23%) · better"*. | done |

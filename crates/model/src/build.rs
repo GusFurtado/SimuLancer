@@ -2762,11 +2762,39 @@ impl Builder {
             None => Some(SimTime::ZERO),
         };
         let run_length = self.duration(&e.run_length, false, "`run_length`");
+        let precision = match &e.precision {
+            None => Some(None),
+            Some(p) => {
+                let share = match &p.value {
+                    Scalar::Text(t) => t
+                        .trim()
+                        .strip_suffix('%')
+                        .and_then(|n| n.trim().parse::<f64>().ok())
+                        .map(|n| n / 100.0),
+                    Scalar::Number(_) => None,
+                };
+                match share {
+                    Some(s) if s > 0.0 && s < 1.0 => Some(Some(s)),
+                    Some(_) => {
+                        self.error(p, "`precision` must be between 0% and 100%".to_string());
+                        None
+                    }
+                    None => {
+                        self.error(
+                            p,
+                            "`precision` is a percentage, like `5%` (the confidence intervals of the key results, as a share of their mean)".to_string(),
+                        );
+                        None
+                    }
+                }
+            }
+        };
         Some(Experiment {
             replications: replications?,
             warmup: warmup?,
             run_length: run_length?,
             seed: e.seed,
+            precision: precision?,
         })
     }
 }

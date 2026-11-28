@@ -16,7 +16,7 @@ door → entrance → kiosk ──┤                            ├──> exit
 - **Giving up:** customers waiting for a teller leave after 20 minutes on average (each has their own patience, exponential). Those waiting for an advisor stay: they came for an appointment.
 - **Staff:** 3 tellers for 5 counters and 2 advisors for 3 desks. Staff start at 09:45 and, after closing, serve everyone still inside before going home.
 - **Service times** vary a lot (lognormal): about 3 minutes at a teller, 12 with an advisor.
-- **Results** cover four weeks, 20 replications.
+- **Results** cover four weeks, 100 replications: fewer leave the share seen by an advisor within 15 minutes too uncertain.
 
 ## Data
 

@@ -31,6 +31,52 @@ fn run(args: &[&str]) -> Output {
     output
 }
 
+/// Too few replications for the key results get a warning that says how
+/// many would do, and the check is in summary.json.
+#[test]
+fn run_warns_when_replications_are_too_few() {
+    let dir = temp_dir("precision");
+    let out = run(&[
+        "run",
+        example().to_str().unwrap(),
+        "--replications",
+        "3",
+        "--output-dir",
+        dir.to_str().unwrap(),
+    ]);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        stdout.contains("warning: 3 replications aren't enough for ± 5%: "),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains("time in system at shipping is ± "),
+        "{stdout}"
+    );
+    let summary: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(dir.join("summary.json")).unwrap()).unwrap();
+    let check = &summary["precision_check"];
+    assert_eq!(check["target"], 0.05);
+    let time = check["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["measure"] == "time in system")
+        .unwrap();
+    assert_eq!(time["enough"], false);
+    assert!(time["replications_needed"].as_u64().unwrap() > 3);
+
+    // With the model's own 30 replications, nothing to warn about.
+    let out = run(&[
+        "run",
+        example().to_str().unwrap(),
+        "--output-dir",
+        dir.to_str().unwrap(),
+    ]);
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(!stdout.contains("aren't enough"), "{stdout}");
+}
+
 #[test]
 fn run_writes_results_and_event_log() {
     let dir = temp_dir("files");

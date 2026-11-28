@@ -605,6 +605,46 @@ function warmupCheck(container) {
   addEventListener("resize", draw);
 }
 
+/** A share as a short number of percent (or points): 0.05 → "5", 0.025 → "2.5". */
+function share(v) {
+  const a = Math.abs(v * 100);
+  const t = (v * 100).toFixed(a >= 10 ? 0 : a >= 1 ? 1 : 2);
+  return t.includes(".") ? t.replace(/0+$/, "").replace(/\.$/, "") : t;
+}
+
+function precisionText(scale, v) {
+  if (scale !== "points") return `± ${share(v)}%`;
+  const n = share(v);
+  return `± ${n} point${n === "1" ? "" : "s"}`;
+}
+
+function replicationsCheck(container) {
+  const p = data.precision_check;
+  if (!p || !p.results.length) return;
+  const target = `± ${share(p.target)}%`;
+  const wide = p.results.filter(r => !r.enough);
+  const needed = Math.max(...wide.map(r => r.replications_needed));
+  const verdict = wide.length
+    ? `${p.replications} replications aren't enough for ${target}: ${wide.length === 1 ? "one key result has" : `${wide.length} key results have`} a wider interval. ` +
+      `About ${needed.toLocaleString("en")} replications would narrow ${wide.length === 1 ? "it" : "them all"} to ${target}.`
+    : `${p.replications} replications are enough: every key result's interval is within ${target} of its mean.`;
+  const rows = p.results.map(r => el("tr", {},
+    el("td", {}, r.label),
+    el("td", {}, precisionText(r.scale, r.half_width)),
+    el("td", {}, precisionText(r.scale, r.wanted)),
+    el("td", {}, r.enough ? "enough" : `about ${r.replications_needed.toLocaleString("en")}`)));
+  container.append(el("section", {},
+    el("h2", {}, "Replications check"),
+    el("p", {}, verdict),
+    el("p", { class: "note" },
+      "The 95% interval of each key result, as a share of its mean, against the precision the model asks for (experiment.precision, ± 5% unless it says otherwise). " +
+      "Shares of time are judged in points instead, at a fifth of the precision (± 1 point for ± 5%). " +
+      "The interval narrows with the square root of the replications: four times as many halve it. The replications needed are estimated from this run."),
+    el("div", { class: "card table-wrap" }, el("table", {},
+      el("thead", {}, el("tr", {}, ...["key result", "95% CI now", "wanted", "replications"].map(h => el("th", {}, h)))),
+      el("tbody", {}, ...rows)))));
+}
+
 function fullTable(container) {
   const tbody = el("tbody");
   let group = null;
@@ -642,6 +682,7 @@ queues(app);
 conveyors(app);
 variation(app);
 warmupCheck(app);
+replicationsCheck(app);
 fullTable(app);
 footer();
 </script>

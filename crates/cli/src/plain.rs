@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use crate::compare::{Comparison, Verdict};
 use crate::decisions::{Better, ResultSpec};
 use crate::measures::Unit;
+use crate::precision;
 use crate::report::Format;
 
 /// Clear changes smaller than these are reported as too small to matter.
@@ -96,13 +97,36 @@ pub fn describe(spec: &ResultSpec, c: &Comparison) -> Value {
         .parse::<f64>()
         .is_ok_and(|v| v == 0.0);
 
-    // A clear change can still be too small to matter: under 1% (or 1
-    // point). It's reported, but not judged better or worse.
-    let small = match c.verdict {
-        Verdict::Higher | Verdict::Lower if relative => (d / base).abs() < SMALL_RELATIVE,
-        Verdict::Higher | Verdict::Lower if points => d.abs() < SMALL_POINTS,
+    // The smallest change that matters: 1% (or 1 point).
+    let matters = if relative {
+        Some(SMALL_RELATIVE * base.abs())
+    } else if points {
+        Some(SMALL_POINTS)
+    } else {
+        None
+    };
+    // A clear change can still be too small to matter. It's reported, but
+    // not judged better or worse. So is no clear change whose whole range
+    // is that small.
+    let small = match (c.verdict, matters) {
+        (Verdict::Higher | Verdict::Lower, Some(m)) => d.abs() < m,
+        (Verdict::NoClearDifference, Some(m)) => low.abs().max(high.abs()) < m,
         _ => false,
     };
+    // Otherwise, no clear change may be too few replications: about how many
+    // would narrow the range to that size.
+    let replications_needed = match (c.verdict, matters) {
+        (Verdict::NoClearDifference, Some(m)) if !small && hw.is_finite() => {
+            Some(precision::needed(c.difference.n as u32, hw, m))
+        }
+        _ => None,
+    };
+    let more = replications_needed.map(|n| {
+        format!(
+            "about {n} replications would narrow it to ± {}",
+            if relative { "1%" } else { "1 point" }
+        )
+    });
     let judgment = match (c.verdict, spec.better) {
         _ if small => None,
         (Verdict::Higher, Better::Higher) | (Verdict::Lower, Better::Lower) => Some("better"),
@@ -146,6 +170,9 @@ pub fn describe(spec: &ResultSpec, c: &Comparison) -> Value {
     if small {
         sentence += " · too small to matter";
     }
+    if let Some(more) = &more {
+        sentence += &format!(" · {more}");
+    }
     if let Some(judgment) = judgment {
         sentence += &format!(" · {judgment}");
     }
@@ -172,7 +199,8 @@ pub fn describe(spec: &ResultSpec, c: &Comparison) -> Value {
         },
         "judgment": judgment,
         "small": small,
-        "text": { "current": current_text, "scenario": scenario_text, "change": change, "range": range },
+        "replications_needed": replications_needed,
+        "text": { "current": current_text, "scenario": scenario_text, "change": change, "range": range, "more": more },
         "sentence": sentence,
     })
 }
@@ -238,6 +266,21 @@ mod tests {
         assert!(s.contains("no clear change (between −"), "{s}");
         assert!(s.contains("and +"), "{s}");
         assert!(!s.contains("better") && !s.contains("worse"), "{s}");
+        // Paired differences ±1 over 4 replications: ± 3.1% of 60.25, so
+        // about 4 × (3.05 / 1)² replications would narrow it to ± 1%.
+        assert!(
+            s.ends_with("· about 38 replications would narrow it to ± 1%"),
+            "{s}"
+        );
+        // No clear change, but the whole range is under 1%.
+        let s = sentence(
+            Unit::PartsPerHour,
+            Better::Higher,
+            &base,
+            &[60.1, 57.9, 62.1, 60.9],
+        );
+        assert!(s.contains("no clear change"), "{s}");
+        assert!(s.ends_with("· too small to matter"), "{s}");
         assert_eq!(
             sentence(Unit::PartsPerHour, Better::Higher, &base, &base),
             "Parts shipped per hour: 60.2 /h, the same in every replication"

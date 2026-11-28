@@ -36,7 +36,7 @@ People who decide don't need to read YAML. On the Modeling page, the engineer ch
 
 - **⚑ Make this a decision** under a number turns it into a decision with limits ("Packers: 1 to 3").
 - **Offer as an option…** turns a set of edits into a named option of a decision ("Shipping conveyor: faster belt"), instead of saving them into the model.
-- The *Decisions* tab also chooses which results the Simulation page shows.
+- The *Decisions* tab also chooses which results the Simulation page shows. Every run checks those results for [precision](methods/replications.md#how-many-replications).
 
 Once that version is published, the Simulation page lists the decisions with their current values. A scenario is a set of choices, and **Compare** runs the selected scenarios against the current setup and says what changed in words. The [tutorial](tutorial.md) walks through it.
 

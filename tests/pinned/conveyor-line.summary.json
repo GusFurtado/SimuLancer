@@ -559,5 +559,33 @@
     "cut_by": "bin",
     "suggested": 38400.0,
     "settles": true
+  },
+  "precision_check": {
+    "target": 0.05,
+    "replications": 30,
+    "results": [
+      {
+        "label": "throughput at shipping",
+        "object_type": "sink",
+        "object": "shipping",
+        "measure": "throughput",
+        "scale": "relative",
+        "half_width": 0.005163619560774809,
+        "wanted": 0.05,
+        "enough": true,
+        "replications_needed": null
+      },
+      {
+        "label": "time in system at shipping",
+        "object_type": "sink",
+        "object": "shipping",
+        "measure": "time in system",
+        "scale": "relative",
+        "half_width": 0.021033622062379263,
+        "wanted": 0.05,
+        "enough": true,
+        "replications_needed": null
+      }
+    ]
   }
 }

@@ -54,8 +54,8 @@ sinks:
   shipping: {}
 
 experiment:
-  replications: 20
-  warmup: "1 d"
+  replications: 300
+  warmup: "7 d"
   run_length: "28 d"
   seed: 20261010
 

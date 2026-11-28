@@ -1180,7 +1180,9 @@ function field(label, path, kind = "text", options = [], placeholder = null) {
       id, value: value ?? "", placeholder, inputmode: kind === "int" ? "numeric" : null,
       onchange: e => {
         const raw = e.target.value.trim();
-        setChange(path, kind === "int" && /^\d+$/.test(raw) ? Number(raw) : raw);
+        // An optional field (one with a placeholder) left empty goes back to its default.
+        if (raw === "" && placeholder !== null) setChange(path, null);
+        else setChange(path, kind === "int" && /^\d+$/.test(raw) ? Number(raw) : raw);
       },
     });
   }
@@ -1543,6 +1545,7 @@ function experimentPanel(tree) {
     field("Warm-up", "experiment.warmup", "text", [], "none"),
     field("Run length (after warm-up)", "experiment.run_length"),
     field("Seed", "experiment.seed", "int"),
+    field("Precision of key results (±)", "experiment.precision", "text", [], "5%"),
     el("label", { class: "check" },
       el("input", {
         type: "checkbox", id: "f-event-log", checked: getAt(tree, "outputs.event_log") === "jsonl" ? true : null,

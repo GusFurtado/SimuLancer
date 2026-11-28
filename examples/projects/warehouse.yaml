@@ -36,7 +36,6 @@ decisions:
 results:
   - { label: Orders dispatched per working hour, object: dispatch, measure: throughput, better: higher }
   - { label: Order lead time (order to dispatch), object: dispatch, measure: time in system, better: lower }
-  - { label: Wait before an order is picked, object: backlog, measure: waiting time, better: lower }
   - { label: Pallets in the racks, object: racks, measure: mean parts, better: lower }
   - { label: Time the racks are empty, object: racks, measure: empty, better: lower }
   - { label: Trucks kept waiting at the dock, object: trucks, measure: blocked, better: lower }

@@ -14,6 +14,7 @@ use simulancer_model::{DrawnAs, Layout, Model};
 
 use crate::compare::Comparison;
 use crate::measures::Measure;
+use crate::precision::PrecisionCheck;
 use crate::warmup::WarmupCheck;
 
 pub const CONFIDENCE: f64 = 0.95;
@@ -72,6 +73,7 @@ pub fn write_report(
     spec: &Spec,
     measures: &[(Measure, Summary)],
     warmup: Option<&WarmupCheck>,
+    precision: Option<&PrecisionCheck>,
 ) -> io::Result<()> {
     let node = |n: Node| match n {
         Node::Source(i) => &spec.sources[i].name,
@@ -90,6 +92,7 @@ pub fn write_report(
         "run_length": e.run_length.as_secs_f64(),
         "confidence": CONFIDENCE,
         "warmup_check": warmup,
+        "precision_check": precision,
         "sources": spec.sources.iter().map(|s| json!({
             "name": s.name,
             "when_blocked": match s.when_blocked {
@@ -149,6 +152,9 @@ struct SummaryFile<'a> {
     /// Parts in the system over time (Welch's plot) and MSER's cut.
     #[serde(skip_serializing_if = "Option::is_none")]
     warmup_check: Option<&'a WarmupCheck>,
+    /// Whether the key results' intervals are narrow enough.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    precision_check: Option<&'a PrecisionCheck>,
 }
 
 #[derive(Serialize)]
@@ -172,10 +178,12 @@ pub fn write_summary(
     spec: &Spec,
     measures: &[(Measure, Summary)],
     warmup: Option<&WarmupCheck>,
+    precision: Option<&PrecisionCheck>,
 ) -> io::Result<()> {
     let e = &spec.experiment;
     let file = SummaryFile {
         warmup_check: warmup,
+        precision_check: precision,
         format: "simulancer-summary/0.1",
         simulancer_version: env!("CARGO_PKG_VERSION"),
         model: model_name,

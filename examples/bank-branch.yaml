@@ -75,7 +75,7 @@ sinks:
   exit: {}
 
 experiment:
-  replications: 20
+  replications: 100
   run_length: "28 d"
   seed: 20261021
 
