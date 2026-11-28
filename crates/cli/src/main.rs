@@ -5,6 +5,7 @@ mod markdown;
 mod measures;
 mod output;
 mod plain;
+mod precision;
 mod projects;
 mod report;
 mod runner;
@@ -160,7 +161,12 @@ fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
         scenario_spec.experiment.replications = n;
     }
     let e = &base_spec.experiment;
-    if *e != scenario_spec.experiment {
+    // The precision only says when to warn; it can differ.
+    let settings = |x: &simulancer_engine::spec::Experiment| simulancer_engine::spec::Experiment {
+        precision: None,
+        ..x.clone()
+    };
+    if settings(e) != settings(&scenario_spec.experiment) {
         let describe = |x: &simulancer_engine::spec::Experiment| {
             format!(
                 "seed {}, {} replications, warm-up {}, run length {}",
@@ -245,6 +251,7 @@ fn run(args: &RunArgs) -> Result<(), String> {
             log_replication: args.log_replication,
             layout: layout.as_ref().map(|l| &l.layout),
             progress: None,
+            key_results: &[],
         },
         &out_dir,
     )?;
@@ -277,6 +284,9 @@ fn run(args: &RunArgs) -> Result<(), String> {
             ),
             _ => {}
         }
+    }
+    if let Some(warning) = outcome.precision.as_ref().and_then(precision_warning) {
+        println!("\n{warning}");
     }
     if n < 2 {
         println!("\nwarning: confidence intervals need at least 2 replications");
@@ -646,13 +656,34 @@ fn describe(path: &Path, model: &Model) -> String {
     }
     let e = &spec.experiment;
     out += &format!(
-        "\nexperiment: {} replications, warm-up {}, run length {}, seed {}\n",
+        "\nexperiment: {} replications, warm-up {}, run length {}, seed {}{}\n",
         e.replications,
         duration(e.warmup.as_secs_f64()),
         duration(e.run_length.as_secs_f64()),
-        e.seed
+        e.seed,
+        e.precision
+            .map(|p| format!(", precision ± {}", precision::percent(p)))
+            .unwrap_or_default()
     );
     out
+}
+
+/// The warning when key results are wider than the model's precision: which
+/// ones, and about how many replications would make them all narrow enough.
+fn precision_warning(check: &precision::PrecisionCheck) -> Option<String> {
+    let wide: Vec<String> = check
+        .results
+        .iter()
+        .filter(|r| !r.enough)
+        .map(|r| format!("{} is {}", r.label, r.half_width_text()))
+        .collect();
+    let needed = check.replications_needed()?;
+    Some(format!(
+        "warning: {} replications aren't enough for ± {}: {}; about {needed} replications would do (see the report's replications check)",
+        check.replications,
+        precision::percent(check.target),
+        wide.join(", "),
+    ))
 }
 
 /// `12`, or `10 to 14`.

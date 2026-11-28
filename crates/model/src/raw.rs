@@ -601,6 +601,8 @@ pub struct RawExperiment {
     pub warmup: Option<Spanned<Scalar>>,
     pub run_length: Spanned<Scalar>,
     pub seed: u64,
+    /// A percentage: `5%`.
+    pub precision: Option<Spanned<Scalar>>,
 }
 
 #[derive(Debug, Deserialize)]

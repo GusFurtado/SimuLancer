@@ -727,6 +727,9 @@ pub struct Experiment {
     /// Measured time after the warm-up.
     pub run_length: SimTime,
     pub seed: u64,
+    /// How narrow the key results' confidence intervals should be, as a
+    /// share of the mean (0.05 for ±5%). Only reported; the run doesn't use it.
+    pub precision: Option<f64>,
 }
 
 /// A distribution of durations. All parameters are in seconds.

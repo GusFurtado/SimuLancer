@@ -14,6 +14,7 @@ use simulancer_model::{EventLog, Layout, Model};
 
 use crate::measures::{self, Measure};
 use crate::output;
+use crate::precision::{self, KeyResult, PrecisionCheck};
 use crate::warmup::{self, Both, PartsInSystem, WarmupCheck};
 
 pub struct RunOptions<'a> {
@@ -23,6 +24,8 @@ pub struct RunOptions<'a> {
     pub layout: Option<&'a Layout>,
     /// Incremented as each replication finishes.
     pub progress: Option<&'a AtomicU32>,
+    /// The results to check for precision (a project's); none means the sinks'.
+    pub key_results: &'a [KeyResult],
 }
 
 pub struct RunOutcome {
@@ -30,6 +33,8 @@ pub struct RunOutcome {
     pub measures: Vec<(Measure, Summary)>,
     /// Parts in the system over time and where MSER would cut, to check the warm-up.
     pub warmup: Option<WarmupCheck>,
+    /// Whether the key results' intervals are narrow enough.
+    pub precision: Option<PrecisionCheck>,
     pub elapsed: Duration,
     pub threads: usize,
     /// Files written, in the order they were written.
@@ -88,6 +93,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
             (m, summary)
         })
         .collect();
+    let precision = precision::check(&spec, &measures, options.key_results);
 
     let write = |name: &str, f: &dyn Fn(&Path) -> std::io::Result<()>| -> Result<PathBuf, String> {
         let path = out_dir.join(name);
@@ -96,10 +102,24 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
     };
     let mut files = vec![
         write("report.html", &|p| {
-            output::write_report(p, model, &spec, &measures, warmup.as_ref())
+            output::write_report(
+                p,
+                model,
+                &spec,
+                &measures,
+                warmup.as_ref(),
+                precision.as_ref(),
+            )
         })?,
         write("summary.json", &|p| {
-            output::write_summary(p, &model.name, &spec, &measures, warmup.as_ref())
+            output::write_summary(
+                p,
+                &model.name,
+                &spec,
+                &measures,
+                warmup.as_ref(),
+                precision.as_ref(),
+            )
         })?,
         write("replications.csv", &|p| {
             output::write_replications_csv(p, &measures)
@@ -116,6 +136,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
         spec,
         measures,
         warmup,
+        precision,
         elapsed,
         files,
         logged_replication: log_events.then_some(options.log_replication),

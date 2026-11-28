@@ -37,6 +37,7 @@ use crate::markdown;
 use crate::measures::{self, Measure};
 use crate::output::layout_json;
 use crate::plain;
+use crate::precision::KeyResult;
 use crate::projects::{self, DOCUMENTATION_FILE, PROJECT_FILE, ProjectFile, Projects};
 use crate::runner::{self, RunOptions};
 use crate::scenarios::Scenarios;
@@ -589,6 +590,18 @@ impl AppState {
         };
         self.update(id, |j| j.status = Status::Running);
         let out_dir = self.runs.join(id);
+        // The results the project shows on the Simulation page are key results too.
+        let version = (job.version != "working").then_some(job.version.as_str());
+        let key_results: Vec<KeyResult> = exposed_in(&self.projects, &job.project, version)
+            .map(|(exposed, _)| exposed.results)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| KeyResult {
+                label: r.label,
+                object: r.object,
+                measure: r.measure,
+            })
+            .collect();
         let result = runner::execute(
             &job.model,
             &RunOptions {
@@ -597,6 +610,7 @@ impl AppState {
                 log_replication: 1,
                 layout: job.layout.as_ref(),
                 progress: Some(&job.progress),
+                key_results: &key_results,
             },
             &out_dir,
         )
@@ -2641,6 +2655,41 @@ mod tests {
         let app = reopen(&root);
         let (_, list) = call(&app, "GET", "/api/v1/comparisons", None).await;
         assert_eq!(list["comparisons"], json!([]));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A project's runs check the precision of the results it shows on the
+    /// Simulation page, not the sinks'.
+    #[tokio::test]
+    async fn runs_check_the_projects_results() {
+        let (app, root) = app("precision");
+        let (status, run) = call(
+            &app,
+            "POST",
+            "/api/v1/runs",
+            Some(json!({ "project": "two-cells", "version": "latest", "replications": 4 })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{run}");
+        let id = run["id"].as_str().unwrap();
+        wait_for(&app, id).await;
+        let (_, summary) = call(
+            &app,
+            "GET",
+            &format!("/api/v1/runs/{id}/files/summary.json"),
+            None,
+        )
+        .await;
+        let labels: Vec<&str> = summary["precision_check"]["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["label"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            labels,
+            ["Parts shipped per hour", "Lead time", "Inspection busy"]
+        );
         fs::remove_dir_all(root).unwrap();
     }
 

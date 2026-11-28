@@ -881,5 +881,33 @@
     "cut_by": "week",
     "suggested": 604800.0,
     "settles": true
+  },
+  "precision_check": {
+    "target": 0.05,
+    "replications": 20,
+    "results": [
+      {
+        "label": "throughput at dispatch",
+        "object_type": "sink",
+        "object": "dispatch",
+        "measure": "throughput",
+        "scale": "relative",
+        "half_width": 0.004577151456840859,
+        "wanted": 0.05,
+        "enough": true,
+        "replications_needed": null
+      },
+      {
+        "label": "time in system at dispatch",
+        "object_type": "sink",
+        "object": "dispatch",
+        "measure": "time in system",
+        "scale": "relative",
+        "half_width": 0.044236866133388855,
+        "wanted": 0.05,
+        "enough": true,
+        "replications_needed": null
+      }
+    ]
   }
 }

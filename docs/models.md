@@ -375,9 +375,12 @@ experiment:
   warmup: "8 h"          # optional: statistics start after it
   run_length: "120 h"    # measured time, after the warm-up
   seed: 20261009         # same seed, same results
+  precision: 5%          # optional: how narrow the key results' intervals should be
 ```
 
 Each replication uses its own random streams, named after the objects that draw from them. Changing one object doesn't change the random numbers of the others, which keeps comparisons between scenarios fair.
+
+`precision` doesn't change the run: it's the half-width of the 95% interval wanted for the key results, as a share of their mean (± 5% if it's left out; shares of time are judged at a fifth of it, in points). When a key result is wider, `run` warns and the report says how many replications would do. See [How many replications](methods/replications.md#how-many-replications).
 
 ## Outputs
 

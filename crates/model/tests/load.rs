@@ -147,6 +147,31 @@ fn unsupported_format() {
 }
 
 #[test]
+fn precision_is_a_percentage() {
+    let model = load_str(MINIMAL).unwrap();
+    assert_eq!(model.spec.experiment.precision, None);
+    let with = |p: &str| {
+        replace(
+            MINIMAL,
+            "  seed: 1",
+            &format!("  seed: 1\n  precision: {p}"),
+        )
+    };
+    let model = load_str(&with("2%")).unwrap();
+    assert_eq!(model.spec.experiment.precision, Some(0.02));
+    let model = load_str(&with("\"2.5 %\"")).unwrap();
+    assert_eq!(model.spec.experiment.precision, Some(0.025));
+    assert_one_error(&with("0.02"), "precision", "is a percentage, like `5%`");
+    assert_one_error(
+        &with("5 percent"),
+        "precision",
+        "is a percentage, like `5%`",
+    );
+    assert_one_error(&with("0%"), "precision", "between 0% and 100%");
+    assert_one_error(&with("150%"), "precision", "between 0% and 100%");
+}
+
+#[test]
 fn unknown_field_is_a_syntax_error() {
     let source = replace(MINIMAL, "process_time:", "proces_time:");
     let err = load_str(&source).unwrap_err();

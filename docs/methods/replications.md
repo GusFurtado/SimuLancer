@@ -18,13 +18,37 @@ With a single replication there's no interval: the report shows "n/a" and a warn
 
 ## How many replications
 
-The interval narrows with the square root of the number of replications: four times as many replications halve it. Pick the number that makes the intervals of the results you care about narrow enough for the decision at hand:
+The interval narrows with the square root of the number of replications: four times as many replications halve it. So a run with *n* replications and half-width *h* needs about
 
-1. Run with the model's setting (`experiment.replications`; `--replications` overrides it on the command line).
-2. Look at the half-width of the key results.
-3. If it's too wide, multiply the replications by (current half-width / wanted half-width)².
+```text
+n × (h / wanted)²
+```
+
+replications for the half-width you want. Every run does that sum for you, for its **key results**:
+
+- the results a project shows on the Simulation page (chosen on the Modeling page's *Decisions* tab);
+- without a project, or when it shows none, each sink's throughput and time in system.
+
+The wanted half-width is the model's **precision**: `experiment.precision` (see [Experiment](../models.md#experiment)), **± 5% of the mean** unless the model says otherwise. Shares of time (busy, blocked, served within the target wait...) are judged in points instead, at a fifth of the precision: ± 1 point for ± 5%. A share near zero would otherwise need endless replications.
+
+When a key result is wider than that, `simulancer run` warns and says how many replications would do:
+
+```text
+warning: 3 replications aren't enough for ± 5%: throughput at shipping is ± 6.8%, time in system at shipping is ± 29%; about 102 replications would do (see the report's replications check)
+```
+
+The report's *Replications check* lists every key result with its interval now, the one wanted and the replications it needs, and `summary.json` has the same in `precision_check`. The number is an estimate from the run itself: the standard deviation is estimated too, so run the suggested number and check again.
 
 Longer runs also narrow the intervals, and a run that's too short for its warm-up gives biased answers however many replications it has. See [Warm-up](warmup.md).
+
+### When a comparison finds no clear change
+
+*No clear change* can mean that the decision doesn't matter, or that the replications were too few to see that it does. The Simulation page tells the two apart, with the smallest change that matters there, 1% (or 1 point for shares of time):
+
+- if the whole range of the change is within ± 1%, it says *too small to matter*: whatever the true change is, it's negligible;
+- otherwise it says how many replications would narrow the range to ± 1%: *"no clear change (between −1.2% and +3.0%) · about 89 replications would narrow it to ± 1%"* (from 20 replications: 20 × 2.1² ≈ 89).
+
+Common random numbers make the range of a change much narrower than either result's own interval (see [Comparing scenarios](comparisons.md)), so a comparison usually needs far fewer replications than the precision check of each run suggests.
 
 ## Random numbers and seeds
 

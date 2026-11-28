@@ -1085,5 +1085,55 @@
     "cut_by": "week",
     "suggested": 0.0,
     "settles": true
+  },
+  "precision_check": {
+    "target": 0.05,
+    "replications": 20,
+    "results": [
+      {
+        "label": "throughput at shipping",
+        "object_type": "sink",
+        "object": "shipping",
+        "measure": "throughput",
+        "scale": "relative",
+        "half_width": 0.0014275096730200362,
+        "wanted": 0.05,
+        "enough": true,
+        "replications_needed": null
+      },
+      {
+        "label": "time in system at shipping",
+        "object_type": "sink",
+        "object": "shipping",
+        "measure": "time in system",
+        "scale": "relative",
+        "half_width": 0.026037920180639648,
+        "wanted": 0.05,
+        "enough": true,
+        "replications_needed": null
+      },
+      {
+        "label": "throughput at scrap",
+        "object_type": "sink",
+        "object": "scrap",
+        "measure": "throughput",
+        "scale": "relative",
+        "half_width": 0.05666557282334464,
+        "wanted": 0.05,
+        "enough": false,
+        "replications_needed": 26
+      },
+      {
+        "label": "time in system at scrap",
+        "object_type": "sink",
+        "object": "scrap",
+        "measure": "time in system",
+        "scale": "relative",
+        "half_width": 0.24032297100759717,
+        "wanted": 0.05,
+        "enough": false,
+        "replications_needed": 463
+      }
+    ]
   }
 }

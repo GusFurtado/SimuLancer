@@ -24,7 +24,7 @@ sinks:
   shipping: {}
 
 experiment:
-  replications: 10
+  replications: 20
   warmup: "1 h"
   run_length: "24 h"
   seed: 1

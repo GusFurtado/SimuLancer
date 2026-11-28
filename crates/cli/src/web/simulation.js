@@ -319,6 +319,7 @@ function comparisonView() {
         el("span", { class: "change" }, r.text.change),
         r.text.range ? el("span", { class: "range" }, r.text.range) : null,
         verdictBadge(r),
+        r.text.more ? el("span", { class: "range" }, r.text.more) : null,
         best[i] === k ? el("span", { class: "best-tag" }, "best") : null);
     })));
   const words = c.scenarios.map(s => el("div", { class: "words" },
