@@ -464,8 +464,9 @@ sentences = b.js("return [...document.querySelectorAll('.sentence')].map(x => x.
 check(len(sentences) == 6, f"three results for each of two scenarios: {sentences}")
 lead = [s for s in sentences if s.startswith("Lead time: ")]
 check(len(lead) == 2 and all("between" in s or "no clear change" in s for s in lead), f"lead time sentences: {lead}")
-headline = b.js("return document.querySelector('.headline')?.textContent")
-check(headline and "Lead time: Faster repairs does best" in headline, f"headline: {headline}")
+# Two scenarios: "Which does best" ranks them, in place of the per-result headline.
+headline = b.js("return document.querySelector('.ranking')?.textContent")
+check(headline and "Lead time: Faster repairs does best, clearly better than each of the other 2" in headline, f"ranking: {headline}")
 b.screenshot(f"{out}/9-comparison.png")
 
 click_text("#comparison .actions button", "Faster repairs")

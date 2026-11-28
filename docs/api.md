@@ -280,6 +280,7 @@ Oldest first. `summary` is what the scenario changes, in words. `?version=` keep
 - **`small`:** true for a clear change under 1% (or 1 point), or no clear change whose whole range is that small. It is reported as "too small to matter" and not judged.
 - **`replications_needed`:** for no clear change that isn't small, about how many replications would narrow the range to ± 1% (or 1 point); `text.more` says it in words. Otherwise `null`.
 - **`text` and `sentence`:** the same, worded for people.
+- **`ranking`** (at the top level, with two scenarios or more): for each result with a direction, `best` (a scenario's name or `the current setup`), `clear` (the best is clearly better than every other alternative), `confidence` (each comparison's level, 1 − 0.05 / (*k* − 1)), `others` (each with `clear`, `small` and the interval `low`/`high` of how much better the best is) and a `sentence`. See [Choosing the best of several](methods/comparisons.md#choosing-the-best-of-several).
 
 ### `POST /api/v1/runs`
 

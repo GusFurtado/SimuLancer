@@ -112,8 +112,43 @@ function currentSetupCard() {
     el("dl", { class: "decisions" }, ...d.decisions.flatMap(dec => [
       el("dt", {}, dec.label, dec.description ? el("span", { class: "sub" }, dec.description) : null),
       el("dd", {}, el("span", { class: "now" }, "Now: "), valueText(dec, dec.current),
-        dec.kind === "number" ? el("span", { class: "sub" }, `can be ${valueText(dec, dec.min)} to ${valueText(dec, dec.max)}`) : null),
+        dec.kind === "number" ? el("span", { class: "sub" }, `can be ${valueText(dec, dec.min)} to ${valueText(dec, dec.max)}`) : null,
+        sweepValues(dec).length >= 2
+          ? el("button", { class: "link", "data-sweep": dec.id, title: `Compare every ${dec.kind === "choice" ? "option" : "value"} of ${dec.label} with the current setup`, onclick: () => sweep(dec) },
+              dec.kind === "choice" ? "Try every option" : "Try every value")
+          : null),
     ])));
+}
+
+/** The values a sweep tries, besides the current one: every option of a
+ *  choice; for a number, every step from min to max (whole numbers when the
+ *  limits are), or five evenly spaced values. At most 12. */
+function sweepValues(dec) {
+  let values;
+  if (dec.kind === "choice") values = dec.choices.map(c => c.id);
+  else {
+    const step = dec.step || (Number.isInteger(dec.min) && Number.isInteger(dec.max) ? 1 : (dec.max - dec.min) / 4);
+    values = [];
+    for (let v = dec.min; v <= dec.max + step / 1e6; v += step) values.push(+v.toPrecision(12));
+  }
+  values = values.filter(v => !equal(v, dec.current));
+  if (values.length > 12) {
+    const every = (values.length - 1) / 11;
+    values = Array.from({ length: 12 }, (_, i) => values[Math.round(i * every)]);
+  }
+  return values;
+}
+
+/** Compares every value of one decision with the current setup, on the same random numbers. */
+async function sweep(dec) {
+  const scenarios = sweepValues(dec).map(v => ({ name: `${dec.label}: ${valueText(dec, v)}`, decisions: { [dec.id]: v } }));
+  const { ok, data } = await api("POST", "comparisons", { project: state.project, version: state.detail.version, scenarios });
+  if (!ok) {
+    state.message = { kind: "error", text: data.error || (data.errors || []).map(e => e.message).join("; ") || "The comparison couldn't start." };
+    return render();
+  }
+  state.details = null;
+  followComparison(data);
 }
 
 function scenariosCard() {
@@ -280,6 +315,16 @@ function verdictBadge(r) {
 /** For each result with a "better" direction, the scenario that does best
  *  (only if it's clearly better than now). */
 function bestByResult(c) {
+  // With a ranking (two scenarios or more), the best is the one it found
+  // clearly better than every other alternative, if any.
+  if ((c.ranking || []).length) {
+    return c.results.map(spec => {
+      const r = c.ranking.find(x => x.object === spec.object && x.measure === spec.measure);
+      if (!r || !r.clear) return null;
+      const k = c.scenarios.findIndex(s => s.name === r.best);
+      return k >= 0 ? k : null;
+    });
+  }
   return c.results.map((spec, i) => {
     if (spec.better === "neither") return null;
     let best = null;
@@ -298,7 +343,8 @@ function comparisonView() {
   if (!c) return el("div");
   const best = bestByResult(c);
   // The headline: for each result with a direction, the best scenario.
-  const headline = el("ul", { class: "headline" }, ...c.results.flatMap((spec, i) => {
+  // With a ranking, "Which does best" replaces the per-result headline.
+  const headline = (c.ranking || []).length ? null : el("ul", { class: "headline" }, ...c.results.flatMap((spec, i) => {
     if (spec.better === "neither") return [];
     const k = best[i];
     if (k === null) return [el("li", {}, el("b", {}, spec.label), ": none of these scenarios clearly improves it.")];
@@ -329,9 +375,17 @@ function comparisonView() {
     el("button", { onclick: () => openDetails(c.current.run, "Current setup") }, "Current setup"),
     ...c.scenarios.map(s => el("button", { onclick: () => openDetails(s.run, s.name) }, s.name)),
   ];
+  // With two scenarios or more, the server ranks them all, the current setup included.
+  const ranking = (c.ranking || []).length
+    ? el("div", { class: "ranking" },
+        el("h4", {}, "Which does best"),
+        el("ul", {}, ...c.ranking.map(r => el("li", { class: "rank-sentence" }, r.sentence))),
+        el("p", { class: "hint" }, "Each result's best is compared with every other alternative at once, with intervals wide enough to be 95% sure of all those comparisons together."))
+    : null;
   return el("section", { class: "comparison", id: "comparison" },
     el("h3", { class: "section-title" }, "Compared with the current setup"),
     headline,
+    ranking,
     el("div", { class: "table-wrap" }, el("table", { class: "compare-table" }, el("thead", {}, header), el("tbody", {}, ...rows))),
     el("h3", { class: "section-title" }, "In words"),
     el("div", { class: "words-grid" }, ...words),

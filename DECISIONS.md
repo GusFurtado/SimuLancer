@@ -299,6 +299,14 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
   CI uploads the screenshots as an artifact for reviewing the UI from GitHub. It caught two bugs before commit: diagram labels sized in meters instead of pixels, and default capacities showing as empty fields.
 - **Order of work:** scenario files (done), `serve` + API (done), the web UI (done), then packaging (parameter forms, run, progress, report, 2D replay, 3D placeholder), then packaging (static binary, Dockerfile, service file example).
 
+## Trying every value, and ranking (2026-11-27, issue #99, steps 1 and 2)
+
+- No new endpoint: a sweep is an ordinary comparison with one inline scenario per value (the existing limit of 12). The page builds them: every option of a choice; for a number, `step` if set, whole numbers when the limits are, else five evenly spaced values; the current value left out (it's the base); more than 12 thinned evenly.
+- Ranking (`rank.rs`), in every comparison with two scenarios or more, per result with a direction: the best mean against each other alternative on paired differences, Bonferroni-adjusted (each at 1 − 0.05/(k − 1)). Chosen over KN or other ranking-and-selection procedures because it needs no extra runs and is easy to explain in one sentence; it's conservative, and the page says "could be as good" rather than pick a winner it can't back. Ties and differences surely under 1% (1 point) are said as such.
+- With a ranking, the page's "does best" headline and the BEST tag come from it (only for a clear winner), replacing the per-scenario "clearly better than now" rule.
+- Not done (step 3): several decisions at once, designs of experiments, search.
+- The 12-scenario cap stays (the user, 2026-11-28: "12 parece um limite bem generoso"). Step 3 waits until someone hits the one-decision limit.
+
 ## Packaging and deployment (implemented 2026-10-09)
 
 - **Static binary** for `x86_64-unknown-linux-musl`, 5.7 MB stripped (release profile: `strip`, thin LTO). Release archives (binary, examples, docs, deploy files, SHA-256) are 2.2 MB.

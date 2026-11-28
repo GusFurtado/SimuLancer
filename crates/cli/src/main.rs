@@ -7,6 +7,7 @@ mod output;
 mod plain;
 mod precision;
 mod projects;
+mod rank;
 mod report;
 mod runner;
 mod scenarios;

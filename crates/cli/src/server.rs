@@ -1893,11 +1893,48 @@ impl ComparisonJob {
                 })
             })
             .collect();
+        // With two scenarios or more: which alternative does best on each result.
+        let ranking: Vec<Value> = if status == Status::Done && self.items.len() >= 3 {
+            let names: Vec<String> = self
+                .items
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    if i == 0 {
+                        "the current setup".into()
+                    } else {
+                        item.name.clone()
+                    }
+                })
+                .collect();
+            self.exposed
+                .results
+                .iter()
+                .filter_map(|spec| {
+                    let values: Vec<Vec<f64>> = runs
+                        .iter()
+                        .map(|job| {
+                            job.and_then(|j| j.measures.as_ref())
+                                .and_then(|ms| {
+                                    ms.iter()
+                                        .find(|m| m.object == spec.object && m.name == spec.measure)
+                                })
+                                .map(|m| m.values.clone())
+                                .unwrap_or_default()
+                        })
+                        .collect();
+                    crate::rank::rank(spec, &names, &values)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         json!({
             "id": self.id,
             "project": self.project,
             "version": self.version,
             "status": status,
+            "ranking": ranking,
             "progress": { "done": done, "total": total },
             "error": error,
             "replications": runs[0].map(|j| j.total),
@@ -2690,6 +2727,43 @@ mod tests {
             labels,
             ["Parts shipped per hour", "Lead time", "Inspection busy"]
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A comparison of two scenarios or more ranks every alternative on each
+    /// result with a direction.
+    #[tokio::test]
+    async fn comparisons_of_several_scenarios_are_ranked() {
+        let (app, root) = app("ranking");
+        let request = json!({
+            "project": "two-cells",
+            "scenarios": [
+                { "name": "Inspectors: 2", "decisions": { "inspectors": 2 } },
+                { "name": "Inspectors: 3", "decisions": { "inspectors": 3 } },
+            ],
+            "replications": 5,
+        });
+        let (status, c) = call(&app, "POST", "/api/v1/comparisons", Some(request)).await;
+        assert_eq!(status, StatusCode::ACCEPTED, "{c}");
+        let id = c["id"].as_str().unwrap().to_string();
+        let mut runs = vec![c["current"]["run"].as_str().unwrap().to_string()];
+        for s in c["scenarios"].as_array().unwrap() {
+            runs.push(s["run"].as_str().unwrap().to_string());
+        }
+        for run in &runs {
+            wait_for(&app, run).await;
+        }
+        let (_, c) = call(&app, "GET", &format!("/api/v1/comparisons/{id}"), None).await;
+        let ranking = c["ranking"].as_array().unwrap();
+        assert!(!ranking.is_empty(), "{c}");
+        for r in ranking {
+            let names = ["the current setup", "Inspectors: 2", "Inspectors: 3"];
+            assert!(names.contains(&r["best"].as_str().unwrap()), "{r}");
+            assert_eq!(r["others"].as_array().unwrap().len(), 2);
+            let sentence = r["sentence"].as_str().unwrap();
+            assert!(sentence.starts_with(r["label"].as_str().unwrap()), "{r}");
+            assert!(r["clear"].is_boolean(), "{r}");
+        }
         fs::remove_dir_all(root).unwrap();
     }
 
