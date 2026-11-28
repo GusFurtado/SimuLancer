@@ -16,7 +16,7 @@ This page lists them, theme by theme, with what SimuLancer does about each. Not 
 | **ExtendSim** | Proprietary | Published | Student package (paid), trial | Windows (on a Mac, through Parallels or Boot Camp) | ExtendSim model files | ModL |
 | **JaamSim** | Open source (Apache-2.0) | Free | The full program | Windows, macOS, Linux (Java) | Text (`.cfg`) | Expressions; new objects in Java |
 | **SimPy** | Open source (MIT) | Free | The full library | Wherever Python runs | Python code | Python |
-| **SimuLancer** | Open source (MIT or Apache-2.0) | Free | The full program | Server: Linux or Docker. Users: any browser | YAML text | None: the model is data, plus a small formula language |
+| **SimuLancer** | Open source (MIT or Apache-2.0) | Free | The full program | Linux, Windows, macOS, or Docker. Users: any browser | YAML text | None: the model is data, plus a small formula language |
 
 Checked on 2026-11-25 against the vendors' own pages where they exist (see [Sources](#sources)). Vendors change editions and limits often: if something here is out of date, [open an issue](https://github.com/GusFurtado/SimuLancer/issues). ProModel and WITNESS aren't in the table yet.
 
