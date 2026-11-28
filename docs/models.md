@@ -61,8 +61,19 @@ Times can be random. Write a distribution with its parameters in time units:
 | Lognormal | `"lognormal(mean: 10 min, sd: 4 min)"` | mean and standard deviation of the times themselves |
 | Weibull | `"weibull(shape: 1.5, scale: 1 h)"` | shape (a plain number), scale |
 | Gamma | `"gamma(shape: 2, scale: 30 s)"` | shape (a plain number), scale; the mean is shape × scale |
+| Empirical | `"empirical(2 min, 3.5 min, 4 min, 7 min)"` | observed values, in any order |
+| Discrete | `"discrete(2 min: 30%, 5 min: 70%)"` | values with their probabilities |
 
 Parameters can be named (`mean: 10 min`) or given in order.
+
+### Using observed data
+
+- **`empirical(...)`** takes observed times and draws between them: sorted, the values split the range into gaps that are equally likely, and a draw falls uniformly inside its gap (Law's continuous empirical distribution). It never goes below the smallest value or above the largest. It needs at least two different values, and takes up to 10,000.
+- **`discrete(...)`** draws only the values it lists. Give each a percentage (they must add up to 100%) or a plain weight (`2 min: 3, 5 min: 7`); values without probabilities are equally likely, so `discrete(...)` of observed values replays them as they are, repeats included.
+- **`simulancer fit data.csv --column minutes`** suggests a distribution for a column of observed durations: it fits exponential, uniform, triangular, lognormal, gamma and Weibull, ranks them by how far each is from the data (the Kolmogorov-Smirnov distance), and prints each as the expression to paste. `--empirical` prints the values as `empirical(...)` instead. See [Command line](cli.md#fit).
+- **On the Modeling page**, every time distribution has **Fit from data…**: pick a CSV file, choose the column and the unit its values are in, and the same ranking appears; **Use** puts a distribution (or the values as they are, up to 1,000 of them) in the model. The file isn't kept: only the expression goes into the model.
+
+Which to use: a fitted distribution smooths the data and can draw values a little outside what was observed, which suits most process times. `empirical` keeps the shape of the data when no distribution fits. `discrete` suits values that only come in steps, like a fixed set of recipes.
 
 ## Part types (`entities`)
 
@@ -124,7 +135,7 @@ sources:
 
   Arrivals are random (a Poisson process) at each period's rate, the same every day, and none outside the periods. A period can run past midnight (`"22:00-02:00"`). With a `schedule` too, the source only creates parts while both say so (e.g. the rate by time of day, on weekdays only).
 - **A mix of types:** each arrival's type is drawn with the given shares, which must add up to 1.
-- **Arrivals in groups:** `group: 20` (or `group: { min: 20, max: 30 }`, each size equally likely) makes each arrival bring that many parts at once, like a truck of pallets. They get on in order; once one has to wait, the rest wait behind it, and the next arrival time starts when the last has got on. With `when_blocked: drop`, each part that finds no room is lost. All of a group arrive at the same instant, so a queue with room for one takes one of them before the next object takes anything.
+- **Arrivals in groups:** `group: 20` (or `group: { min: 20, max: 30 }`, each size equally likely, or `group: "discrete(10: 20%, 20: 80%)"`) makes each arrival bring that many parts at once, like a truck of pallets. They get on in order; once one has to wait, the rest wait behind it, and the next arrival time starts when the last has got on. With `when_blocked: drop`, each part that finds no room is lost. All of a group arrive at the same instant, so a queue with room for one takes one of them before the next object takes anything.
 - **`when_blocked`:** what happens when the outgoing conveyor is full.
   - `wait` stops the source until there's room. The next interarrival time starts when the part gets on.
   - `drop` discards the part and counts it as lost.
@@ -175,7 +186,7 @@ servers:
 - **Process time per part type:** every type that can reach the server must have a time.
 - **`needs`:** resource units the server holds while it processes a part (see below).
 - **Changeovers:** `changeover: "8 min"` adds a setup whenever a station starts a part of another type than the last it started; `changeover: { standard->premium: "8 min", premium->standard: "5 min" }` gives a time per change (changes not listed take none). With a capacity above 1, each slot remembers its own last type. The setup is part of the processing time (and of *busy*); servers report *changeovers* (how many) and *changeover* (the share of working time spent setting up).
-- **Splitting:** `splits_into: { carton: 10 }` (or `{ carton: { min: 8, max: 12 } }`) turns each part the server finishes into that many parts of another type, like a pallet broken into cartons. They leave one by one, and keep the time the original part arrived, so time in system counts from then.
+- **Splitting:** `splits_into: { carton: 10 }` (or `{ carton: { min: 8, max: 12 } }`, or `{ carton: "discrete(6: 50%, 12: 50%)" }`) turns each part the server finishes into that many parts of another type, like a pallet broken into cartons. They leave one by one, and keep the time the original part arrived, so time in system counts from then.
 - **Batches and kits:** see [Batches and assembly](#batches-and-assembly).
 
 ## Batches and assembly

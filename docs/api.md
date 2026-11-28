@@ -308,6 +308,29 @@ Oldest first. `summary` is what the scenario changes, in words. `?version=` keep
 
 Removes a finished run and its result folder: `204`. A queued or running run gives `409`; an unknown one `404`. A comparison that used the run then fails with "the run is gone".
 
+### `POST /api/v1/fit`
+
+Suggests a distribution for observed durations, as `simulancer fit` does; the Modeling page's **Fit from data…** uses it. Nothing is stored.
+
+```json
+{ "name": "service.csv", "text": "order;minutes\n1;2,5\n2;3,1\n...", "column": "minutes", "unit": "min" }
+```
+
+- `text`: the file's contents (CSV with `,`, `;` or tabs, or one value per line), up to 32 MB. `name` is only used in messages.
+- `column`: a header name or a position (`1` is the first). Leave it out for a single column; with several, the answer is just `{ "columns": [...], "column": null }`, to ask which.
+- `unit`: `s`, `min` (the default), `h` or `d`.
+
+```json
+{ "columns": ["order", "minutes"], "column": "minutes", "count": 120,
+  "mean": "3.02 min", "sd": "0.71 min", "min": "1.6 min", "max": "5.2 min",
+  "candidates": [{ "expression": "gamma(18.1, 0.1669 min)", "ks": 0.041, "p": 0.98, "mean": "3.02 min", "sd": "0.71 min" }],
+  "empirical": "empirical(1.6 min, ...)", "empirical_max": 1000 }
+```
+
+- `candidates`: best first (smallest Kolmogorov-Smirnov distance). The p-values are optimistic, since the parameters come from the same data.
+- `empirical`: the values as `empirical(...)`, or `null` above `empirical_max` values.
+- `422` when the column isn't numbers (the message names the row) or has fewer than two values; `400` for an unknown unit.
+
 ### `GET /api/v1/runs/{id}/files/{name}`
 
 | `name` | Contents |

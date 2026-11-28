@@ -226,6 +226,52 @@ fn mg1_lognormal() {
 }
 
 #[test]
+fn mg1_empirical() {
+    // empirical(20, 30, 45, 50, 70) s: piecewise linear, each of the 4 gaps
+    // a quarter likely. Over a gap [a, b], E[S] = (a + b) / 2 and
+    // E[S²] = (a² + ab + b²) / 3.
+    let points = [20.0_f64, 30.0, 45.0, 50.0, 70.0];
+    let gaps = (points.len() - 1) as f64;
+    let mean = points.windows(2).map(|w| (w[0] + w[1]) / 2.0).sum::<f64>() / gaps;
+    let second = points
+        .windows(2)
+        .map(|w| (w[0] * w[0] + w[0] * w[1] + w[1] * w[1]) / 3.0)
+        .sum::<f64>()
+        / gaps;
+    let s = spec(&single_queue(
+        "exponential(1 min)",
+        "    process_time: \"empirical(45 s, 20 s, 70 s, 30 s, 50 s)\"",
+        None,
+    ));
+    let w = mg1_time_in_system(1.0 / 60.0, mean, second);
+    check(
+        &replications(&s),
+        "M/G/1 (empirical) time in system",
+        w + TRANSIT,
+        0.02,
+        time_in_system,
+    );
+}
+
+#[test]
+fn mg1_discrete() {
+    // 20 s, 45 s or 80 s with 30%, 50%, 20%: mean 44.5 s, E[S²] 2412.5 s².
+    let s = spec(&single_queue(
+        "exponential(1 min)",
+        "    process_time: \"discrete(20 s: 30%, 45 s: 50%, 80 s: 20%)\"",
+        None,
+    ));
+    let w = mg1_time_in_system(1.0 / 60.0, 44.5, 2412.5);
+    check(
+        &replications(&s),
+        "M/G/1 (discrete) time in system",
+        w + TRANSIT,
+        0.02,
+        time_in_system,
+    );
+}
+
+#[test]
 fn mg1_gamma() {
     // gamma(shape 2, scale 21 s): mean 42 s, variance 2 × 21².
     let (shape, scale) = (2.0, 21.0);
@@ -919,5 +965,48 @@ experiment:
         lambda * k * (exact - 1.0 / mu),
         0.03,
         |r| r.conveyors[0].mean_parts,
+    );
+}
+
+#[test]
+fn arrivals_in_groups_of_random_size_wait_as_the_batch_formula_says() {
+    // M^X/M/1 with group sizes 2 or 6, equally likely: E[X] = 4, E[X²] = 20.
+    // Groups at 1 per 5 min, service exponential with mean 1 min: ρ = 0.8.
+    // A random part's time in system is (E[X²]/E[X] + 1) / (2μ(1 − ρ))
+    // (Gross & Harris), 900 s here; with fixed groups of k it's the
+    // (k + 1) / (2μ(1 − ρ)) of the test above.
+    let (ex, ex2, lambda, mu) = (4.0_f64, 20.0_f64, 1.0 / 300.0, 1.0 / 60.0);
+    let rho = lambda * ex / mu;
+    let exact = (ex2 / ex + 1.0) / (2.0 * mu * (1.0 - rho));
+    let yaml = format!(
+        r#"
+format: simulancer/0.1
+name: groups
+entities:
+  part: {{}}
+sources:
+  arrivals: {{ creates: part, interarrival: "exponential(5 min)", group: "discrete(2: 50%, 6: 50%)" }}
+servers:
+  server: {{ process_time: "exponential(1 min)" }}
+queues:
+  line: {{ from: arrivals, to: server }}
+  out: {{ from: server, to: done }}
+sinks:
+  done: {{}}
+experiment:
+  replications: {REPLICATIONS}
+  warmup: "50 h"
+  run_length: "1000 h"
+  seed: 20261127
+"#
+    );
+    let results = replications(&spec(&yaml));
+    assert!((exact - 900.0).abs() < 1e-9);
+    check(
+        &results,
+        "M^X/M/1 (random group sizes) time in system (s)",
+        exact,
+        0.03,
+        time_in_system,
     );
 }

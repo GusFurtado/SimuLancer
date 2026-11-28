@@ -4,6 +4,8 @@
 //! by index, in file order, so the same file always produces the same `Spec`.
 //! All durations are seconds and all lengths are meters.
 
+use std::sync::Arc;
+
 use crate::SimTime;
 use crate::rng::Rng;
 use crate::stats::ln_gamma;
@@ -266,14 +268,20 @@ impl Changeover {
     }
 }
 
-/// A whole number of parts: always the same, or drawn uniformly.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A whole number of parts: always the same, drawn uniformly, or drawn from
+/// values with their probabilities.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Count {
     Fixed(u32),
     /// Each value from `min` to `max` (both included) equally likely.
     Uniform {
         min: u32,
         max: u32,
+    },
+    /// Values with their probabilities. `cumulative` rises to 1.
+    Discrete {
+        values: Arc<[u32]>,
+        cumulative: Arc<[f64]>,
     },
 }
 
@@ -282,6 +290,21 @@ impl Count {
         match *self {
             Count::Fixed(n) => f64::from(n),
             Count::Uniform { min, max } => (f64::from(min) + f64::from(max)) / 2.0,
+            Count::Discrete {
+                ref values,
+                ref cumulative,
+            } => {
+                let mut before = 0.0;
+                values
+                    .iter()
+                    .zip(cumulative.iter())
+                    .map(|(v, c)| {
+                        let p = c - before;
+                        before = *c;
+                        f64::from(*v) * p
+                    })
+                    .sum()
+            }
         }
     }
 }
@@ -419,8 +442,8 @@ impl Spec {
                     let s = &self.servers[i];
                     // An assembly sends out what it makes, whatever came in;
                     // a split, what it splits into.
-                    let out = match (s.splits_into, &s.kind) {
-                        (Some((into, _)), _) => into,
+                    let out = match (&s.splits_into, &s.kind) {
+                        (Some((into, _)), _) => *into,
                         (None, ServerKind::Assembly { makes, .. }) => *makes,
                         _ => e,
                     };
@@ -733,7 +756,7 @@ pub struct Experiment {
 }
 
 /// A distribution of durations. All parameters are in seconds.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Distribution {
     Constant(f64),
     Exponential {
@@ -766,6 +789,17 @@ pub enum Distribution {
         shape: f64,
         scale: f64,
     },
+    /// Continuous, from observed values: piecewise linear between them once
+    /// sorted, each of the n − 1 gaps equally likely (Law's empirical
+    /// distribution). `points` is sorted, with at least two values.
+    Empirical {
+        points: Arc<[f64]>,
+    },
+    /// Values with their probabilities. `cumulative` rises to 1.
+    Discrete {
+        values: Arc<[f64]>,
+        cumulative: Arc<[f64]>,
+    },
 }
 
 impl Distribution {
@@ -778,6 +812,25 @@ impl Distribution {
             Distribution::Lognormal { mean, .. } => mean,
             Distribution::Weibull { shape, scale } => scale * ln_gamma(1.0 + 1.0 / shape).exp(),
             Distribution::Gamma { shape, scale } => shape * scale,
+            Distribution::Empirical { ref points } => {
+                let gaps = (points.len() - 1) as f64;
+                points.windows(2).map(|w| (w[0] + w[1]) / 2.0).sum::<f64>() / gaps
+            }
+            Distribution::Discrete {
+                ref values,
+                ref cumulative,
+            } => {
+                let mut before = 0.0;
+                values
+                    .iter()
+                    .zip(cumulative.iter())
+                    .map(|(v, c)| {
+                        let p = c - before;
+                        before = *c;
+                        v * p
+                    })
+                    .sum()
+            }
         }
     }
 }

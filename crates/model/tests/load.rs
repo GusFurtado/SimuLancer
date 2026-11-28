@@ -147,6 +147,28 @@ fn unsupported_format() {
 }
 
 #[test]
+fn group_sizes_can_be_discrete() {
+    let with = |g: &str| {
+        replace(
+            MINIMAL,
+            "    creates: part",
+            &format!("    creates: part\n    group: {g}"),
+        )
+    };
+    let model = load_str(&with("\"discrete(1: 30%, 2: 70%)\"")).unwrap();
+    assert_eq!(
+        model.spec.sources[0].group.as_ref().map(|c| c.mean()),
+        Some(1.7)
+    );
+    assert_one_error(
+        &with("\"discrete(0: 100%)\""),
+        "group",
+        "whole numbers from 1",
+    );
+    assert_one_error(&with("\"twelve\""), "group", "`discrete(1: 30%, 2: 70%)`");
+}
+
+#[test]
 fn precision_is_a_percentage() {
     let model = load_str(MINIMAL).unwrap();
     assert_eq!(model.spec.experiment.precision, None);
