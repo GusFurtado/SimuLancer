@@ -45,6 +45,22 @@ pub struct RawModel {
     pub experiment: RawExperiment,
     #[serde(default)]
     pub outputs: RawOutputs,
+    /// What the results should be: tests of the model.
+    #[serde(default)]
+    pub expect: Vec<Spanned<RawExpectation>>,
+}
+
+/// `{ object: shipping, measure: throughput, at_least: 55, check: interval }`.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawExpectation {
+    pub label: Option<String>,
+    pub object: String,
+    pub measure: String,
+    pub at_least: Option<Scalar>,
+    pub at_most: Option<Scalar>,
+    /// `mean` (the default) or `interval`.
+    pub check: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

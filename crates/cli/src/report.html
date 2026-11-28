@@ -284,6 +284,26 @@ function headlineTiles() {
   if (tiles.length) app.append(el("section", {}, el("div", { class: "tiles" }, ...tiles)));
 }
 
+function expectations() {
+  const list = data.expectations || [];
+  if (!list.length) return;
+  const met = list.filter(e => e.met).length;
+  const rows = list.map(e => el("tr", {},
+    el("td", {}, e.label),
+    el("td", {}, e.now),
+    el("td", {}, e.expected),
+    el("td", {}, el("b", {}, e.met ? "✓ met" : "✗ not met"))));
+  app.append(el("section", {},
+    el("h2", {}, "Expected results"),
+    el("p", {}, met === list.length
+      ? `All ${list.length} expected results are met.`
+      : `${list.length - met} of ${list.length} expected results ${list.length - met === 1 ? "is" : "are"} not met.`),
+    el("p", { class: "note" }, "What the model's file says the results should be (expect:). simulancer test fails when one isn't met. \"The mean\" checks only the mean; \"the whole interval\" checks its 95% confidence interval."),
+    el("div", { class: "card table-wrap" }, el("table", {},
+      el("thead", {}, el("tr", {}, ...["expected result", "now (95% CI)", "expected", ""].map(h => el("th", {}, h)))),
+      el("tbody", {}, ...rows)))));
+}
+
 const STATES = [
   ["busy", "--busy", "Busy"],
   ["blocked", "--blocked", "Blocked (output full)"],
@@ -677,6 +697,7 @@ function footer() {
 
 header();
 headlineTiles();
+expectations();
 serverStates(app);
 queues(app);
 conveyors(app);

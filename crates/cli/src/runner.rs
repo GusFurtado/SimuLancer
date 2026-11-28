@@ -12,6 +12,7 @@ use simulancer_engine::stats::Summary;
 use simulancer_engine::{parallel_replications, simulate};
 use simulancer_model::{EventLog, Layout, Model};
 
+use crate::expect::{self, Outcome};
 use crate::measures::{self, Measure};
 use crate::output;
 use crate::precision::{self, KeyResult, PrecisionCheck};
@@ -35,6 +36,8 @@ pub struct RunOutcome {
     pub warmup: Option<WarmupCheck>,
     /// Whether the key results' intervals are narrow enough.
     pub precision: Option<PrecisionCheck>,
+    /// The model's expected results, and whether each was met.
+    pub expectations: Vec<Outcome>,
     pub elapsed: Duration,
     pub threads: usize,
     /// Files written, in the order they were written.
@@ -52,6 +55,8 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
         spec.experiment.replications = n;
     }
     let replications = spec.experiment.replications;
+    // Expected results that can't be read stop the run before it starts.
+    let expected = expect::resolve(model).map_err(|problems| problems.join("\n"))?;
     let log_events = model.outputs.event_log == EventLog::Jsonl;
     if log_events && !(1..=replications).contains(&options.log_replication) {
         return Err(format!(
@@ -94,6 +99,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
         })
         .collect();
     let precision = precision::check(&spec, &measures, options.key_results);
+    let expectations = expect::check(&expected, &measures);
 
     let write = |name: &str, f: &dyn Fn(&Path) -> std::io::Result<()>| -> Result<PathBuf, String> {
         let path = out_dir.join(name);
@@ -109,6 +115,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
                 &measures,
                 warmup.as_ref(),
                 precision.as_ref(),
+                &expectations,
             )
         })?,
         write("summary.json", &|p| {
@@ -119,6 +126,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
                 &measures,
                 warmup.as_ref(),
                 precision.as_ref(),
+                &expectations,
             )
         })?,
         write("replications.csv", &|p| {
@@ -137,6 +145,7 @@ pub fn execute(model: &Model, options: &RunOptions, out_dir: &Path) -> Result<Ru
         measures,
         warmup,
         precision,
+        expectations,
         elapsed,
         files,
         logged_replication: log_events.then_some(options.log_replication),

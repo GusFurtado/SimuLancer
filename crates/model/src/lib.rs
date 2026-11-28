@@ -38,6 +38,36 @@ pub struct Model {
     pub words: Words,
     pub spec: Spec,
     pub outputs: Outputs,
+    /// What the results should be (`expect:`), checked after a run.
+    pub expectations: Vec<Expectation>,
+}
+
+/// One expected result: a measure of an object, and the range its mean (or
+/// its whole confidence interval) should stay in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Expectation {
+    pub label: Option<String>,
+    pub object: String,
+    pub measure: String,
+    pub at_least: Option<Bound>,
+    pub at_most: Option<Bound>,
+    /// The whole 95% interval must be in range, not only the mean.
+    pub whole_interval: bool,
+    /// Where it is in the file.
+    pub line: Option<u64>,
+}
+
+/// A limit as written, with the readings it allows; which one applies
+/// depends on the measure's unit.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Bound {
+    pub text: String,
+    /// A plain number (counts, parts, throughput).
+    pub number: Option<f64>,
+    /// A time, in seconds (a plain number is in the model's time unit).
+    pub seconds: Option<f64>,
+    /// A percentage, as a share: `85%` is 0.85.
+    pub share: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]

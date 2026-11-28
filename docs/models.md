@@ -394,6 +394,26 @@ outputs:
 - `summary` lists which measures to report; all of them by default.
 - `throughput_per` sets what every throughput is counted per. `hour`, `day` and `week` are calendar time: a line that works 80 hours a week and ships 1,900 machines a week reports 11.3 /h. A schedule's name counts per hour of that schedule's working time instead: the same line reports 23.8 /working h with `throughput_per: two_shifts`.
 
+## Expected results (`expect`)
+
+A model can say what its results should be, so that a change that breaks it shows up, like a failing test in code:
+
+```yaml
+expect:
+  - { object: shipping, measure: throughput, at_least: 54 }
+  - { object: shipping, measure: time in system, at_most: 40 min, check: interval }
+  - { label: Lathe busy, object: lathe, measure: busy, at_least: 70%, at_most: 85% }
+```
+
+- **`object` and `measure`** name a result as the report's full table does (`throughput`, `time in system`, `busy`, `waiting time`...). An unknown one is an error that lists what the object has.
+- **`at_least`, `at_most`** or both, in the measure's own terms: a time with its unit for durations (`40 min`), a percentage for shares of time (`85%`), and a plain number for everything else (parts, counts, and throughput per the model's `throughput_per`).
+- **`check`:** `mean` (the default) checks the mean; `interval` checks that the whole 95% confidence interval is in range, which is stricter and needs enough replications.
+- **`label`** is optional, for the report.
+
+Every run checks them: `run` prints each with its verdict, the report has an *Expected results* section, and `summary.json` has `expectations`. [`simulancer test`](cli.md#test) runs one or more models and exits with an error if any expectation isn't met, for CI. A [scenario](scenarios.md) keeps its base model's expectations, so `simulancer test` on a scenario checks that the change doesn't break them.
+
+Pick limits from what the real system must do, or from a validated run with some room: a limit right at the current mean fails half the time a harmless change moves it by noise. With `check: interval`, too few replications can fail a test the model actually meets.
+
 ## Layout files
 
 A model's drawing lives next to it in `<model>.layout.yaml`. The engine never reads it, so moving things around never changes a result. The Modeling page writes it as you draw.

@@ -114,7 +114,7 @@ Be clear about what you give up:
 | No real version control | Projects are git repositories: on the Modeling page, **Save version** commits with a message about what changed and **Publish** tags it; the Simulation page only shows published versions. | done |
 | Huge files, multiplied by copies | A model is a few kilobytes of text (the templates are 1.4 to 2.5 KB), and each saved version is a git commit that stores only what changed: 100 saved versions of the warehouse model take 37 KB once packed, and there's one current file. Run results are kept apart from the project and can be recreated from the model and the seed. Each run can be deleted from *Recent runs*. | done |
 | Logic is scattered | The whole model is one readable file; `validate` shows everything the engine understood. | done |
-| No automated testing | The engine is [validated against queueing theory](methods/validation.md) on every build; models and scenarios can be checked in CI with `validate`. A model's own expected results ("throughput between 55 and 62 per hour") can't be checked yet. | partial |
+| No automated testing | The engine is [validated against queueing theory](methods/validation.md) on every build. A model states its [expected results](models.md#expected-results-expect) ("throughput at least 54 per hour"), and `simulancer test` fails in CI when a change breaks one; `validate` checks models and scenarios without running them. | done |
 | Hard to automate | A headless [command line](cli.md) and the [HTTP API](api.md); a Python parameter sweep is in the API docs. | done |
 | Results depend on the software version | Its own random number generator and distributions, so the same seed gives the same results; time is kept in integers. Every example's results are [pinned](methods/validation.md#same-seed-same-numbers) and checked exactly on every build, so a new version can't move a number without the release notes saying so. | done |
 | Models die with the license | No license to expire. | done |
@@ -291,7 +291,7 @@ Use these to judge any tool, open-source or commercial. SimuLancer's answers are
 | Does the workflow make replications, warm-up and confidence intervals the default? | Yes |
 | Can I get raw event logs out in an open format? | Yes: JSON Lines and CSV (no Parquet yet) |
 | Will my models still run in 10 years if the vendor disappears? | The source is open, so anyone can keep building it |
-| Can I write automated tests for model logic? | Partly: `validate` in CI, and runs are exactly reproducible from the seed |
+| Can I write automated tests for model logic? | Yes: expected results in the model, checked by `simulancer test` in CI, and runs exactly reproducible from the seed |
 | Is the tool helping me do correct analysis, or just a convincing demo? | Judge for yourself: every result carries its interval, and "no clear difference" is a valid answer |
 
 **Status** in the tables above: *done* (built and tested), *partial* (part of it is built), *planned* (designed, not built yet), *open* (not addressed yet). They're kept up to date with every change; last updated 2026-11-27.

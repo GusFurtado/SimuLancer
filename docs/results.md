@@ -66,6 +66,8 @@ Values are in standard units (seconds, fractions, parts, parts per hour), with t
 }
 ```
 
+`expectations` (when the model has [expected results](models.md#expected-results-expect)) has one entry per expectation, with its limits in standard units, the mean and half-width, and `met`.
+
 `precision_check` has one entry per key result. `scale` is `relative` (the half-width as a share of the mean) or `points` (shares of time, where 0.01 is one point); `replications_needed` is filled in when the interval is wider than `wanted`.
 
 ## `replications.csv`

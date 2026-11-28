@@ -27,6 +27,14 @@ jobs:
             case "$model" in *.layout.yaml|*/templates.yaml) continue ;; esac
             cargo run -q -- validate "$model"
           done
+      - name: Test example models (their expected results)
+        run: |
+          models=()
+          for model in examples/*.yaml; do
+            case "$model" in *.layout.yaml|*/templates.yaml) continue ;; esac
+            models+=("$model")
+          done
+          cargo run -q --release -- test "${models[@]}" --output-dir "$RUNNER_TEMP/test-results"
 
   web-ui:
     # Checks the animation's replay against the engine, then drives the web
