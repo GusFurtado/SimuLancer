@@ -21,6 +21,29 @@ SimuLancer is one program, `simulancer`, with four commands: `validate` and `run
 
     Copy `simulancer` anywhere on your `PATH`. `serve` also needs git on the system (`sudo apt install git` or your distribution's package), since it versions projects with it.
 
+=== "Windows"
+
+    Download `simulancer-<version>-x86_64-windows.zip` from the [releases page](https://github.com/GusFurtado/SimuLancer/releases) and unzip it. It has `simulancer.exe`, the examples and the documentation. In PowerShell, in that folder:
+
+    ```powershell
+    .\simulancer.exe --version
+    ```
+
+    Windows may warn that the program is from an unknown publisher (it isn't code-signed): choose *More info → Run anyway*. The web app (`serve`) also needs [Git for Windows](https://git-scm.com/download/win), since it versions projects with git.
+
+=== "macOS"
+
+    Download `simulancer-<version>-aarch64-macos.tar.gz` (Apple silicon) or `-x86_64-macos.tar.gz` (Intel) from the [releases page](https://github.com/GusFurtado/SimuLancer/releases), then:
+
+    ```sh
+    tar xzf simulancer-*-macos.tar.gz
+    cd simulancer-*-macos
+    xattr -d com.apple.quarantine simulancer   # it isn't notarized by Apple
+    ./simulancer --version
+    ```
+
+    git comes with Apple's command line tools (`xcode-select --install`).
+
 === "Docker"
 
     ```sh
@@ -31,7 +54,7 @@ SimuLancer is one program, `simulancer`, with four commands: `validate` and `run
 
 === "From source"
 
-    You need a recent stable Rust (install it with [rustup](https://rustup.rs)) and git. There are no release builds for Windows or macOS yet.
+    You need a recent stable Rust (install it with [rustup](https://rustup.rs)) and git. It builds on Linux, Windows and macOS.
 
     ```sh
     git clone https://github.com/GusFurtado/SimuLancer.git
@@ -43,6 +66,10 @@ SimuLancer is one program, `simulancer`, with four commands: `validate` and `run
     The binary is `target/release/simulancer`. Copy it anywhere on your `PATH`.
 
 Running it as a service (systemd, HTTPS, logins) is in [Deploying](deploy.md).
+
+### On your own computer
+
+No server is needed to use the web app alone: run `simulancer serve` in a folder of your choice and open <http://localhost:8080> in your browser. It keeps its projects in a `data` folder there (`--data` picks another). Only your computer can reach it, since it listens on `127.0.0.1`. Stop it with Ctrl+C.
 
 ## Run an example
 

@@ -1,6 +1,7 @@
 # Publishes a release when a version tag is pushed (git tag v0.1.0 && git push --tags):
-# - a static Linux binary (x86_64, musl) in a .tar.gz with examples, docs and
-#   deploy files, plus its SHA-256;
+# - binaries for Linux (x86_64, static, musl), Windows (x86_64) and macOS
+#   (Apple silicon and Intel), each packed with the examples, docs and deploy
+#   files, plus its SHA-256;
 # - a Docker image at ghcr.io/<owner>/simulancer:<tag> and :latest.
 name: Release
 
@@ -14,26 +15,60 @@ permissions:
 
 jobs:
   binary:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, name: x86_64-linux, archive: tar.gz }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, name: x86_64-windows, archive: zip }
+          - { os: macos-latest, target: aarch64-apple-darwin, name: aarch64-macos, archive: tar.gz }
+          - { os: macos-latest, target: x86_64-apple-darwin, name: x86_64-macos, archive: tar.gz }
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
-      - run: sudo apt-get install -y musl-tools
-      - run: cargo build --release --locked --target x86_64-unknown-linux-musl -p simulancer
-      - name: Package
+          targets: ${{ matrix.target }}
+      - if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
+      - name: Build
+        shell: bash
         run: |
-          name="simulancer-${GITHUB_REF_NAME}-x86_64-linux"
+          # Windows: link the C runtime statically, so the .exe needs no installer.
+          if [ "${{ matrix.target }}" = x86_64-pc-windows-msvc ]; then export RUSTFLAGS="-C target-feature=+crt-static"; fi
+          cargo build --release --locked --target ${{ matrix.target }} -p simulancer
+      - name: Package
+        shell: bash
+        run: |
+          name="simulancer-${GITHUB_REF_NAME}-${{ matrix.name }}"
           mkdir "$name"
-          cp target/x86_64-unknown-linux-musl/release/simulancer README.md LICENSE-MIT LICENSE-APACHE "$name/"
+          exe=target/${{ matrix.target }}/release/simulancer
+          [ -f "$exe.exe" ] && exe="$exe.exe"
+          cp "$exe" README.md LICENSE-MIT LICENSE-APACHE "$name/"
           cp -r examples docs deploy "$name/"
-          tar czf "$name.tar.gz" "$name"
-          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          if [ "${{ matrix.archive }}" = zip ]; then
+            7z a -tzip "$name.zip" "$name" > /dev/null
+            file="$name.zip"
+          else
+            tar czf "$name.tar.gz" "$name"
+            file="$name.tar.gz"
+          fi
+          if command -v sha256sum > /dev/null; then sha256sum "$file" > "$file.sha256"; else shasum -a 256 "$file" > "$file.sha256"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: simulancer-*
+
+  release:
+    needs: binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" simulancer-*.tar.gz* --title "$GITHUB_REF_NAME" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" simulancer-* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
 
   image:
     runs-on: ubuntu-latest
