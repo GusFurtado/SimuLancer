@@ -1205,6 +1205,9 @@ const DISTRIBUTIONS = {
   lognormal: { label: "Lognormal", params: [["mean", "Mean", "1 min"], ["sd", "Std. deviation", "20 s"]], named: true },
   weibull: { label: "Weibull", params: [["shape", "Shape (a number)", "1.5"], ["scale", "Scale", "1 h"]], named: true },
   gamma: { label: "Gamma", params: [["shape", "Shape (a number)", "2"], ["scale", "Scale", "30 s"]], named: true },
+  // One field with the whole list.
+  empirical: { label: "Empirical (observed values)", params: [["values", "Observed values", "2 min, 3 min, 5 min"]], list: true },
+  discrete: { label: "Discrete (values with probabilities)", params: [["values", "Value: probability, ...", "2 min: 30%, 5 min: 70%"]], list: true },
 };
 
 /** "triangular(1 min, 1.5 min, 2 min)" -> { kind, values }, or null. */
@@ -1214,6 +1217,7 @@ function parseDistribution(text) {
   if (!m) return text.trim() ? { kind: "constant", values: [text.trim()] } : null;
   const d = DISTRIBUTIONS[m[1]];
   if (!d) return null;
+  if (d.list) return { kind: m[1], values: [m[2].trim()] };
   const args = m[2].split(",").map(a => a.trim());
   const values = d.params.map(([name], i) => {
     const named = args.find(a => a.startsWith(name + ":"));
@@ -1226,6 +1230,7 @@ function parseDistribution(text) {
 function formatDistribution(kind, values) {
   const d = DISTRIBUTIONS[kind];
   if (kind === "constant") return values[0];
+  if (d.list) return `${kind}(${values[0]})`;
   const args = d.params.map(([name], i) => d.named ? `${name}: ${values[i]}` : values[i]);
   return `${kind}(${args.join(", ")})`;
 }
@@ -1244,7 +1249,8 @@ function distField(label, path) {
     onchange: e => {
       const next = DISTRIBUTIONS[e.target.value];
       // Keep what carries over (by position), fill the rest with examples.
-      const values = next.params.map(([, , example], i) => parsed.values[i] && !(next.params[i][0] === "shape") ? parsed.values[i] : example);
+      const carry = !next.list && !d.list;
+      const values = next.params.map(([, , example], i) => carry && parsed.values[i] && !(next.params[i][0] === "shape") ? parsed.values[i] : example);
       setChange(path, formatDistribution(e.target.value, values));
     },
   }, Object.entries(DISTRIBUTIONS).map(([k, x]) => el("option", { value: k, selected: k === parsed.kind }, x.label)));

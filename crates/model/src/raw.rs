@@ -101,12 +101,14 @@ pub struct RawSource {
     pub sets: OrderedMap<Spanned<Scalar>>,
 }
 
-/// A whole number of parts: `20`, or `{ min: 20, max: 30 }` (each value
-/// equally likely). Read by hand: it's a number or a map.
-#[derive(Debug, Clone, Copy)]
+/// A whole number of parts: `20`, `{ min: 20, max: 30 }` (each value
+/// equally likely), or `discrete(1: 30%, 2: 70%)`. Read by hand: it's a
+/// number, a map or a text.
+#[derive(Debug, Clone)]
 pub enum RawCount {
     Fixed(u64),
     Range { min: u64, max: u64 },
+    Text(String),
 }
 
 impl<'de> Deserialize<'de> for RawCount {
@@ -117,7 +119,11 @@ impl<'de> Deserialize<'de> for RawCount {
             type Value = RawCount;
 
             fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-                f.write_str("a whole number, or `{ min: .., max: .. }`")
+                f.write_str("a whole number, `{ min: .., max: .. }` or `discrete(..)`")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<RawCount, E> {
+                Ok(RawCount::Text(text.to_string()))
             }
 
             fn visit_u64<E: serde::de::Error>(self, n: u64) -> Result<RawCount, E> {

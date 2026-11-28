@@ -1,6 +1,7 @@
 mod compare;
 mod decisions;
 mod files;
+mod fit;
 mod markdown;
 mod measures;
 mod output;
@@ -52,6 +53,25 @@ enum Command {
     Compare(CompareArgs),
     /// Serve the web application and its HTTP API.
     Serve(server::ServeArgs),
+    /// Suggest a distribution for observed durations: a column of a CSV
+    /// file, or a plain list with one value per line.
+    Fit(FitArgs),
+}
+
+#[derive(Args)]
+struct FitArgs {
+    /// The CSV file (or plain list) with the observed durations.
+    file: PathBuf,
+    /// The column to fit, by header name or position (1 is the first).
+    /// Needed when the file has more than one column.
+    #[arg(short, long)]
+    column: Option<String>,
+    /// The unit the values are in: s, min, h or d.
+    #[arg(short, long, default_value = "min")]
+    unit: String,
+    /// Print the values as `empirical(...)`, to use the data as they are.
+    #[arg(long)]
+    empirical: bool,
 }
 
 #[derive(Args)]
@@ -118,6 +138,7 @@ fn main() -> ExitCode {
         }
         Command::Run(args) => report_errors(run(args)),
         Command::Compare(args) => report_errors(compare_scenarios(args)),
+        Command::Fit(args) => report_errors(fit_command(args)),
         Command::Serve(args) => report_errors(server::serve(args)),
     }
 }
@@ -224,6 +245,74 @@ fn compare_scenarios(args: &CompareArgs) -> Result<(), String> {
     output::write_comparison(&path, &base.name, &scenario.name, &base_spec, &comparisons)
         .map_err(|e| format!("can't write {}: {e}", path.display()))?;
     println!("\nwrote {}", path.display());
+    Ok(())
+}
+
+fn fit_command(args: &FitArgs) -> Result<(), String> {
+    if !["s", "min", "h", "d"].contains(&args.unit.as_str()) {
+        return Err(format!("--unit is s, min, h or d, got `{}`", args.unit));
+    }
+    let values = fit::read_column(&args.file, args.column.as_deref())?;
+    if args.empirical {
+        println!("{}", fit::empirical(&values, &args.unit));
+        return Ok(());
+    }
+    let unit = &args.unit;
+    let (mean, sd, min, max) = fit::describe(&values);
+    println!(
+        "{}: {} values, mean {} {unit}, sd {} {unit}, from {} to {} {unit}\n",
+        args.file.display(),
+        values.len(),
+        fit::short(mean),
+        fit::short(sd),
+        fit::short(min),
+        fit::short(max),
+    );
+    let candidates = fit::fit(&values, unit);
+    let width = candidates
+        .iter()
+        .map(|c| c.expression.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(12);
+    println!(
+        "  {:<width$}  {:>6}  {:>6}  {:>10}  {:>10}",
+        "distribution", "KS D", "p", "mean", "sd"
+    );
+    for c in &candidates {
+        println!(
+            "  {:<width$}  {:>6.3}  {:>6.3}  {:>10}  {:>10}",
+            c.expression,
+            c.ks,
+            c.p,
+            format!("{} {unit}", fit::short(c.mean)),
+            format!("{} {unit}", fit::short(c.sd)),
+        );
+    }
+    if let Some(best) = candidates.first() {
+        println!("\nbest fit: {}", best.expression);
+        if best.p < 0.05 {
+            println!(
+                "warning: even the best fit is far from the data (p < 0.05): consider `--empirical`, which uses the values as they are"
+            );
+        }
+    }
+    println!(
+        "\nKS D is the largest gap between the fitted and the observed distribution (smaller is better). \
+         The p-values are optimistic, since each distribution's parameters come from the same data. \
+         To use the values as they are: simulancer fit {} --empirical{}",
+        args.file.display(),
+        args.column
+            .as_ref()
+            .map(|c| format!(" --column {c}"))
+            .unwrap_or_default()
+    );
+    if values.len() < 30 {
+        println!(
+            "\nwarning: {} values are few for telling distributions apart; collect more if you can",
+            values.len()
+        );
+    }
     Ok(())
 }
 
@@ -691,7 +780,34 @@ fn count_text(count: &Count) -> String {
     match count {
         Count::Fixed(n) => n.to_string(),
         Count::Uniform { min, max } => format!("{min} to {max}"),
+        Count::Discrete { values, cumulative } => {
+            let values: Vec<f64> = values.iter().map(|v| f64::from(*v)).collect();
+            discrete_text(&values, cumulative, |v| v.to_string())
+        }
     }
+}
+
+/// `discrete(2 min: 30%, 5 min: 70%)`, or a summary when there are many values.
+fn discrete_text(values: &[f64], cumulative: &[f64], value: impl Fn(f64) -> String) -> String {
+    if values.len() > 6 {
+        return format!(
+            "discrete({} values from {} to {})",
+            values.len(),
+            value(values.iter().copied().fold(f64::INFINITY, f64::min)),
+            value(values.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
+        );
+    }
+    let mut before = 0.0;
+    let items: Vec<String> = values
+        .iter()
+        .zip(cumulative)
+        .map(|(v, c)| {
+            let p = (c - before) * 100.0;
+            before = *c;
+            format!("{}: {}%", value(*v), (p * 10.0).round() / 10.0)
+        })
+        .collect();
+    format!("discrete({})", items.join(", "))
 }
 
 fn conveyor_list(spec: &Spec, conveyors: &[usize]) -> String {
@@ -852,6 +968,16 @@ fn dist_body(d: &Distribution, value: impl Fn(f64) -> String) -> String {
         Distribution::Gamma { shape, scale } => {
             format!("gamma(shape {shape}, scale {})", duration(scale))
         }
+        Distribution::Empirical { ref points } => format!(
+            "empirical({} values from {} to {})",
+            points.len(),
+            duration(points[0]),
+            duration(points[points.len() - 1])
+        ),
+        Distribution::Discrete {
+            ref values,
+            ref cumulative,
+        } => discrete_text(values, cumulative, &duration),
     }
 }
 

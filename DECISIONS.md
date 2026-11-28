@@ -219,6 +219,15 @@ For `first_available` and `shortest_queue`, if no output has room, the part take
 - **Example:** `examples/two-cells.yaml` (with a layout): `shortest_queue` into two mills, a `first_come` merge at inspection, 10% rework to mill A with `priority` over new parts. With `first_available` instead, mean time in system was 24.6 min instead of 9.1 min. The rule matters, and now it's one visible line in the model.
 - **Viewer auto layout:** objects without a layout file go in columns by distance from the sources. Backward conveyors and self-loops are drawn around the top, each in its own lane.
 
+## Empirical and discrete distributions, and `fit` (2026-11-27, issue #96)
+
+- `empirical(v1, v2, ...)`: continuous, piecewise linear between the sorted observations, each of the n − 1 gaps equally likely (Law's empirical distribution). One draw per sample, so common random numbers keep working. Bounded by the observations: it can't draw outside them, which is the usual criticism; a fitted distribution is the answer when the tails matter.
+- `discrete(v: p, ...)`: values with percentages (must sum to 100%), plain weights, or bare values (equally likely, so observed values replay as they are). Also for counts (`group`, `splits_into`): `Count::Discrete`. One draw per sample.
+- `Distribution` and `Count` are no longer `Copy` (the tables are `Arc<[f64]>`); the engine's `rng` module is public so the CLI's fit tests can draw from it.
+- Validation: M/G/1 with empirical and with discrete service against Pollaczek-Khinchine, and M^X/M/1 with a discrete group size against Gross & Harris.
+- `simulancer fit FILE [--column] [--unit] [--empirical]`: exponential, uniform, triangular (range + the mode that matches the mean), lognormal, gamma (MLE: Minka's start + Newton) and Weibull (MLE by bisection), ranked by KS distance, with Stephens' p-value labeled as optimistic. Reads CSV with `,`/`;`/tab and a decimal comma when the separator isn't a comma. No crates added.
+- Not done (issue #96 steps 2 to 4, left for a decision): data files read by the model, trace-driven arrivals, fitting on the Modeling page.
+
 ## Scenario comparison (implemented 2026-10-09)
 
 - `simulancer compare base.yaml scenario.yaml` runs both models with the same seed and replication numbers. Random streams come from (seed, replication, object name), so wherever the two models share names they see the same arrivals, process times and failures (common random numbers).

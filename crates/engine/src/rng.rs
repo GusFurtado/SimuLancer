@@ -79,7 +79,19 @@ impl Rng {
                 let k = ((1.0 - self.open01()) * span).floor() as u32; // [0, span)
                 min + k.min(max - min)
             }
+            Count::Discrete {
+                ref values,
+                ref cumulative,
+            } => values[self.pick(cumulative)],
         }
+    }
+
+    /// An index by cumulative probabilities (rising to 1), from one number.
+    fn pick(&mut self, cumulative: &[f64]) -> usize {
+        let u = 1.0 - self.open01(); // [0, 1)
+        cumulative
+            .partition_point(|c| *c <= u)
+            .min(cumulative.len() - 1)
     }
 
     pub fn sample(&mut self, distribution: &Distribution) -> f64 {
@@ -105,6 +117,15 @@ impl Rng {
                 scale * (-self.open01().ln()).powf(1.0 / shape)
             }
             Distribution::Gamma { shape, scale } => scale * self.standard_gamma(shape),
+            Distribution::Empirical { ref points } => {
+                let p = (1.0 - self.open01()) * (points.len() - 1) as f64; // [0, n - 1)
+                let i = (p.floor() as usize).min(points.len() - 2);
+                points[i] + (p - i as f64) * (points[i + 1] - points[i])
+            }
+            Distribution::Discrete {
+                ref values,
+                ref cumulative,
+            } => values[self.pick(cumulative)],
         }
     }
 
@@ -160,10 +181,10 @@ mod tests {
     }
 
     /// Sample mean and standard deviation.
-    fn moments(distribution: Distribution) -> (f64, f64) {
+    fn moments(distribution: &Distribution) -> (f64, f64) {
         let mut rng = Rng::from_seed(42);
         let n = 400_000;
-        let draws: Vec<f64> = (0..n).map(|_| rng.sample(&distribution)).collect();
+        let draws: Vec<f64> = (0..n).map(|_| rng.sample(distribution)).collect();
         let mean = draws.iter().sum::<f64>() / n as f64;
         let var = draws.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
         (mean, var.sqrt())
@@ -211,12 +232,69 @@ mod tests {
                 600.0,
                 240.0,
             ),
+            // Piecewise linear over [1, 2], [2, 4], [4, 8], each 1/3 likely:
+            // mean (1.5 + 3 + 6) / 3; E[X²] = Σ (a² + ab + b²) / 3 / 3 = 147 / 9.
+            (
+                Distribution::Empirical {
+                    points: vec![1.0, 2.0, 4.0, 8.0].into(),
+                },
+                3.5,
+                (147.0f64 / 9.0 - 3.5 * 3.5).sqrt(),
+            ),
+            // 2, 5, 9 with 20%, 50%, 30%: mean 5.6, E[X²] 37.6.
+            (
+                Distribution::Discrete {
+                    values: vec![2.0, 5.0, 9.0].into(),
+                    cumulative: vec![0.2, 0.7, 1.0].into(),
+                },
+                5.6,
+                (37.6f64 - 5.6 * 5.6).sqrt(),
+            ),
         ];
         for (distribution, mean, sd) in cases {
-            let (m, s) = moments(distribution);
+            assert_close(
+                distribution.mean(),
+                mean,
+                1e-12,
+                &format!("{distribution:?} exact mean"),
+            );
+            let (m, s) = moments(&distribution);
             assert_close(m, mean, 0.01, &format!("{distribution:?} mean"));
             assert_close(s, sd, 0.02, &format!("{distribution:?} sd"));
         }
+    }
+
+    #[test]
+    fn discrete_counts_follow_their_probabilities() {
+        let mut rng = Rng::from_seed(3);
+        let count = Count::Discrete {
+            values: vec![1, 2, 4].into(),
+            cumulative: vec![0.25, 0.75, 1.0].into(),
+        };
+        assert!((count.mean() - 2.25).abs() < 1e-12);
+        let n = 200_000;
+        let mut seen = [0usize; 5];
+        for _ in 0..n {
+            seen[rng.count(&count) as usize] += 1;
+        }
+        assert_eq!(seen[0] + seen[3], 0);
+        for (value, p) in [(1, 0.25), (2, 0.5), (4, 0.25)] {
+            let share = seen[value] as f64 / n as f64;
+            assert!((share - p).abs() < 0.005, "{value}: {share}");
+        }
+    }
+
+    #[test]
+    fn empirical_stays_within_the_observations() {
+        let mut rng = Rng::from_seed(5);
+        let d = Distribution::Empirical {
+            points: vec![3.0, 3.5, 10.0].into(),
+        };
+        let draws: Vec<f64> = (0..100_000).map(|_| rng.sample(&d)).collect();
+        assert!(draws.iter().all(|x| (3.0..=10.0).contains(x)));
+        // Half the draws fall in each gap.
+        let low = draws.iter().filter(|x| **x < 3.5).count() as f64 / draws.len() as f64;
+        assert!((low - 0.5).abs() < 0.01, "{low}");
     }
 
     #[test]

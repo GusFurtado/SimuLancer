@@ -643,7 +643,7 @@ pub(crate) fn build(raw: RawModel) -> Result<Model, Vec<Diagnostic>> {
                     let entity = b.part_type(entity, &entity.value, &types, "`splits_into` names");
                     let count = b.count(
                         &Spanned {
-                            value: *count,
+                            value: count.clone(),
                             referenced: split.referenced,
                             defined: split.defined,
                         },
@@ -2118,18 +2118,44 @@ impl Builder {
     fn count(&mut self, at: &Spanned<raw::RawCount>, what: &str) -> Option<Count> {
         const MOST: u64 = 100_000;
         let ok = |n: u64| (1..=MOST).contains(&n);
-        match at.value {
-            raw::RawCount::Fixed(n) if ok(n) => Some(Count::Fixed(n as u32)),
-            raw::RawCount::Range { min, max } if ok(min) && ok(max) && min <= max => {
+        match &at.value {
+            raw::RawCount::Fixed(n) if ok(*n) => Some(Count::Fixed(*n as u32)),
+            raw::RawCount::Range { min, max } if ok(*min) && ok(*max) && min <= max => {
                 Some(Count::Uniform {
-                    min: min as u32,
-                    max: max as u32,
+                    min: *min as u32,
+                    max: *max as u32,
                 })
+            }
+            raw::RawCount::Text(text) => {
+                let parsed = text
+                    .trim()
+                    .strip_prefix("discrete(")
+                    .and_then(|rest| rest.trim_end().strip_suffix(')'))
+                    .ok_or_else(|| {
+                        format!("{what} is a whole number, `{{ min, max }}` or `discrete(1: 30%, 2: 70%)`, got `{text}`")
+                    })
+                    .and_then(|inner| {
+                        crate::expr::discrete_items("discrete", inner, |v| {
+                            v.parse::<u64>().ok().filter(|n| ok(*n)).map(|n| n as u32).ok_or_else(|| {
+                                format!("the values in {what} are whole numbers from 1 to {MOST}, got `{v}`")
+                            })
+                        })
+                    });
+                match parsed {
+                    Ok((values, cumulative)) => Some(Count::Discrete {
+                        values: values.into(),
+                        cumulative: cumulative.into(),
+                    }),
+                    Err(message) => {
+                        self.error(at, message);
+                        None
+                    }
+                }
             }
             _ => {
                 self.error(
                     at,
-                    format!("{what} is a whole number from 1 to {MOST}, or `{{ min, max }}` with min ≤ max"),
+                    format!("{what} is a whole number from 1 to {MOST}, `{{ min, max }}` with min ≤ max, or `discrete(..)`"),
                 );
                 None
             }

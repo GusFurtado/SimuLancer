@@ -413,9 +413,17 @@ impl Parser<'_> {
         let inner = &self.text[start..start + close];
         self.pos = start + close + 1;
         let text = format!("{name}({inner})");
+        // `discrete` has the value before the colon; the others, after it.
+        let value_side = |arg: &'_ str| -> String {
+            match arg.split_once(':') {
+                Some((k, _)) if name == "discrete" => k.trim().to_string(),
+                Some((_, v)) => v.trim().to_string(),
+                None => arg.trim().to_string(),
+            }
+        };
         let has_units = inner
             .split(',')
-            .map(|arg| arg.split_once(':').map_or(arg, |(_, v)| v).trim())
+            .map(value_side)
             .any(|v| v.contains(char::is_whitespace));
         if has_units {
             let distribution = parse_time_distribution(&text, &DefaultUnits::default())?;

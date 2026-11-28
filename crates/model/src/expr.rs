@@ -3,6 +3,12 @@
 //! Deliberately small: one function call, or a single time (a constant).
 //! Arguments are positional or named (`mean: 10 min`). Most are times with
 //! units; shape parameters are plain numbers.
+//!
+//! Two take a list instead: `empirical(...)`, observed values, and
+//! `discrete(...)`, values with probabilities (`2 min: 30%, 5 min: 70%`) or
+//! observed values to draw from as they are.
+
+use std::sync::Arc;
 
 use simulancer_engine::spec::Distribution;
 
@@ -47,7 +53,147 @@ pub fn parse_number_distribution(text: &str) -> Result<Distribution, String> {
 
 /// The names of the distributions, for formulas.
 pub fn is_distribution(name: &str) -> bool {
-    SIGNATURES.iter().any(|(n, _)| *n == name)
+    SIGNATURES.iter().any(|(n, _)| *n == name) || LISTS.contains(&name)
+}
+
+/// Distributions that take a list of values.
+const LISTS: &[&str] = &["empirical", "discrete"];
+
+/// Most values a list may have, so a pasted column stays reasonable.
+const MOST_VALUES: usize = 10_000;
+
+/// `discrete(...)`'s items: values, and their probabilities as cumulative
+/// shares rising to 1. Each item is `value: probability` (a percentage, or a
+/// plain weight), or a bare value, equally likely as the other bare ones.
+pub fn discrete_items<T>(
+    name: &str,
+    inner: &str,
+    value: impl Fn(&str) -> Result<T, String>,
+) -> Result<(Vec<T>, Vec<f64>), String> {
+    let items = list(name, inner)?;
+    let mut values = Vec::with_capacity(items.len());
+    let mut weights = Vec::with_capacity(items.len());
+    let (mut percents, mut plain) = (0, 0);
+    for item in &items {
+        let (v, w) = match item.rsplit_once(':') {
+            Some((v, p)) => {
+                let p = p.trim();
+                let weight = match p.strip_suffix('%') {
+                    Some(n) => {
+                        percents += 1;
+                        n.trim().parse::<f64>().ok()
+                    }
+                    None => {
+                        plain += 1;
+                        p.parse::<f64>().ok()
+                    }
+                }
+                .filter(|w| w.is_finite() && *w > 0.0)
+                .ok_or_else(|| {
+                    format!("the probability `{p}` in `{name}` must be a positive percentage, like `30%`, or a positive weight")
+                })?;
+                (v, weight)
+            }
+            None => {
+                plain += 1;
+                (item.as_str(), 1.0)
+            }
+        };
+        values.push(value(v.trim())?);
+        weights.push(w);
+    }
+    if percents > 0 && plain > 0 {
+        return Err(format!(
+            "give every value of `{name}` a percentage, or none (weights and bare values are relative)"
+        ));
+    }
+    let total: f64 = weights.iter().sum();
+    if percents > 0 && (total - 100.0).abs() > 0.01 {
+        return Err(format!(
+            "the percentages in `{name}` add up to {}%, not 100%",
+            (total * 100.0).round() / 100.0
+        ));
+    }
+    let mut running = 0.0;
+    let mut cumulative: Vec<f64> = weights
+        .iter()
+        .map(|w| {
+            running += w;
+            running / total
+        })
+        .collect();
+    *cumulative.last_mut().expect("a list has items") = 1.0;
+    Ok((values, cumulative))
+}
+
+/// The comma-separated items of a list distribution, at least one.
+fn list(name: &str, inner: &str) -> Result<Vec<String>, String> {
+    let items: Vec<String> = inner
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if items.is_empty() {
+        return Err(format!("`{name}` needs a list of values"));
+    }
+    if items.len() > MOST_VALUES {
+        return Err(format!(
+            "`{name}` takes at most {MOST_VALUES} values, got {}",
+            items.len()
+        ));
+    }
+    Ok(items)
+}
+
+/// `empirical(...)` or `discrete(...)` of times (or plain numbers).
+fn parse_list(
+    name: &str,
+    inner: &str,
+    defaults: &DefaultUnits,
+    plain: bool,
+) -> Result<Distribution, String> {
+    let value = |text: &str| -> Result<f64, String> {
+        let v = if plain {
+            text.parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite())
+                .ok_or_else(|| format!("`{name}` takes plain numbers here, got `{text}`"))?
+        } else {
+            parse_quantity(text, Dimension::Time, defaults)?
+        };
+        if !plain && v < 0.0 {
+            return Err(format!(
+                "a time in `{name}` can't be negative, got `{text}`"
+            ));
+        }
+        Ok(v)
+    };
+    if name == "discrete" {
+        let (values, cumulative) = discrete_items(name, inner, value)?;
+        return Ok(Distribution::Discrete {
+            values: values.into(),
+            cumulative: cumulative.into(),
+        });
+    }
+    let mut points = list(name, inner)?
+        .iter()
+        .map(|item| {
+            if item.contains(':') {
+                Err(format!(
+                    "`empirical` takes observed values only, got `{item}`; for values with probabilities, use `discrete`"
+                ))
+            } else {
+                value(item)
+            }
+        })
+        .collect::<Result<Vec<f64>, String>>()?;
+    points.sort_by(f64::total_cmp);
+    if points.len() < 2 || points[0] == points[points.len() - 1] {
+        return Err("`empirical` needs at least two different observed values".to_string());
+    }
+    Ok(Distribution::Empirical {
+        points: Arc::from(points),
+    })
 }
 
 fn parse_distribution(
@@ -64,8 +210,15 @@ fn parse_distribution(
     let Some(inner) = rest.trim_end().strip_suffix(')') else {
         return Err(format!("missing `)` at the end of `{text}`"));
     };
+    if LISTS.contains(&name) {
+        return parse_list(name, inner, defaults, plain);
+    }
     let Some((_, params)) = SIGNATURES.iter().find(|(n, _)| *n == name) else {
-        let known: Vec<&str> = SIGNATURES.iter().map(|(n, _)| *n).collect();
+        let known: Vec<&str> = SIGNATURES
+            .iter()
+            .map(|(n, _)| *n)
+            .chain(LISTS.iter().copied())
+            .collect();
         return Err(format!(
             "unknown distribution `{name}` (expected one of: {})",
             known.join(", ")
@@ -280,6 +433,36 @@ mod tests {
     }
 
     #[test]
+    fn lists() {
+        assert_eq!(
+            parse("empirical(4 min, 1 min, 2 min)"),
+            Ok(Distribution::Empirical {
+                points: vec![60.0, 120.0, 240.0].into()
+            })
+        );
+        assert_eq!(
+            parse("discrete(1 min: 25%, 3 min: 75%)"),
+            Ok(Distribution::Discrete {
+                values: vec![60.0, 180.0].into(),
+                cumulative: vec![0.25, 1.0].into()
+            })
+        );
+        // Weights are relative; bare values are equally likely.
+        assert_eq!(
+            parse("discrete(1 min: 1, 3 min: 3)"),
+            parse("discrete(1 min: 25%, 3 min: 75%)")
+        );
+        assert_eq!(
+            parse("discrete(1 min, 3 min, 3 min, 3 min)").map(|d| d.mean()),
+            Ok(150.0)
+        );
+        assert_eq!(
+            parse_number_distribution("discrete(1: 50%, 3: 50%)").map(|d| d.mean()),
+            Ok(2.0)
+        );
+    }
+
+    #[test]
     fn errors() {
         let cases = [
             ("normal(1 min, 2 min)", "unknown distribution `normal`"),
@@ -297,6 +480,20 @@ mod tests {
             ("exponential(2 m)", "is a length, but a time is expected"),
             ("weibull(2 min, 1 h)", "plain number without a unit"),
             ("gamma(0, 1 h)", "`shape` must be positive"),
+            ("empirical(2 min)", "at least two different"),
+            ("empirical(2 min, 2 min)", "at least two different"),
+            ("empirical(1 min: 50%, 2 min: 50%)", "use `discrete`"),
+            ("empirical()", "needs a list of values"),
+            (
+                "discrete(1 min: 30%, 2 min: 60%)",
+                "add up to 90%, not 100%",
+            ),
+            ("discrete(1 min: 30%, 2 min)", "a percentage, or none"),
+            (
+                "discrete(1 min: 0%, 2 min: 100%)",
+                "must be a positive percentage",
+            ),
+            ("discrete(-1 min: 100%)", "can't be negative"),
         ];
         for (text, expected) in cases {
             let err = parse(text).unwrap_err();

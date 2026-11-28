@@ -53,7 +53,7 @@ impl Summary {
 }
 
 /// Natural log of the gamma function (Lanczos, g = 7), for x > 0.
-pub(crate) fn ln_gamma(x: f64) -> f64 {
+pub fn ln_gamma(x: f64) -> f64 {
     const COEFFICIENTS: [f64; 9] = [
         0.999_999_999_999_809_9,
         676.520_368_121_885_1,

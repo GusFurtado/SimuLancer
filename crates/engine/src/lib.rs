@@ -7,7 +7,7 @@
 mod events;
 mod experiment;
 pub mod results;
-mod rng;
+pub mod rng;
 mod sim;
 pub mod spec;
 pub mod stats;
