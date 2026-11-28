@@ -50,6 +50,7 @@ nav:
       - Warm-up: methods/warmup.md
       - Comparing scenarios: methods/comparisons.md
       - Validation: methods/validation.md
+      - Performance: performance.md
   - Reference:
       - Command line: cli.md
       - HTTP API: api.md

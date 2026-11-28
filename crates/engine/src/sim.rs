@@ -466,6 +466,20 @@ struct Sim<'a, O: Observer> {
     /// Per sink, per part type: parts that exited and their times in system.
     sink_by_type: Vec<Vec<(u64, Tally)>>,
     totals: Totals,
+    /// Servers and conveyors whose sampled state may have changed since the
+    /// last sample: only those are sampled after an event, so an event costs
+    /// the same in a model of 10 objects or 10,000.
+    dirty: Dirty,
+}
+
+#[derive(Default)]
+struct Dirty {
+    /// Sample everything next time (the start, a shift change, the end).
+    all: bool,
+    servers: Vec<usize>,
+    server_marked: Vec<bool>,
+    conveyors: Vec<usize>,
+    conveyor_marked: Vec<bool>,
 }
 
 impl<'a, O: Observer> Sim<'a, O> {
@@ -674,6 +688,12 @@ impl<'a, O: Observer> Sim<'a, O> {
             sink_times: vec![Tally::default(); spec.sinks.len()],
             sink_by_type: vec![vec![(0, Tally::default()); spec.entities.len()]; spec.sinks.len()],
             totals: Totals::default(),
+            dirty: Dirty {
+                all: true,
+                server_marked: vec![false; spec.servers.len()],
+                conveyor_marked: vec![false; spec.conveyors.len()],
+                ..Dirty::default()
+            },
         }
     }
 
@@ -745,7 +765,10 @@ impl<'a, O: Observer> Sim<'a, O> {
                         self.arrival(source);
                     }
                 }
-                Event::ScheduleChange { schedule } => self.schedule_change(schedule),
+                Event::ScheduleChange { schedule } => {
+                    self.dirty.all = true;
+                    self.schedule_change(schedule);
+                }
                 Event::ReachEnd {
                     conveyor,
                     generation,
@@ -811,6 +834,8 @@ impl<'a, O: Observer> Sim<'a, O> {
             }
             self.sample_state();
         }
+        // The end: every time average up to the same instant.
+        self.dirty.all = true;
         self.sample_state();
     }
 
@@ -1148,6 +1173,7 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     /// A server's shift ends: what it's processing pauses until the next one.
     fn stop_server(&mut self, server: usize) {
+        self.mark_server(server);
         self.observer
             .record(self.now, TraceEvent::ShiftEnded { server });
         self.suspend_slots(server, OnFailure::Resume);
@@ -1220,6 +1246,7 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     /// Pauses every part being processed (a failure, or the end of a shift).
     fn suspend_slots(&mut self, server: usize, how: OnFailure) {
+        self.mark_server(server);
         let now = self.now;
         let s = &mut self.servers[server];
         for (slot, generation) in s.slots.iter_mut().zip(&mut s.slot_generation) {
@@ -1247,6 +1274,7 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     /// Continues every paused part (after a repair, or at a shift's start).
     fn resume_slots(&mut self, server: usize) {
+        self.mark_server(server);
         for slot in 0..self.servers[server].slots.len() {
             if let Slot::Suspended {
                 part,
@@ -1326,6 +1354,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     // --- Conveyors ---
 
     fn try_enter(&mut self, conveyor: usize, part: Part) -> bool {
+        self.mark_conveyor(conveyor);
         let c = &self.spec.conveyors[conveyor];
         let state = &mut self.conveyors[conveyor];
         if !state.can_enter(c, self.now) {
@@ -1394,6 +1423,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     /// A part's patience ran out: if it's still waiting in the queue, it
     /// leaves and is lost, and there's room for another.
     fn give_up(&mut self, conveyor: usize, part: PartId) {
+        self.mark_conveyor(conveyor);
         let state = &mut self.conveyors[conveyor];
         let Some(at) = state.belt.iter().position(|p| p.part.id == part) else {
             return; // already taken
@@ -1447,6 +1477,7 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     /// Removes the head part, which must be at the end.
     fn take_head(&mut self, conveyor: usize) -> Part {
+        self.mark_conveyor(conveyor);
         let c = &self.spec.conveyors[conveyor];
         debug_assert!(self.conveyors[conveyor].head_at_end(c, self.now));
         // Everyone stopped behind the head starts moving again: record
@@ -1690,6 +1721,7 @@ impl<'a, O: Observer> Sim<'a, O> {
         match v.phase {
             Phase::ToPickup => {
                 // The part leaves the pickup for the vehicle.
+                self.mark_conveyor(conveyor);
                 let state = &mut self.conveyors[conveyor];
                 let k = state
                     .pickup
@@ -1731,6 +1763,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             }
             Phase::Unloading => {
                 // Delivered: at the transport's end, for the next object.
+                self.mark_conveyor(conveyor);
                 let state = &mut self.conveyors[conveyor];
                 state.in_transit -= 1;
                 state.belt.push_back(OnBelt {
@@ -1775,6 +1808,7 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     /// Takes waiting parts into free slots, choosing inputs by the server's rule.
     fn pull(&mut self, server: usize) {
+        self.mark_server(server);
         self.servers[server].pull_pending = false;
         if self.spec.servers[server].kind != ServerKind::Single {
             return self.pull_collecting(server);
@@ -1803,6 +1837,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     /// Batch and assembly servers: collect parts into the batch or kit, and
     /// start it when it's complete.
     fn pull_collecting(&mut self, server: usize) {
+        self.mark_server(server);
         let spec = &self.spec.servers[server];
         loop {
             if !self.servers[server].is_up() {
@@ -1917,6 +1952,7 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     /// Starts a full batch: one process time and one set of units for all.
     fn start_batch(&mut self, server: usize, parts: Vec<Part>) {
+        self.mark_server(server);
         for &(r, units) in &self.spec.servers[server].needs {
             self.resources[r].in_use += units;
             self.observer.record(
@@ -2056,6 +2092,7 @@ impl<'a, O: Observer> Sim<'a, O> {
             waiting.make_contiguous().sort_by_key(|&s| rank(s));
         }
         for server in waiting {
+            self.mark_server(server);
             self.servers[server].waiting_for_resources = false;
             self.pull(server);
         }
@@ -2109,6 +2146,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn start_process(&mut self, server: usize, mut part: Part, holds: bool) {
+        self.mark_server(server);
         if holds {
             for &(r, units) in &self.spec.servers[server].needs {
                 self.resources[r].in_use += units;
@@ -2167,6 +2205,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn process_done(&mut self, server: usize, slot: usize) {
+        self.mark_server(server);
         let spec = &self.spec.servers[server];
         let Slot::Busy {
             mut part, holds, ..
@@ -2269,6 +2308,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     /// Moves finished parts onto their outgoing conveyors where there's
     /// room, then takes new parts into the freed slots.
     fn release_blocked(&mut self, server: usize) {
+        self.mark_server(server);
         if !self.servers[server].is_up() {
             return;
         }
@@ -2363,6 +2403,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn fail(&mut self, server: usize, mode: usize) {
+        self.mark_server(server);
         let now = self.now;
         let on_failure = self.spec.servers[server].failures[mode].on_failure;
         let s = &mut self.servers[server];
@@ -2390,6 +2431,7 @@ impl<'a, O: Observer> Sim<'a, O> {
     }
 
     fn repair(&mut self, server: usize, mode: usize) {
+        self.mark_server(server);
         let s = &mut self.servers[server];
         s.down_for = None;
         let uptime = s.failures[mode]
@@ -2436,39 +2478,112 @@ impl<'a, O: Observer> Sim<'a, O> {
 
     /// Records the current state of everything. Called after every event,
     /// so time averages are exact.
+    fn mark_server(&mut self, server: usize) {
+        if !self.dirty.server_marked[server] {
+            self.dirty.server_marked[server] = true;
+            self.dirty.servers.push(server);
+        }
+    }
+
+    fn mark_conveyor(&mut self, conveyor: usize) {
+        if !self.dirty.conveyor_marked[conveyor] {
+            self.dirty.conveyor_marked[conveyor] = true;
+            self.dirty.conveyors.push(conveyor);
+        }
+    }
+
+    /// What a server's time averages should hold now: off, busy, blocked,
+    /// failed, waiting for resources, overtime.
+    fn server_sample(&self, server: usize) -> [u64; 6] {
+        let s = &self.servers[server];
+        let capacity = u64::from(self.spec.servers[server].capacity);
+        let off = if s.off_shift { capacity } else { 0 };
+        let (busy, blocked, failed) = if s.off_shift {
+            (0, 0, 0)
+        } else if s.is_up() {
+            let count = |f: fn(&Slot) -> bool| s.slots.iter().filter(|x| f(x)).count() as u64;
+            (
+                count(|x| matches!(x, Slot::Busy { .. })),
+                count(|x| matches!(x, Slot::Blocked { .. })),
+                0,
+            )
+        } else {
+            (0, 0, capacity)
+        };
+        [
+            off,
+            busy,
+            blocked,
+            failed,
+            u64::from(s.waiting_for_resources),
+            u64::from(s.closing),
+        ]
+    }
+
+    /// What a conveyor's time averages should hold now: parts, empty, full.
+    fn conveyor_sample(&self, conveyor: usize) -> [u64; 3] {
+        let n = self.conveyors[conveyor].occupancy() as u64;
+        let capacity = u64::from(self.spec.conveyors[conveyor].capacity);
+        [n, u64::from(n == 0), u64::from(n >= capacity)]
+    }
+
+    fn sample_server(&mut self, server: usize) {
+        let now = self.now;
+        let [off, busy, blocked, failed, waiting, overtime] = self.server_sample(server);
+        let s = &mut self.servers[server];
+        s.off.set(now, off);
+        s.busy.set(now, busy);
+        s.blocked.set(now, blocked);
+        s.failed.set(now, failed);
+        s.waiting.set(now, waiting);
+        s.overtime.set(now, overtime);
+    }
+
+    fn sample_conveyor(&mut self, conveyor: usize) {
+        let now = self.now;
+        let [n, empty, full] = self.conveyor_sample(conveyor);
+        let c = &mut self.conveyors[conveyor];
+        c.parts.set(now, n);
+        c.empty.set(now, empty);
+        c.full.set(now, full);
+    }
+
+    /// Brings the time averages up to now. Servers and conveyors only when
+    /// marked (their state may have changed); the rest, few in any model,
+    /// every time. A time average whose value didn't change gives the same
+    /// exact (integer) area whether it's set again or not.
     fn sample_state(&mut self) {
         let now = self.now;
         for s in &mut self.sources {
             s.blocked.set(now, u64::from(!s.held.is_empty()));
             s.on_order_avg.set(now, s.on_order);
         }
-        for (s, spec) in self.servers.iter_mut().zip(&self.spec.servers) {
-            s.off.set(
-                now,
-                if s.off_shift {
-                    u64::from(spec.capacity)
-                } else {
-                    0
-                },
-            );
-            let (busy, blocked, failed) = if s.off_shift {
-                (0, 0, 0)
-            } else if s.is_up() {
-                let count = |f: fn(&Slot) -> bool| s.slots.iter().filter(|x| f(x)).count() as u64;
-                (
-                    count(|x| matches!(x, Slot::Busy { .. })),
-                    count(|x| matches!(x, Slot::Blocked { .. })),
-                    0,
-                )
-            } else {
-                (0, 0, u64::from(spec.capacity))
-            };
-            s.busy.set(now, busy);
-            s.blocked.set(now, blocked);
-            s.failed.set(now, failed);
-            s.waiting.set(now, u64::from(s.waiting_for_resources));
-            s.overtime.set(now, u64::from(s.closing));
+        let all = std::mem::take(&mut self.dirty.all);
+        if all {
+            for server in 0..self.servers.len() {
+                self.sample_server(server);
+            }
+            for conveyor in 0..self.conveyors.len() {
+                self.sample_conveyor(conveyor);
+            }
+        } else {
+            #[cfg(debug_assertions)]
+            self.check_unmarked();
+            for i in 0..self.dirty.servers.len() {
+                self.sample_server(self.dirty.servers[i]);
+            }
+            for i in 0..self.dirty.conveyors.len() {
+                self.sample_conveyor(self.dirty.conveyors[i]);
+            }
         }
+        for &server in &self.dirty.servers {
+            self.dirty.server_marked[server] = false;
+        }
+        for &conveyor in &self.dirty.conveyors {
+            self.dirty.conveyor_marked[conveyor] = false;
+        }
+        self.dirty.servers.clear();
+        self.dirty.conveyors.clear();
         for (i, spec) in self.spec.lines.iter().enumerate() {
             // Waiting for a station counts as stopped only while on shift.
             let off = spec.stations.iter().any(|&s| self.servers[s].off_shift);
@@ -2489,11 +2604,45 @@ impl<'a, O: Observer> Sim<'a, O> {
             r.off.set(now, u64::from(r.off_shift));
             r.overtime.set(now, u64::from(r.closing));
         }
-        for (c, spec) in self.conveyors.iter_mut().zip(&self.spec.conveyors) {
-            let n = c.occupancy() as u64;
-            c.parts.set(now, n);
-            c.empty.set(now, u64::from(n == 0));
-            c.full.set(now, u64::from(n >= u64::from(spec.capacity)));
+    }
+
+    /// In debug builds (every test): a server or conveyor that wasn't marked
+    /// must still hold the values it was last sampled with, or a change
+    /// somewhere forgot to mark it.
+    #[cfg(debug_assertions)]
+    fn check_unmarked(&self) {
+        for server in 0..self.servers.len() {
+            if self.dirty.server_marked[server] {
+                continue;
+            }
+            let s = &self.servers[server];
+            let held = [
+                s.off.current(),
+                s.busy.current(),
+                s.blocked.current(),
+                s.failed.current(),
+                s.waiting.current(),
+                s.overtime.current(),
+            ];
+            assert_eq!(
+                held,
+                self.server_sample(server),
+                "server {server} changed at {:?} without being marked",
+                self.now
+            );
+        }
+        for conveyor in 0..self.conveyors.len() {
+            if self.dirty.conveyor_marked[conveyor] {
+                continue;
+            }
+            let c = &self.conveyors[conveyor];
+            let held = [c.parts.current(), c.empty.current(), c.full.current()];
+            assert_eq!(
+                held,
+                self.conveyor_sample(conveyor),
+                "conveyor {conveyor} changed at {:?} without being marked",
+                self.now
+            );
         }
     }
 
