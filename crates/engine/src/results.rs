@@ -269,12 +269,6 @@ impl TimeAverage {
         self.max = self.max.max(value);
     }
 
-    /// The value it holds now.
-    #[cfg(debug_assertions)]
-    pub fn current(&self) -> u64 {
-        self.value
-    }
-
     /// Starts measuring from `now`, keeping the current value.
     pub fn reset(&mut self, now: SimTime) {
         self.area = 0;
