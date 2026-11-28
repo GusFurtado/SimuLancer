@@ -305,6 +305,7 @@ The target deployment: IT hosts the simulator on a server, and users open it in 
 - Ranking (`rank.rs`), in every comparison with two scenarios or more, per result with a direction: the best mean against each other alternative on paired differences, Bonferroni-adjusted (each at 1 − 0.05/(k − 1)). Chosen over KN or other ranking-and-selection procedures because it needs no extra runs and is easy to explain in one sentence; it's conservative, and the page says "could be as good" rather than pick a winner it can't back. Ties and differences surely under 1% (1 point) are said as such.
 - With a ranking, the page's "does best" headline and the BEST tag come from it (only for a clear winner), replacing the per-scenario "clearly better than now" rule.
 - Not done (step 3): several decisions at once, designs of experiments, search.
+- The 12-scenario cap stays (the user, 2026-11-28: "12 parece um limite bem generoso"). Step 3 waits until someone hits the one-decision limit.
 
 ## Packaging and deployment (implemented 2026-10-09)
 
